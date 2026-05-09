@@ -72,7 +72,7 @@ $head = @'
 </head>
 <body>
   <div id="root">
-    <div id="boot-fallback" style="min-height:100vh;background:#07090b;color:#e5e7eb;display:grid;place-items:center;padding:24px;font-family:'JetBrains Mono',ui-monospace,monospace;">
+    <div id="boot-fallback" style="min-height:100vh;background:#07090b;color:#e5e7eb;display:none;place-items:center;padding:24px;font-family:'JetBrains Mono',ui-monospace,monospace;">
       <div style="width:min(720px,100%);border:1px solid #1f2937;background:#0d1116;padding:22px;">
         <div style="color:#FF9500;font-size:11px;letter-spacing:.14em;font-weight:800;margin-bottom:10px;">THESISTRACK BOOT</div>
         <div style="font-size:20px;font-weight:800;margin-bottom:8px;">앱을 불러오는 중입니다.</div>
@@ -101,7 +101,9 @@ $head = @'
         showBootIssue(reason && reason.message ? reason.message : '비동기 로딩 중 오류가 발생했습니다.');
       });
       setTimeout(function () {
-        if (document.getElementById('boot-fallback')) {
+        var el = document.getElementById('boot-fallback');
+        if (el) {
+          el.style.display = 'grid';
           showBootIssue('React/Babel/CDN 로딩이 지연되고 있습니다. Ctrl+F5로 새로고침하거나, 계속 실패하면 RESET LOCAL DATA를 시도하세요.');
         }
       }, 8000);

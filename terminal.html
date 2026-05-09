@@ -33,7 +33,7 @@
 </head>
 <body>
   <div id="root">
-    <div id="boot-fallback" style="min-height:100vh;background:#07090b;color:#e5e7eb;display:grid;place-items:center;padding:24px;font-family:'JetBrains Mono',ui-monospace,monospace;">
+    <div id="boot-fallback" style="min-height:100vh;background:#07090b;color:#e5e7eb;display:none;place-items:center;padding:24px;font-family:'JetBrains Mono',ui-monospace,monospace;">
       <div style="width:min(720px,100%);border:1px solid #1f2937;background:#0d1116;padding:22px;">
         <div style="color:#FF9500;font-size:11px;letter-spacing:.14em;font-weight:800;margin-bottom:10px;">THESISTRACK BOOT</div>
         <div style="font-size:20px;font-weight:800;margin-bottom:8px;">?깆쓣 遺덈윭?ㅻ뒗 以묒엯?덈떎.</div>
@@ -62,7 +62,9 @@
         showBootIssue(reason && reason.message ? reason.message : '鍮꾨룞湲?濡쒕뵫 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.');
       });
       setTimeout(function () {
-        if (document.getElementById('boot-fallback')) {
+        var el = document.getElementById('boot-fallback');
+        if (el) {
+          el.style.display = 'grid';
           showBootIssue('React/Babel/CDN 濡쒕뵫??吏?곕릺怨??덉뒿?덈떎. Ctrl+F5濡??덈줈怨좎묠?섍굅?? 怨꾩냽 ?ㅽ뙣?섎㈃ RESET LOCAL DATA瑜??쒕룄?섏꽭??');
         }
       }, 8000);

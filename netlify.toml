@@ -1,6 +1,11 @@
 [build]
   publish = "."
 
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Content-Type = "text/html; charset=utf-8"
+
 [[redirects]]
   from = "/api/opendart/*"
   to = "/.netlify/functions/opendart"
