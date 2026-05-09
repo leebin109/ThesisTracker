@@ -1,0 +1,22 @@
+[build]
+  publish = "."
+
+[[redirects]]
+  from = "/api/opendart/*"
+  to = "/.netlify/functions/opendart"
+  status = 200
+
+[[redirects]]
+  from = "/api/sec/*"
+  to = "/.netlify/functions/sec"
+  status = 200
+
+[[redirects]]
+  from = "/api/yahoo/*"
+  to = "/.netlify/functions/yahoo"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/terminal.html"
+  status = 200

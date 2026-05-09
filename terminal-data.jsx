@@ -1,0 +1,1441 @@
+/* global React */
+
+// ═══════════════════════════════════════════════════════════════
+// Storage key
+// ═══════════════════════════════════════════════════════════════
+const TT_KEY = 'tt-terminal-v1';
+const AV_DELAY = 1250; // Alpha Vantage free tier rate limit
+
+// ═══════════════════════════════════════════════════════════════
+// Market profiles
+// ═══════════════════════════════════════════════════════════════
+const MARKET_PROFILES = [
+  { key: 'KRX',           country: '대한민국', market: 'KRX',           currency: 'KRW' },
+  { key: 'NASDAQ',        country: '미국',     market: 'NASDAQ',        currency: 'USD' },
+  { key: 'NYSE',          country: '미국',     market: 'NYSE',          currency: 'USD' },
+  { key: 'TSE',           country: '일본',     market: 'TSE',           currency: 'JPY' },
+  { key: 'LSE',           country: '영국',     market: 'LSE',           currency: 'GBP' },
+  { key: 'XETRA',         country: '독일',     market: 'XETRA',         currency: 'EUR' },
+  { key: 'EURONEXT_PARIS',country: '프랑스',   market: 'Euronext Paris',currency: 'EUR' },
+  { key: 'TSX',           country: '캐나다',   market: 'TSX',           currency: 'CAD' },
+  { key: 'HKEX',          country: '홍콩',     market: 'HKEX',          currency: 'HKD' },
+  { key: 'NSE',           country: '인도',     market: 'NSE',           currency: 'INR' },
+  { key: 'ASX',           country: '호주',     market: 'ASX',           currency: 'AUD' },
+  { key: 'CUSTOM',        country: '기타',     market: 'CUSTOM',        currency: 'LOCAL' },
+];
+
+const COUNTRY_FLAGS = {
+  '대한민국': '🇰🇷', '미국': '🇺🇸', '일본': '🇯🇵', '영국': '🇬🇧',
+  '독일': '🇩🇪', '프랑스': '🇫🇷', '캐나다': '🇨🇦', '홍콩': '🇭🇰',
+  '인도': '🇮🇳', '호주': '🇦🇺', '기타': '🏷️',
+};
+
+// ═══════════════════════════════════════════════════════════════
+// Default API settings
+// ═══════════════════════════════════════════════════════════════
+const DEFAULT_API_SETTINGS = {
+  globalProvider: 'yahooExperimental',
+  alphaVantageKey: '',
+  fmpKey: '',
+  openDartKey: '',
+  anthropicKey: '',
+  dartFiscalYear: new Date().getFullYear() - 1,
+  dartReportCode: '11011',
+  dartFsDiv: 'CFS',
+  dataGoKrKey: '',
+  cacheDays: 3,
+};
+
+const DEFAULT_DART_CORP_MAP = {
+  '005930': { corpCode: '00126380', corpName: '삼성전자' },
+};
+
+const DEFAULT_ALERT_SETTINGS = {
+  enabled: false,
+  sources: { dart: true, sec: true, yahooNews: true, googleNews: false },
+  googleNewsProxy: '',
+  daysBack: 7,
+  autoPolling: false,
+  pollIntervalMin: 15,
+};
+
+const ALERT_RETENTION_DAYS = 30;
+
+// ═══════════════════════════════════════════════════════════════
+// Default market tickers (static headline display)
+// ═══════════════════════════════════════════════════════════════
+const DEFAULT_MARKET_TICKERS = [
+  { symbol: 'KOSPI',  val: '2,712.40', change: 0.52 },
+  { symbol: 'S&P',    val: '5,182.45', change: 0.21 },
+  { symbol: 'NDX',    val: '17,890.20',change: 0.84 },
+  { symbol: 'N225',   val: '38,442.10',change: -0.31 },
+  { symbol: 'USDKRW', val: '1,376.20', change: -0.12 },
+  { symbol: 'WTI',    val: '78.42',    change: 1.12 },
+  { symbol: 'BTC',    val: '94,210',   change: 2.41 },
+  { symbol: 'US10Y',  val: '4.382%',   change: -0.04 },
+];
+
+// ═══════════════════════════════════════════════════════════════
+// Default stocks (seed data matching terminal metric naming)
+// ═══════════════════════════════════════════════════════════════
+const DEFAULT_STOCKS = {
+  TSLA: {
+    id: 'TSLA', symbol: 'TSLA', name: 'Tesla, Inc.', market: 'NASDAQ',
+    currency: 'USD', flag: '🇺🇸', country: '미국',
+    recommendation: 'Watch',
+    oneLine: '전기차 마진보다 자율주행과 에너지 사업의 실제 확인이 핵심이다.',
+    keyQuestion: 'FSD와 에너지 저장장치가 자동차 마진 둔화를 상쇄할 수 있는가?',
+    thesis: ['에너지 저장장치 매출이 성장 축으로 부상하고 있다.', 'FSD 기대가 밸류에이션을 지지하지만 실적 기여는 아직 확인이 필요하다.', '자동차 마진 안정화가 먼저 확인되어야 한다.'],
+    catalysts: ['FSD 지표 공개', '에너지 부문 마진 개선', '신차 출시 일정'],
+    risks: ['가격 인하 경쟁', '높은 밸류에이션', '규제 및 안전성 이슈'],
+    variantView: '시장은 FSD를 크게 반영하지만 에너지 부문의 안정적 이익 기여는 덜 반영할 수 있다.',
+    numbersToWatch: ['자동차 gross margin', '에너지 매출 성장률', 'FCF 마진', '인도량 성장률'],
+    changeMind: 'FCF 마진이 회복되지 않거나 인도량 성장률이 둔화되면 Watch 의견을 낮춘다.',
+    price: 253.40, prevClose: 250.36, target: 280,
+    metrics: { per: 72.6, pbr: 9.8, roe: 12.1, opMargin: 7.4, debtRatio: 17, revGrowth: 8.7, epsGrowth: -22.4, currentRatio: 173, fcfMargin: 4.8 },
+    asOf: '2025-12-31', priceSrc: 'SEC EDGAR',
+    scores: { overall: 44, profitability: 41, stability: 88, growth: 24, valuation: 0, risk: 78, weights: { profitability: 25, stability: 25, growth: 20, valuation: 20, risk: 10 } },
+    scoreHistory: [52, 51, 49, 50, 48, 47, 46, 48, 47, 45, 46, 44],
+    priceHistory: [214, 226, 221, 238, 245, 232, 251, 263, 256, 272, 267, 280, 275, 268, 253],
+    valuation: {
+      bear: { driver: 3, multiple: 45, mos: 10, price: 121.5 },
+      base: { driver: 4, multiple: 70, mos: 0,  price: 280 },
+      bull: { driver: 5, multiple: 85, mos: 0,  price: 425 },
+      note: '높은 멀티플은 FSD와 에너지 성장 가정이 확인될 때 정당화된다.',
+    },
+    review: { next: '2026-08-31', cadence: 30 },
+    notes: [
+      { date: '2026-04-18', kind: '실적', text: '마진 회복 전까지는 밸류에이션 부담을 별도로 추적.', source: '' },
+      { date: '2026-03-22', kind: '공시', text: 'Q1 인도량 발표 — 컨센서스 부합.', source: 'https://ir.tesla.com' },
+    ],
+    preMortem: [
+      { metric: '자동차 gross margin', current: 16.3, threshold: 18, target: '≥ 18%', status: 'warn', delta: -1.7 },
+      { metric: 'FCF 마진', current: 4.8, threshold: 7, target: '≥ 7%', status: 'warn', delta: -2.2 },
+      { metric: '인도량 성장률 (YoY)', current: 6.2, threshold: 10, target: '≥ 10%', status: 'breach', delta: -3.8 },
+    ],
+  },
+  AAPL: {
+    id: 'AAPL', symbol: 'AAPL', name: 'Apple Inc.', market: 'NASDAQ',
+    currency: 'USD', flag: '🇺🇸', country: '미국',
+    recommendation: 'Hold',
+    oneLine: '서비스 매출과 자사주 매입이 받쳐주지만, 신규 성장 동력이 약하다.',
+    keyQuestion: 'AI 기능과 Vision Pro가 iPhone 매출 정체를 보완할 수 있는가?',
+    thesis: ['서비스 매출 마진이 전체 수익성을 견인하고 있다.', '하드웨어 매출은 성숙기 진입, 교체 사이클 길어지는 중.', 'AI 통합과 자사주 매입이 EPS를 방어한다.'],
+    catalysts: ['Apple Intelligence 확대', '서비스 매출 두 자릿수 성장', '인도/신흥국 점유율'],
+    risks: ['중국 규제 및 매출 둔화', 'iPhone 교체 사이클 장기화', '반독점 소송'],
+    variantView: '시장은 AI 효과를 빠르게 반영하지만, 실제 매출 기여는 2027년 이후일 수 있다.',
+    numbersToWatch: ['서비스 매출 성장률', 'iPhone ASP', '중국 매출', '자사주 매입 규모'],
+    changeMind: '서비스 매출 성장률이 한 자릿수로 떨어지면 의견 하향.',
+    price: 212.05, prevClose: 212.94, target: 235,
+    metrics: { per: 29.4, pbr: 36.2, roe: 156, opMargin: 31.5, debtRatio: 145, revGrowth: 5.2, epsGrowth: 9.4, currentRatio: 95, fcfMargin: 26.1 },
+    asOf: '2025-09-30', priceSrc: 'SEC EDGAR',
+    scores: { overall: 68, profitability: 92, stability: 70, growth: 38, valuation: 45, risk: 82, weights: { profitability: 25, stability: 25, growth: 20, valuation: 20, risk: 10 } },
+    scoreHistory: [70, 71, 70, 69, 68, 67, 68, 69, 70, 69, 68, 68],
+    priceHistory: [188, 192, 198, 205, 201, 208, 215, 218, 212, 220, 224, 218, 215, 211, 212],
+    valuation: {
+      bear: { driver: 6.2, multiple: 22, mos: 10, price: 122.8 },
+      base: { driver: 7.0, multiple: 28, mos: 0,  price: 196 },
+      bull: { driver: 7.8, multiple: 32, mos: 0,  price: 250 },
+      note: '서비스 매출 비중이 30%를 넘으면 멀티플 재평가 가능.',
+    },
+    review: { next: '2026-09-15', cadence: 60 },
+    notes: [
+      { date: '2026-04-30', kind: '실적', text: 'Q2 서비스 매출 +14% YoY, 시장 예상 부합.', source: 'https://www.apple.com/newsroom' },
+    ],
+    preMortem: [
+      { metric: '서비스 매출 성장률', current: 14.1, threshold: 10, target: '≥ 10%', status: 'ok', delta: 4.1 },
+      { metric: '중국 매출 (YoY)', current: -8.2, threshold: 0, target: '≥ 0%', status: 'breach', delta: -8.2 },
+    ],
+  },
+  NVDA: {
+    id: 'NVDA', symbol: 'NVDA', name: 'NVIDIA Corporation', market: 'NASDAQ',
+    currency: 'USD', flag: '🇺🇸', country: '미국',
+    recommendation: 'Buy',
+    oneLine: 'AI 인프라 투자 사이클의 정점, 그러나 경쟁사 대안 등장이 가까워졌다.',
+    keyQuestion: 'CUDA moat가 ASIC/맞춤형 칩 등장 후에도 유지되는가?',
+    thesis: ['데이터센터 GPU 수요가 향후 2년간 공급을 초과한다.', 'CUDA 생태계가 진입 장벽을 형성한다.', '하이퍼스케일러 자체 칩은 위협이지만 단기 영향은 제한적.'],
+    catalysts: ['Blackwell 출하 확대', '엔터프라이즈 AI 도입', 'Sovereign AI 수주'],
+    risks: ['고객사 자체 칩 (Trainium, TPU)', '중국 수출 규제', '높은 멀티플'],
+    variantView: '시장은 향후 4년의 성장을 가격에 반영했다. 둔화 신호 한 분기면 큰 조정 가능.',
+    numbersToWatch: ['데이터센터 매출 QoQ', '게임 매출', 'Capex 가이던스 (고객사)', '재고 일수'],
+    changeMind: '데이터센터 매출이 QoQ 감소하면 즉시 비중 축소 검토.',
+    price: 142.18, prevClose: 139.23, target: 165,
+    metrics: { per: 65.2, pbr: 24.1, roe: 91.0, opMargin: 62.4, debtRatio: 12, revGrowth: 78.4, epsGrowth: 124.5, currentRatio: 412, fcfMargin: 49.8 },
+    asOf: '2026-01-31', priceSrc: 'SEC EDGAR',
+    scores: { overall: 82, profitability: 96, stability: 85, growth: 98, valuation: 35, risk: 65, weights: { profitability: 25, stability: 25, growth: 20, valuation: 20, risk: 10 } },
+    scoreHistory: [78, 79, 80, 81, 82, 83, 84, 83, 82, 82, 82, 82],
+    priceHistory: [98, 105, 112, 118, 124, 132, 138, 145, 142, 148, 152, 146, 144, 140, 142],
+    valuation: {
+      bear: { driver: 2.8, multiple: 35, mos: 15, price: 83.3 },
+      base: { driver: 3.6, multiple: 50, mos: 0,  price: 180 },
+      bull: { driver: 4.5, multiple: 60, mos: 0,  price: 270 },
+      note: 'PER 50x는 데이터센터 매출 +40% YoY 가정.',
+    },
+    review: { next: '2026-08-22', cadence: 30 },
+    notes: [
+      { date: '2026-04-25', kind: '뉴스', text: 'Blackwell B200 양산 정상화, 공급 부족 완화.', source: '' },
+    ],
+    preMortem: [
+      { metric: '데이터센터 매출 QoQ', current: 12.4, threshold: 5, target: '≥ 5%', status: 'ok', delta: 7.4 },
+      { metric: '재고 일수', current: 92, threshold: 80, target: '≤ 80일', status: 'warn', delta: 12 },
+    ],
+  },
+  '005930': {
+    id: '005930', symbol: '005930', name: '삼성전자', market: 'KRX',
+    currency: 'KRW', flag: '🇰🇷', country: '대한민국',
+    recommendation: 'Buy',
+    oneLine: 'HBM 사이클과 비메모리 마진 회복이 동시에 일어나는 변곡점이다.',
+    keyQuestion: 'HBM3E 양산 수율과 파운드리 고객사 확보가 동시에 진행되는가?',
+    thesis: ['메모리 가격 사이클 상승 국면 진입.', 'HBM에서는 SK하이닉스 대비 후발주자, 따라잡기 진행 중.', '파운드리 적자 축소가 밸류에이션 재평가의 핵심.'],
+    catalysts: ['HBM3E 엔비디아 퀄 통과', '메모리 ASP 상승', '파운드리 신규 수주'],
+    risks: ['중국 메모리 추격 (CXMT)', '환율 변동성', '파운드리 적자 지속'],
+    variantView: '시장은 HBM 점유율 회복을 의심하지만, 양산 수율 정상화 시 가파른 재평가 가능.',
+    numbersToWatch: ['HBM 매출', '메모리 OP 마진', '파운드리 가동률', '재고 일수'],
+    changeMind: 'HBM3E 양산 차질 시 비중 축소.',
+    price: 76400, prevClose: 75800, target: 92000,
+    metrics: { per: 18.4, pbr: 1.3, roe: 7.6, opMargin: 12.8, debtRatio: 27, revGrowth: 14.2, epsGrowth: 41.2, currentRatio: 220, fcfMargin: 8.4 },
+    asOf: '2025-12-31', priceSrc: 'DART',
+    scores: { overall: 71, profitability: 65, stability: 82, growth: 72, valuation: 78, risk: 70, weights: { profitability: 25, stability: 25, growth: 20, valuation: 20, risk: 10 } },
+    scoreHistory: [62, 64, 65, 66, 68, 69, 70, 71, 72, 71, 71, 71],
+    priceHistory: [62000, 64500, 67000, 69500, 71000, 73000, 75500, 78000, 76000, 79000, 81000, 78500, 77200, 76800, 76400],
+    valuation: {
+      bear: { driver: 3500, multiple: 12, mos: 10, price: 37800 },
+      base: { driver: 4500, multiple: 18, mos: 0,  price: 81000 },
+      bull: { driver: 5800, multiple: 22, mos: 0,  price: 127600 },
+      note: 'HBM 매출 비중 15% 도달 시 멀티플 재평가.',
+    },
+    review: { next: '2026-08-30', cadence: 45 },
+    notes: [
+      { date: '2026-04-28', kind: '실적', text: 'Q1 OP 6.6조원, 컨센서스 부합. 메모리 견인.', source: 'https://www.samsung.com' },
+    ],
+    preMortem: [
+      { metric: 'HBM 매출 (Q, ₩조)', current: 4.2, threshold: 5.5, target: '≥ 5.5조', status: 'warn', delta: -1.3 },
+      { metric: '파운드리 가동률', current: 64, threshold: 75, target: '≥ 75%', status: 'breach', delta: -11 },
+    ],
+  },
+};
+
+const DEFAULT_WATCHLIST_IDS = ['TSLA', 'AAPL', '005930', 'NVDA'];
+
+// ═══════════════════════════════════════════════════════════════
+// Storage
+// ═══════════════════════════════════════════════════════════════
+function loadAppState() {
+  try {
+    const raw = localStorage.getItem(TT_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+
+function saveAppState(state) {
+  try {
+    localStorage.setItem(TT_KEY, JSON.stringify(state));
+  } catch (e) {
+    const isQuota = e?.name === 'QuotaExceededError' || e?.code === 22 || e?.code === 1014;
+    if (isQuota) {
+      try { localStorage.setItem(TT_KEY, JSON.stringify({ ...state, dataCache: {} })); } catch {}
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Utilities
+// ═══════════════════════════════════════════════════════════════
+function clamp(v, lo = 0, hi = 100) { return Math.max(lo, Math.min(hi, v)); }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function toNumber(v) {
+  if (v === null || v === undefined || v === '' || v === 'None') return NaN;
+  const n = Number(String(v).replaceAll(',', ''));
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function firstFinite(...vals) {
+  for (const v of vals) { const n = toNumber(v); if (Number.isFinite(n)) return n; }
+  return NaN;
+}
+
+function ratioPercent(num, den) {
+  const t = toNumber(num), b = toNumber(den);
+  return b ? (t / b) * 100 : NaN;
+}
+
+function decimalToPercent(v) {
+  const n = toNumber(v);
+  if (!Number.isFinite(n)) return NaN;
+  return Math.abs(n) <= 3 ? n * 100 : n;
+}
+
+function compactMetrics(m) {
+  return Object.fromEntries(
+    Object.entries(m)
+      .filter(([, v]) => Number.isFinite(v))
+      .map(([k, v]) => [k, Math.round(v * 10) / 10])
+  );
+}
+
+function normalizeKrxStockCode(symbol) {
+  const raw = String(symbol || '').trim().toUpperCase();
+  const match = raw.match(/\d{5,6}/);
+  return match ? match[0].padStart(6, '0') : raw.padStart(6, '0');
+}
+
+function getDartCorpEntry(dartCorpMap, stockOrSymbol) {
+  const symbol = typeof stockOrSymbol === 'string'
+    ? stockOrSymbol
+    : (stockOrSymbol?.symbol || stockOrSymbol?.id || '');
+  const code = normalizeKrxStockCode(symbol);
+  return dartCorpMap?.[code] || dartCorpMap?.[symbol] || dartCorpMap?.[String(symbol).toUpperCase()] || null;
+}
+
+async function fetchLocalDartCorpMap(path = 'dart-corp-codes.json') {
+  try {
+    const res = await fetch(path, { cache: 'no-store' });
+    if (res.status === 404) {
+      return { status: 'missing', map: {}, count: 0, message: `${path} not found` };
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('JSON object expected');
+    const map = {};
+    for (const [key, value] of Object.entries(data)) {
+      const code = normalizeKrxStockCode(key);
+      if (!value?.corpCode) continue;
+      map[code] = {
+        corpCode: String(value.corpCode).trim(),
+        corpName: String(value.corpName || value.name || key).trim(),
+      };
+    }
+    return { status: 'loaded', map, count: Object.keys(map).length, message: `${Object.keys(map).length} entries loaded` };
+  } catch (e) {
+    return { status: 'error', map: {}, count: 0, message: e?.message || String(e) };
+  }
+}
+
+function firstRecord(d) {
+  if (Array.isArray(d)) return d[0] ?? {};
+  if (Array.isArray(d?.data)) return d.data[0] ?? {};
+  if (Array.isArray(d?.historical)) return d.historical[0] ?? {};
+  return d ?? {};
+}
+
+function getFmpHistoricalRows(d) {
+  if (Array.isArray(d?.historical)) return d.historical;
+  if (Array.isArray(d)) return d;
+  if (Array.isArray(d?.data)) return d.data;
+  return [];
+}
+
+function getDaysLeft(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (!Number.isFinite(d.getTime())) return null;
+  return Math.ceil((d.getTime() - Date.now()) / 86400000);
+}
+
+function getReportEndDate(year, reportCode) {
+  const endings = { 11011: '12-31', 11012: '06-30', 11013: '03-31', 11014: '09-30' };
+  return `${year}-${endings[reportCode] ?? '12-31'}`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Score computation (uses terminal metric naming: opMargin, revGrowth)
+// ═══════════════════════════════════════════════════════════════
+const SCORE_CFG = {
+  thresholds: {
+    roe:          { poor: 0,   ideal: 20  },
+    opMargin:     { poor: 0,   ideal: 25  },
+    fcfMargin:    { poor: -5,  ideal: 15  },
+    debtRatio:    { ideal: 40, poor: 180  },
+    currentRatio: { poor: 70,  ideal: 220 },
+    revGrowth:    { poor: -8,  ideal: 22  },
+    epsGrowth:    { poor: -15, ideal: 25  },
+    per:          { ideal: 10, poor: 55   },
+    pbr:          { ideal: 1,  poor: 8    },
+  },
+  weights: { profitability: 25, stability: 25, growth: 20, valuation: 20, risk: 10 },
+  riskRules: { epsGrowthBelow: 0, fcfMarginBelow: 0, debtRatioAbove: 150, perAbove: 70, penalty: 22 },
+};
+
+function scoreHi(v, poor, ideal) {
+  if (v >= ideal) return 100;
+  if (v <= poor) return 0;
+  return clamp(((v - poor) / (ideal - poor)) * 100);
+}
+
+function scoreLo(v, ideal, poor) {
+  if (v <= ideal) return 100;
+  if (v >= poor) return 0;
+  return clamp(100 - ((v - ideal) / (poor - ideal)) * 100);
+}
+
+function computeScores(metrics) {
+  const t = SCORE_CFG.thresholds;
+  const rr = SCORE_CFG.riskRules;
+  const w = SCORE_CFG.weights;
+
+  const safeHi = (v, poor, ideal) => Number.isFinite(Number(v)) ? scoreHi(Number(v), poor, ideal) : null;
+  const safeLo = (v, ideal, poor) => Number.isFinite(Number(v)) ? scoreLo(Number(v), ideal, poor) : null;
+  const safeLoPos = (v, ideal, poor) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? scoreLo(n, ideal, poor) : null;
+  };
+
+  const wavg = (parts) => {
+    const valid = parts.filter(p => p.value !== null && Number.isFinite(p.value));
+    if (!valid.length) return null;
+    const tw = valid.reduce((s, p) => s + p.weight, 0);
+    if (!tw) return null;
+    return Math.round(valid.reduce((s, p) => s + p.value * p.weight, 0) / tw);
+  };
+
+  const profitability = wavg([
+    { value: safeHi(metrics.roe, t.roe.poor, t.roe.ideal), weight: 0.5 },
+    { value: safeHi(metrics.opMargin, t.opMargin.poor, t.opMargin.ideal), weight: 0.3 },
+    { value: safeHi(metrics.fcfMargin, t.fcfMargin.poor, t.fcfMargin.ideal), weight: 0.2 },
+  ]);
+
+  const stability = wavg([
+    { value: safeLo(metrics.debtRatio, t.debtRatio.ideal, t.debtRatio.poor), weight: 0.55 },
+    { value: safeHi(metrics.currentRatio, t.currentRatio.poor, t.currentRatio.ideal), weight: 0.45 },
+  ]);
+
+  const growth = wavg([
+    { value: safeHi(metrics.revGrowth, t.revGrowth.poor, t.revGrowth.ideal), weight: 0.48 },
+    { value: safeHi(metrics.epsGrowth, t.epsGrowth.poor, t.epsGrowth.ideal), weight: 0.52 },
+  ]);
+
+  const valuation = wavg([
+    { value: safeLoPos(metrics.per, t.per.ideal, t.per.poor), weight: 0.6 },
+    { value: safeLoPos(metrics.pbr, t.pbr.ideal, t.pbr.poor), weight: 0.4 },
+  ]);
+
+  const per = Number(metrics.per);
+  const riskFlags = [
+    Number.isFinite(Number(metrics.epsGrowth)) && Number(metrics.epsGrowth) < rr.epsGrowthBelow,
+    Number.isFinite(Number(metrics.fcfMargin)) && Number(metrics.fcfMargin) < rr.fcfMarginBelow,
+    Number.isFinite(Number(metrics.debtRatio)) && Number(metrics.debtRatio) > rr.debtRatioAbove,
+    Number.isFinite(per) && per > rr.perAbove,
+    Number.isFinite(per) && per <= 0,
+  ];
+  const risk = clamp(100 - riskFlags.filter(Boolean).length * rr.penalty);
+
+  const primaryHasAny = [profitability, stability, growth, valuation].some(v => v !== null && Number.isFinite(v));
+  let overall = null;
+  if (primaryHasAny) {
+    const parts = [
+      { value: profitability, weight: w.profitability },
+      { value: stability,     weight: w.stability },
+      { value: growth,        weight: w.growth },
+      { value: valuation,     weight: w.valuation },
+      { value: risk,          weight: w.risk },
+    ].filter(p => p.value !== null && Number.isFinite(p.value));
+    const tw = parts.reduce((s, p) => s + p.weight, 0);
+    if (tw > 0) overall = Math.round(parts.reduce((s, p) => s + p.value * p.weight, 0) / tw);
+  }
+
+  return { overall, profitability, stability, growth, valuation, risk, weights: w };
+}
+
+function computeDynamicQuality(stock) {
+  const items = [];
+  const today = new Date();
+
+  // Data freshness
+  if (stock.asOf) {
+    const d = new Date(stock.asOf);
+    const days = Math.floor((today - d) / 86400000);
+    const age = days < 30 ? `${days}일` : `${Math.floor(days/30)}개월`;
+    items.push({ kind: days > 180 ? 'warn' : 'ok', text: `재무 기준일 ${stock.asOf} (${age} 경과)` });
+  } else {
+    items.push({ kind: 'warn', text: '재무 기준일 미입력 — 데이터 신뢰도 낮음' });
+  }
+
+  // EPS growth
+  const eps = Number(stock.metrics?.epsGrowth);
+  if (Number.isFinite(eps)) {
+    const s = eps >= 0 ? '+' : '';
+    items.push({ kind: eps < 0 ? 'warn' : 'info', text: `EPS 성장 전기 대비 ${s}${eps.toFixed(1)}%${eps < 0 ? ' — 추적 필요' : ' — 안정적'}` });
+  }
+
+  // Price source
+  if (stock.priceSrc) {
+    items.push({ kind: 'ok', text: `가격 출처 ${stock.priceSrc}` });
+  }
+
+  // PER warning
+  const per = Number(stock.metrics?.per);
+  if (Number.isFinite(per)) {
+    if (per <= 0) items.push({ kind: 'warn', text: `PER ${per.toFixed(1)}x — 적자 종목 해석 주의` });
+    else if (per > 55) items.push({ kind: 'warn', text: `PER ${per.toFixed(1)}x — 멀티플 압축 위험` });
+  }
+
+  // Review
+  if (stock.review?.next) {
+    const dl = getDaysLeft(stock.review.next);
+    if (dl !== null) {
+      const kind = dl < 0 ? 'warn' : dl <= 14 ? 'warn' : 'info';
+      const text = dl < 0 ? `리뷰 ${Math.abs(dl)}일 지연 — ${stock.review.next}` : `다음 리뷰 D-${dl} (${stock.review.next})`;
+      items.push({ kind, text });
+    }
+  }
+
+  return items;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Market inference helpers
+// ═══════════════════════════════════════════════════════════════
+function getMarketProfile(key) {
+  return MARKET_PROFILES.find(p => p.key === key) ?? MARKET_PROFILES.find(p => p.key === 'CUSTOM');
+}
+
+function inferMarketFromExchange(symbol, exchangeText = '') {
+  const us = String(symbol).toUpperCase();
+  const ue = String(exchangeText).toUpperCase();
+  const suffixMap = [['.KS','KRX'],['.KQ','KRX'],['.T','TSE'],['.L','LSE'],['.DE','XETRA'],['.PA','EURONEXT_PARIS'],['.TO','TSX'],['.HK','HKEX'],['.NS','NSE'],['.AX','ASX']];
+  const sm = suffixMap.find(([s]) => us.endsWith(s));
+  if (sm) return getMarketProfile(sm[1]);
+  if (ue.includes('NASDAQ')) return getMarketProfile('NASDAQ');
+  if (ue.includes('NYSE')) return getMarketProfile('NYSE');
+  if (ue.includes('TOKYO') || ue.includes('TSE')) return getMarketProfile('TSE');
+  if (ue.includes('LONDON') || ue.includes('LSE')) return getMarketProfile('LSE');
+  if (ue.includes('XETRA') || ue.includes('FRANKFURT')) return getMarketProfile('XETRA');
+  if (ue.includes('PARIS') || ue.includes('EURONEXT')) return getMarketProfile('EURONEXT_PARIS');
+  if (ue.includes('TORONTO') || ue.includes('TSX')) return getMarketProfile('TSX');
+  if (ue.includes('HONG KONG') || ue.includes('HKEX')) return getMarketProfile('HKEX');
+  if (ue.includes('NSE') || ue.includes('INDIA')) return getMarketProfile('NSE');
+  if (ue.includes('ASX') || ue.includes('AUSTRAL')) return getMarketProfile('ASX');
+  return getMarketProfile('CUSTOM');
+}
+
+function normalizeSymbolForMarket(symbol, marketKey) {
+  const v = String(symbol).toUpperCase().trim();
+  const suffixes = { KRX:['.KS','.KQ'], TSE:['.T'], LSE:['.L'], XETRA:['.DE'], EURONEXT_PARIS:['.PA'], TSX:['.TO'], HKEX:['.HK'], NSE:['.NS'], ASX:['.AX'] };
+  return (suffixes[marketKey] ?? []).reduce((cur, sfx) => cur.endsWith(sfx) ? cur.slice(0, -sfx.length) : cur, v);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Symbol helpers
+// ═══════════════════════════════════════════════════════════════
+function toYahooSymbol(stock) {
+  const sym = stock.symbol;
+  const marketSuffixes = { KRX:'.KS', TSE:'.T', 'Euronext Paris':'.PA', XETRA:'.DE', TSX:'.TO', HKEX:'.HK', NSE:'.NS', ASX:'.AX' };
+  if (['NASDAQ','NYSE','AMEX'].includes(stock.market)) return sym;
+  if (stock.market === 'LSE') return sym.includes('.') ? sym : `${sym}.L`;
+  if (stock.market === 'HKEX') return sym.padStart(4, '0') + '.HK';
+  return marketSuffixes[stock.market] ? `${sym}${marketSuffixes[stock.market]}` : sym;
+}
+
+function toFmpSymbol(stock) {
+  if (['NASDAQ','NYSE','AMEX'].includes(stock.market)) return stock.symbol;
+  return toYahooSymbol(stock);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Cache helpers
+// ═══════════════════════════════════════════════════════════════
+function buildCacheKey(stock, apiSettings, mode = 'all') {
+  const provider = stock.market === 'KRX' ? 'openDart' : (apiSettings.globalProvider || 'yahooExperimental');
+  const reportPart = stock.market === 'KRX'
+    ? `:${apiSettings.dartFiscalYear}:${apiSettings.dartReportCode}:${apiSettings.dartFsDiv}`
+    : '';
+  return `${provider}:${stock.market}:${stock.symbol}${reportPart}:${mode}`;
+}
+
+function buildKrPriceCacheKey(stock) {
+  return `dataGoKrStockPrice:${stock.market}:${stock.symbol.padStart(6, '0')}`;
+}
+
+function getCachedEntry(cache, cacheKey, cacheDays) {
+  const entry = cache[cacheKey];
+  if (!entry) return null;
+  const age = Date.now() - new Date(entry.fetchedAt).getTime();
+  if (!Number.isFinite(age) || age > cacheDays * 86400000) return null;
+  return entry;
+}
+
+function getAnyCachedEntry(cache, cacheKey) {
+  const entry = cache[cacheKey];
+  if (!entry) return null;
+  const age = Date.now() - new Date(entry.fetchedAt).getTime();
+  return { ...entry, ageDays: Number.isFinite(age) ? age / 86400000 : null };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// API response validators
+// ═══════════════════════════════════════════════════════════════
+function assertAVResponse(data, fn) {
+  const msg = data.Note || data.Information || data['Error Message'];
+  if (msg) throw new Error(`${fn}: ${msg}`);
+}
+
+function assertOpenDartResponse(data, fn) {
+  if (data.status && data.status !== '000') throw new Error(`${fn}: ${data.message || data.status}`);
+}
+
+function assertFmpResponse(data, ep, opts = {}) {
+  const msg = data?.['Error Message'] || data?.error || data?.message;
+  if (msg) throw new Error(`${ep}: ${msg}`);
+  if (Array.isArray(data) && !data.length && !opts.allowEmpty) throw new Error(`${ep}: 데이터 없음`);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Fetch functions
+// ═══════════════════════════════════════════════════════════════
+async function fetchYahooChart(symbol) {
+  const params = new URLSearchParams({ range: '3mo', interval: '1d', includePrePost: 'false', events: 'div,splits' });
+  const res = await fetch(buildYahooChartUrl(symbol, params));
+  if (!res.ok) throw new Error(`Yahoo chart HTTP ${res.status}`);
+  const data = await res.json();
+  const err = data?.chart?.error;
+  if (err) throw new Error(err.description || err.code || 'chart error');
+  return data;
+}
+
+async function fetchYahooQuote(symbol) {
+  const fields = 'symbol,shortName,longName,currency,regularMarketPrice,regularMarketTime,trailingPE,forwardPE,priceToBook,bookValue,epsTrailingTwelveMonths,epsForward,marketCap';
+  const params = new URLSearchParams({ symbols: symbol, fields });
+  const res = await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?${params}`);
+  if (!res.ok) throw new Error(`Yahoo quote HTTP ${res.status}`);
+  const data = await res.json();
+  const quote = data?.quoteResponse?.result?.[0];
+  if (!quote) throw new Error('Yahoo quote result 없음');
+  return quote;
+}
+
+async function fetchLivePrice(stock) {
+  const yahooSym = toYahooSymbol(stock);
+  const params = new URLSearchParams({ range: '1d', interval: '1m', includePrePost: 'false' });
+  let res = await fetch(buildYahooChartUrl(yahooSym, params));
+  if (!res.ok) throw new Error(`Yahoo live HTTP ${res.status}`);
+  let data = await res.json();
+  let result = data?.chart?.result?.[0];
+  let closes = (result?.indicators?.quote?.[0]?.close || []).map(toNumber).filter(v => Number.isFinite(v) && v > 0);
+
+  if (!result || !closes.length) {
+    const fallback = new URLSearchParams({ range: '5d', interval: '1d', includePrePost: 'false' });
+    res = await fetch(buildYahooChartUrl(yahooSym, fallback));
+    if (!res.ok) throw new Error(`Yahoo live fallback HTTP ${res.status}`);
+    data = await res.json();
+    result = data?.chart?.result?.[0];
+    closes = (result?.indicators?.quote?.[0]?.close || []).map(toNumber).filter(v => Number.isFinite(v) && v > 0);
+  }
+
+  if (!result) throw new Error('Yahoo live result 없음');
+  const meta = result.meta || {};
+  const price = firstFinite(meta.regularMarketPrice, closes.at(-1));
+  const prevClose = firstFinite(meta.chartPreviousClose, meta.previousClose, closes.length > 1 ? closes.at(-2) : NaN, stock.prevClose);
+  if (!Number.isFinite(price) || price <= 0) throw new Error('Yahoo live 가격 없음');
+  const ts = firstFinite(meta.regularMarketTime, result.timestamp?.at(-1));
+  const asOf = ts ? new Date(Number(ts) * 1000).toISOString() : new Date().toISOString();
+  const oldHistory = Array.isArray(stock.priceHistory) ? stock.priceHistory : [];
+  const historyBase = closes.length >= 3 ? closes.slice(-60) : oldHistory.slice(-59);
+  const priceHistory = historyBase.length && Math.abs((historyBase.at(-1) || 0) - price) < 0.000001
+    ? historyBase
+    : [...historyBase.slice(-59), price];
+  return {
+    price: Math.round(price * 100) / 100,
+    prevClose: Number.isFinite(prevClose) ? Math.round(prevClose * 100) / 100 : undefined,
+    priceHistory,
+    priceSrc: `Yahoo live (${yahooSym})`,
+    priceAsOf: asOf,
+  };
+}
+
+async function fetchAlphaVantage(fn, symbol, key) {
+  const params = new URLSearchParams({ function: fn, symbol, apikey: key });
+  const res = await fetch(`https://www.alphavantage.co/query?${params}`);
+  if (!res.ok) throw new Error(`Alpha Vantage HTTP ${res.status}`);
+  const data = await res.json();
+  assertAVResponse(data, fn);
+  return data;
+}
+
+async function fetchFmp(ep, params, key, opts = {}) {
+  const query = new URLSearchParams({ ...params, apikey: key });
+  const res = await fetch(`https://financialmodelingprep.com/stable/${ep}?${query}`);
+  if (!res.ok) throw new Error(`FMP ${ep} HTTP ${res.status}`);
+  const data = await res.json();
+  assertFmpResponse(data, ep, opts);
+  return data;
+}
+
+function buildPublicDataUrl(base, serviceKey, params) {
+  const ek = String(serviceKey).includes('%') ? String(serviceKey).trim() : encodeURIComponent(String(serviceKey).trim());
+  const q = new URLSearchParams(params);
+  return `${base}?serviceKey=${ek}&${q}`;
+}
+
+function isProxiedOrigin() {
+  if (typeof window === 'undefined' || !window.location) return false;
+  // Use relative /api/* proxy paths for any http/https origin:
+  //   localhost → local-http-server.cjs handles the proxy
+  //   Netlify deploy → netlify/functions/* handle the proxy
+  // file:// opens the HTML directly without any proxy — direct upstream URLs are used instead.
+  return window.location.protocol === 'http:' || window.location.protocol === 'https:';
+}
+
+function buildOpenDartApiUrl(endpoint, params) {
+  const q = params instanceof URLSearchParams ? params.toString() : new URLSearchParams(params).toString();
+  return isProxiedOrigin()
+    ? `/api/opendart/${endpoint}.json?${q}`
+    : `https://opendart.fss.or.kr/api/${endpoint}.json?${q}`;
+}
+
+function buildSecApiUrl(path) {
+  const clean = String(path || '').replace(/^\/+/, '');
+  return isProxiedOrigin()
+    ? `/api/sec/${clean}`
+    : `https://${clean.startsWith('files/') ? 'www.sec.gov' : 'data.sec.gov'}/${clean}`;
+}
+
+function buildYahooChartUrl(symbol, params) {
+  const q = params instanceof URLSearchParams ? params.toString() : new URLSearchParams(params).toString();
+  const encoded = encodeURIComponent(symbol);
+  return isProxiedOrigin()
+    ? `/api/yahoo/chart/${encoded}?${q}`
+    : `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?${q}`;
+}
+
+function buildYahooSearchUrl(params) {
+  const q = params instanceof URLSearchParams ? params.toString() : new URLSearchParams(params).toString();
+  return isProxiedOrigin()
+    ? `/api/yahoo/search?${q}`
+    : `https://query1.finance.yahoo.com/v1/finance/search?${q}`;
+}
+
+async function fetchKoreanStockPrice(symbol, key) {
+  const stockCode = symbol.padStart(6, '0');
+  const url = buildPublicDataUrl(
+    'https://apis.data.go.kr/1160100/service/GetStockSecuritiesInfoService/getStockPriceInfo',
+    key,
+    { numOfRows: '10', pageNo: '1', resultType: 'json', likeSrtnCd: stockCode }
+  );
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`공공데이터 주가 HTTP ${res.status}`);
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { throw new Error('JSON 응답 아님 (data.go.kr key 확인)'); }
+  const header = data?.response?.header ?? {};
+  if (header.resultCode && header.resultCode !== '00') throw new Error(header.resultMsg || `공공데이터 오류 ${header.resultCode}`);
+  const rawItems = data?.response?.body?.items?.item ?? [];
+  const items = (Array.isArray(rawItems) ? rawItems : [rawItems]).filter(Boolean);
+  const exact = items.filter(it => String(it.srtnCd ?? '').padStart(6, '0') === stockCode);
+  const selected = [...(exact.length ? exact : items)].sort((a, b) => String(b.basDt ?? '').localeCompare(String(a.basDt ?? ''))).at(0);
+  if (!selected) throw new Error(`${stockCode} 주가 데이터 없음`);
+  return selected;
+}
+
+async function fetchOpenDartStatements(corpCode, apiSettings) {
+  const { openDartKey: key, dartFiscalYear: year, dartReportCode: reportCode, dartFsDiv } = apiSettings;
+  const fsDivs = [...new Set([dartFsDiv, dartFsDiv === 'CFS' ? 'OFS' : 'CFS'])];
+  const errors = [];
+
+  for (const fsDiv of fsDivs) {
+    for (const endpoint of ['fnlttSinglAcntAll', 'fnlttSinglAcnt']) {
+      try {
+        const params = new URLSearchParams({ crtfc_key: key, corp_code: corpCode, bsns_year: String(year), reprt_code: reportCode, fs_div: fsDiv });
+        const res = await fetch(buildOpenDartApiUrl(endpoint, params));
+        if (!res.ok) { errors.push(`${endpoint}/${fsDiv} HTTP ${res.status}`); continue; }
+        const data = await res.json();
+        assertOpenDartResponse(data, endpoint);
+        if (Array.isArray(data.list) && data.list.length) {
+          return { ...data, context: { year, reportCode, fsDiv, sourceType: endpoint === 'fnlttSinglAcntAll' ? 'all' : 'single' } };
+        }
+      } catch (e) {
+        errors.push(`${endpoint}/${fsDiv}: ${e.message}`);
+      }
+    }
+  }
+  throw new Error(`OpenDART 재무제표 없음 · ${errors.join(' / ')}`);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Data mapping (outputs opMargin, revGrowth for terminal naming)
+// ═══════════════════════════════════════════════════════════════
+function mapYahooPayload(stock, chart, yahooSym, quote) {
+  const result = chart?.chart?.result?.[0];
+  if (!result) throw new Error('chart result 없음');
+  const closes = result.indicators?.quote?.[0]?.close ?? [];
+  const priceHistory = closes.map(v => toNumber(v)).filter(v => Number.isFinite(v) && v > 0).slice(-15);
+  const currentPrice = toNumber(quote?.regularMarketPrice) || toNumber(result.meta?.regularMarketPrice) || priceHistory.at(-1);
+  const ts = quote?.regularMarketTime ?? result.timestamp?.at(-1);
+  const asOf = ts ? new Date(Number(ts) * 1000).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+  if (!priceHistory.length && !currentPrice) throw new Error('가격 데이터 없음');
+  const metrics = compactMetrics({
+    per: firstFinite(toNumber(quote?.trailingPE), toNumber(quote?.forwardPE)),
+    pbr: firstFinite(toNumber(quote?.priceToBook)),
+  });
+  return {
+    name: quote?.longName || quote?.shortName || result.meta?.longName || stock.name,
+    currency: quote?.currency || result.meta?.currency || stock.currency,
+    price: Number.isFinite(currentPrice) ? Math.round(currentPrice * 100) / 100 : undefined,
+    priceHistory: priceHistory.length ? priceHistory : undefined,
+    metrics,
+    asOf,
+    priceSrc: `Yahoo Finance (${yahooSym})`,
+  };
+}
+
+function mapAlphaPayload(stock, raw) {
+  const overview = raw.overview ?? {};
+  const dailyRows = Object.entries(raw.daily?.['Time Series (Daily)'] ?? {})
+    .sort(([a], [b]) => a.localeCompare(b)).slice(-15);
+  const priceHistory = dailyRows.map(([, r]) => toNumber(r['4. close'])).filter(v => Number.isFinite(v) && v > 0);
+  const latestPrice = priceHistory.at(-1);
+  const balanceReport = getLatestReport(raw.balanceSheet);
+  const cashFlowReport = getLatestReport(raw.cashFlow);
+  const incomeReport = getLatestReport(raw.incomeStatement);
+  const debtRatio = ratioPercent(balanceReport.totalLiabilities, balanceReport.totalShareholderEquity);
+  const currentRatio = ratioPercent(balanceReport.totalCurrentAssets, balanceReport.totalCurrentLiabilities);
+  const opCF = toNumber(cashFlowReport.operatingCashflow);
+  const capex = Math.abs(toNumber(cashFlowReport.capitalExpenditures));
+  const revenue = toNumber(incomeReport.totalRevenue);
+  const fcfMargin = revenue ? ((opCF - capex) / revenue) * 100 : NaN;
+  const latestQuarter = overview.LatestQuarter || '';
+  const metrics = compactMetrics({
+    per: toNumber(overview.PERatio),
+    pbr: toNumber(overview.PriceToBookRatio),
+    roe: decimalToPercent(overview.ReturnOnEquityTTM),
+    opMargin: decimalToPercent(overview.OperatingMarginTTM),
+    debtRatio,
+    revGrowth: decimalToPercent(overview.QuarterlyRevenueGrowthYOY),
+    epsGrowth: decimalToPercent(overview.QuarterlyEarningsGrowthYOY),
+    currentRatio,
+    fcfMargin,
+  });
+  return {
+    name: overview.Name || stock.name,
+    currency: stock.currency,
+    price: latestPrice,
+    priceHistory: priceHistory.length ? priceHistory : undefined,
+    metrics,
+    asOf: latestQuarter || new Date().toISOString().slice(0, 10),
+    priceSrc: 'Alpha Vantage',
+  };
+}
+
+function getLatestReport(data) {
+  return data?.quarterlyReports?.[0] ?? data?.annualReports?.[0] ?? {};
+}
+
+function mapFmpPayload(stock, raw, fmpSym) {
+  const quote = firstRecord(raw.quote);
+  const profile = firstRecord(raw.profile);
+  const ratios = firstRecord(raw.ratiosTtm);
+  const keyMetrics = firstRecord(raw.keyMetricsTtm);
+  const historicalRows = getFmpHistoricalRows(raw.historical);
+  const priceHistory = historicalRows
+    .sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
+    .slice(-15)
+    .map(r => firstFinite(r.close, r.price, r.adjClose))
+    .filter(v => Number.isFinite(v) && v > 0);
+  const currentPrice = firstFinite(quote.price, quote.regularMarketPrice, profile.price, priceHistory.at(-1));
+  const asOf = quote.timestamp
+    ? new Date(Number(quote.timestamp) * 1000).toISOString().slice(0, 10)
+    : (quote.date || new Date().toISOString().slice(0, 10));
+  const metrics = compactMetrics({
+    per: firstFinite(ratios.priceEarningsRatioTTM, ratios.peRatioTTM, ratios.peRatio, keyMetrics.peRatioTTM, quote.pe),
+    pbr: firstFinite(ratios.priceToBookRatioTTM, ratios.pbRatioTTM, keyMetrics.pbRatioTTM),
+    roe: decimalToPercent(firstFinite(ratios.returnOnEquityTTM, ratios.roeTTM)),
+    opMargin: decimalToPercent(firstFinite(ratios.operatingProfitMarginTTM, ratios.operatingMarginTTM)),
+    debtRatio: decimalToPercent(firstFinite(ratios.debtEquityRatioTTM, ratios.debtToEquityRatioTTM)),
+    revGrowth: decimalToPercent(firstFinite(ratios.revenueGrowthTTM, keyMetrics.revenueGrowthTTM)),
+    currentRatio: decimalToPercent(firstFinite(ratios.currentRatioTTM, ratios.currentRatio)),
+  });
+  return {
+    name: profile.companyName || quote.name || stock.name,
+    currency: quote.currency || profile.currency || stock.currency,
+    price: Number.isFinite(currentPrice) ? Math.round(currentPrice * 100) / 100 : undefined,
+    priceHistory: priceHistory.length ? priceHistory : undefined,
+    metrics,
+    asOf,
+    priceSrc: `FMP (${fmpSym})`,
+  };
+}
+
+function mapKrPricePayload(stock, item) {
+  const close = toNumber(item.clpr);
+  if (!Number.isFinite(close) || close <= 0) throw new Error('종가 데이터 없음');
+  const rawDate = String(item.basDt ?? '');
+  const asOf = rawDate.length === 8 ? `${rawDate.slice(0,4)}-${rawDate.slice(4,6)}-${rawDate.slice(6)}` : rawDate;
+  return {
+    name: item.itmsNm || stock.name,
+    currency: 'KRW',
+    price: close,
+    prevClose: toNumber(item.vs) ? close - toNumber(item.vs) : undefined,
+    priceHistory: [...(stock.priceHistory ?? []).slice(-14), close],
+    metrics: {},
+    asOf,
+    priceSrc: '공공데이터포털 주식시세',
+  };
+}
+
+function findDartRow(rows, ids, names) {
+  return rows.find(r => ids.includes(r.account_id)) ?? rows.find(r => names.some(n => String(r.account_nm ?? '').includes(n)));
+}
+
+function getDartAmt(row) { if (!row) return NaN; const a = toNumber(row.thstrm_amount); return Number.isFinite(a) ? a : toNumber(row.thstrm_add_amount); }
+function getPrevDartAmt(row) { if (!row) return NaN; const a = toNumber(row.frmtrm_amount); return Number.isFinite(a) ? a : toNumber(row.frmtrm_add_amount); }
+
+function mapOpenDartPayload(stock, raw, corp, currentPrice) {
+  const rows = raw.list ?? [];
+  const ctx = raw.context;
+  const dartLabels = { 11011: '사업보고서', 11012: '반기보고서', 11013: '1분기보고서', 11014: '3분기보고서' };
+  const asOf = getReportEndDate(ctx.year, ctx.reportCode);
+  const srcName = `OpenDART ${ctx.year} ${dartLabels[ctx.reportCode] || ''} ${ctx.fsDiv}`;
+
+  const totalLiab = getDartAmt(findDartRow(rows, ['ifrs-full_Liabilities'], ['부채총계', 'Total liabilities']));
+  const totalEquity = getDartAmt(findDartRow(rows, ['ifrs-full_Equity','ifrs-full_EquityAttributableToOwnersOfParent'], ['자본총계', 'Total equity']));
+  const currAssets = getDartAmt(findDartRow(rows, ['ifrs-full_CurrentAssets'], ['유동자산', 'Current assets']));
+  const currLiab = getDartAmt(findDartRow(rows, ['ifrs-full_CurrentLiabilities'], ['유동부채', 'Current liabilities']));
+  const revenueRow = findDartRow(rows, ['ifrs-full_Revenue','ifrs-full_SalesRevenue'], ['매출액', '수익(매출액)', 'Revenue']);
+  const opIncomeRow = findDartRow(rows, ['dart_OperatingIncomeLoss','ifrs-full_ProfitLossFromOperatingActivities'], ['영업이익', 'Operating income']);
+  const netIncomeRow = findDartRow(rows, ['ifrs-full_ProfitLoss'], ['당기순이익', 'Profit']);
+  const epsRow = findDartRow(rows, ['ifrs-full_BasicEarningsLossPerShare'], ['기본주당이익', 'Basic earnings']);
+
+  const revenue = getDartAmt(revenueRow);
+  const prevRevenue = getPrevDartAmt(revenueRow);
+  const opIncome = getDartAmt(opIncomeRow);
+  const netIncome = getDartAmt(netIncomeRow);
+  const eps = getDartAmt(epsRow);
+  const prevEps = getPrevDartAmt(epsRow);
+
+  const metrics = compactMetrics({
+    per: (currentPrice && eps) ? currentPrice / eps : NaN,
+    roe: totalEquity ? (netIncome / totalEquity) * 100 : NaN,
+    opMargin: revenue ? (opIncome / revenue) * 100 : NaN,
+    debtRatio: totalEquity ? (totalLiab / totalEquity) * 100 : NaN,
+    revGrowth: prevRevenue ? ((revenue - prevRevenue) / Math.abs(prevRevenue)) * 100 : NaN,
+    epsGrowth: prevEps ? ((eps - prevEps) / Math.abs(prevEps)) * 100 : NaN,
+    currentRatio: currLiab ? (currAssets / currLiab) * 100 : NaN,
+  });
+
+  return {
+    name: corp.corpName || stock.name,
+    currency: stock.currency,
+    metrics,
+    asOf,
+    priceSrc: srcName,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Main fetch orchestrator — returns payload + cache updates
+// ═══════════════════════════════════════════════════════════════
+async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus = () => {}) {
+  const mode = 'all';
+
+  // Korean stocks: data.go.kr + OpenDART
+  if (stock.market === 'KRX') {
+    const results = {};
+
+    if (apiSettings.dataGoKrKey) {
+      const priceKey = buildKrPriceCacheKey(stock);
+      const priceCache = getCachedEntry(cache, priceKey, apiSettings.cacheDays);
+      if (priceCache) {
+        results.price = priceCache.payload;
+      } else {
+        onStatus('공공데이터 주가 조회 중...');
+        const item = await fetchKoreanStockPrice(stock.symbol, apiSettings.dataGoKrKey);
+        results.price = mapKrPricePayload(stock, item);
+        results.priceKey = priceKey;
+        results.priceCacheEntry = { fetchedAt: new Date().toISOString(), provider: 'dataGoKrStockPrice', payload: results.price };
+      }
+    }
+
+    if (apiSettings.openDartKey) {
+      const dartKey = buildCacheKey(stock, apiSettings, mode);
+      const dartCache = getCachedEntry(cache, dartKey, apiSettings.cacheDays);
+      if (dartCache) {
+        results.dart = dartCache.payload;
+      } else {
+        const stockCode = normalizeKrxStockCode(stock.symbol);
+        const corp = getDartCorpEntry(dartCorpMap, stock);
+        if (!corp?.corpCode) throw new Error(`${stockCode} corp_code 매핑 없음 — API 설정의 Corp 매핑에서 추가해 주세요.`);
+        onStatus('OpenDART 재무제표 조회 중...');
+        const raw = await fetchOpenDartStatements(corp.corpCode, apiSettings);
+        const currentPrice = results.price?.price ?? Number(stock.price);
+        results.dart = mapOpenDartPayload(stock, raw, corp, currentPrice);
+        results.dartKey = dartKey;
+        results.dartCacheEntry = { fetchedAt: new Date().toISOString(), provider: 'openDart', payload: results.dart };
+      }
+    }
+
+    if (!results.price && !results.dart) throw new Error('한국 종목: data.go.kr key 또는 OpenDART key를 저장해 주세요.');
+
+    const merged = {
+      cacheUpdates: {},
+      ...results.price,
+      ...(results.dart ? { metrics: { ...(results.price?.metrics ?? {}), ...results.dart.metrics }, asOf: results.dart.asOf, priceSrc: results.dart.priceSrc } : {}),
+    };
+    if (results.priceKey) merged.cacheUpdates[results.priceKey] = results.priceCacheEntry;
+    if (results.dartKey) merged.cacheUpdates[results.dartKey] = results.dartCacheEntry;
+    return merged;
+  }
+
+  // Yahoo (price + basic metrics)
+  if (apiSettings.globalProvider === 'yahooExperimental') {
+    const cacheKey = buildCacheKey(stock, apiSettings, mode);
+    const cached = getCachedEntry(cache, cacheKey, apiSettings.cacheDays);
+    if (cached) return { ...cached.payload, cacheUpdates: {}, fromCache: true };
+    onStatus('Yahoo Finance 가격 조회 중...');
+    const yahooSym = toYahooSymbol(stock);
+    try {
+      const [chartRes, quoteRes] = await Promise.allSettled([fetchYahooChart(yahooSym), fetchYahooQuote(yahooSym)]);
+      if (chartRes.status === 'rejected') throw new Error(`Yahoo chart 실패: ${chartRes.reason?.message}`);
+      const quote = quoteRes.status === 'fulfilled' ? quoteRes.value : null;
+      const payload = mapYahooPayload(stock, chartRes.value, yahooSym, quote);
+      const entry = { fetchedAt: new Date().toISOString(), provider: 'yahooExperimental', payload };
+      return { ...payload, cacheUpdates: { [cacheKey]: entry } };
+    } catch (e) {
+      const stale = getAnyCachedEntry(cache, cacheKey);
+      if (stale) return { ...stale.payload, cacheUpdates: {}, fromCache: true, fromStaleCache: true, staleAgeDays: stale.ageDays, fetchError: e.message };
+      throw e;
+    }
+  }
+
+  // Alpha Vantage
+  if (apiSettings.globalProvider === 'alphaVantage') {
+    if (!apiSettings.alphaVantageKey) throw new Error('Alpha Vantage API key를 먼저 저장해 주세요.');
+    const cacheKey = buildCacheKey(stock, apiSettings, mode);
+    const cached = getCachedEntry(cache, cacheKey, apiSettings.cacheDays);
+    if (cached) return { ...cached.payload, cacheUpdates: {}, fromCache: true };
+    const requests = [
+      { key: 'overview',        fn: 'OVERVIEW',          label: '재무비율' },
+      { key: 'daily',           fn: 'TIME_SERIES_DAILY', label: '가격' },
+      { key: 'balanceSheet',    fn: 'BALANCE_SHEET',     label: '재무상태표' },
+      { key: 'cashFlow',        fn: 'CASH_FLOW',         label: '현금흐름표' },
+      { key: 'incomeStatement', fn: 'INCOME_STATEMENT',  label: '손익계산서' },
+    ];
+    try {
+      const raw = {};
+      for (const [i, req] of requests.entries()) {
+        onStatus(`Alpha Vantage ${i+1}/${requests.length} · ${req.label} 요청 중`);
+        raw[req.key] = await fetchAlphaVantage(req.fn, stock.symbol, apiSettings.alphaVantageKey);
+        if (i < requests.length - 1) await sleep(AV_DELAY);
+      }
+      const payload = mapAlphaPayload(stock, raw);
+      const entry = { fetchedAt: new Date().toISOString(), provider: 'alphaVantage', payload };
+      return { ...payload, cacheUpdates: { [cacheKey]: entry } };
+    } catch (e) {
+      const stale = getAnyCachedEntry(cache, cacheKey);
+      if (stale) return { ...stale.payload, cacheUpdates: {}, fromCache: true, fromStaleCache: true, staleAgeDays: stale.ageDays, fetchError: e.message };
+      throw e;
+    }
+  }
+
+  // FMP
+  if (apiSettings.globalProvider === 'fmp') {
+    if (!apiSettings.fmpKey) throw new Error('FMP API key를 먼저 저장해 주세요.');
+    const cacheKey = buildCacheKey(stock, apiSettings, mode);
+    const cached = getCachedEntry(cache, cacheKey, apiSettings.cacheDays);
+    if (cached) return { ...cached.payload, cacheUpdates: {}, fromCache: true };
+    const fmpSym = toFmpSymbol(stock);
+    const endpoints = [
+      { key: 'quote',        ep: 'quote',                    label: 'quote' },
+      { key: 'profile',      ep: 'profile',                  label: 'profile' },
+      { key: 'ratiosTtm',    ep: 'ratios-ttm',               label: 'ratios TTM' },
+      { key: 'keyMetricsTtm',ep: 'key-metrics-ttm',          label: 'key metrics TTM' },
+      { key: 'historical',   ep: 'historical-price-eod/light',label: 'price history' },
+    ];
+    try {
+      const raw = {};
+      for (const [i, req] of endpoints.entries()) {
+        onStatus(`FMP ${i+1}/${endpoints.length} · ${req.label} 요청 중`);
+        try {
+          raw[req.key] = await fetchFmp(req.ep, { symbol: fmpSym }, apiSettings.fmpKey, { allowEmpty: req.key !== 'quote' });
+        } catch (e) {
+          if (req.key === 'quote') throw e;
+          raw[req.key] = [];
+        }
+        if (i < endpoints.length - 1) await sleep(250);
+      }
+      const payload = mapFmpPayload(stock, raw, fmpSym);
+      const entry = { fetchedAt: new Date().toISOString(), provider: 'fmp', payload };
+      return { ...payload, cacheUpdates: { [cacheKey]: entry } };
+    } catch (e) {
+      const stale = getAnyCachedEntry(cache, cacheKey);
+      if (stale) return { ...stale.payload, cacheUpdates: {}, fromCache: true, fromStaleCache: true, staleAgeDays: stale.ageDays, fetchError: e.message };
+      throw e;
+    }
+  }
+
+  throw new Error('지원하지 않는 데이터 소스입니다. Yahoo, Alpha Vantage, FMP 중 하나를 선택해 주세요.');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Search
+// ═══════════════════════════════════════════════════════════════
+function uniqueSearchResults(results) {
+  const seen = new Set();
+  return results.filter(r => { const k = `${r.market}:${r.symbol}`.toUpperCase(); if (seen.has(k)) return false; seen.add(k); return true; });
+}
+
+function mapYahooSearchResult(row) {
+  const sym = String(row.symbol ?? '').trim();
+  if (!sym) return null;
+  const prof = inferMarketFromExchange(sym, row.exchDisp ?? row.exchange ?? '');
+  return { symbol: normalizeSymbolForMarket(sym, prof.key), name: row.longname ?? row.shortname ?? sym, marketKey: prof.key, market: prof.market, country: prof.country, currency: prof.currency, flag: COUNTRY_FLAGS[prof.country] ?? '🏷️', source: 'Yahoo' };
+}
+
+function mapFmpSearchResult(row) {
+  const sym = String(row.symbol ?? '').trim();
+  if (!sym) return null;
+  const prof = inferMarketFromExchange(sym, row.exchangeShortName ?? row.exchange ?? '');
+  return { symbol: normalizeSymbolForMarket(sym, prof.key), name: row.name ?? row.companyName ?? sym, marketKey: prof.key, market: prof.market, country: prof.country, currency: row.currency ?? prof.currency, flag: COUNTRY_FLAGS[prof.country] ?? '🏷️', source: 'FMP' };
+}
+
+async function searchWithYahoo(query) {
+  const params = new URLSearchParams({ q: query, quotesCount: '10', newsCount: '0' });
+  const res = await fetch(buildYahooSearchUrl(params));
+  if (!res.ok) throw new Error(`Yahoo 검색 HTTP ${res.status}`);
+  const data = await res.json();
+  const rows = (data.quotes ?? []).filter(q => ['EQUITY','ETF'].includes(String(q.quoteType ?? '').toUpperCase()));
+  return uniqueSearchResults(rows.map(mapYahooSearchResult).filter(Boolean));
+}
+
+async function searchWithFmp(query, key) {
+  if (!key) throw new Error('FMP key 없음');
+  const [r1, r2] = await Promise.allSettled([
+    fetchFmp('search-symbol', { query, limit: '8' }, key, { allowEmpty: true }),
+    fetchFmp('search-name',   { query, limit: '8' }, key, { allowEmpty: true }),
+  ]);
+  const rows = [
+    ...(r1.status === 'fulfilled' && Array.isArray(r1.value) ? r1.value : []),
+    ...(r2.status === 'fulfilled' && Array.isArray(r2.value) ? r2.value : []),
+  ];
+  return uniqueSearchResults(rows.map(mapFmpSearchResult).filter(Boolean));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Alert fetchers (Phase 2 — F6 Alerts)
+// All fetchers return a normalized array of { source, kind, title, url,
+// publishedAt (ISO), nativeId, raw }. Errors propagate; orchestration is in
+// fetchAlertsForStock which wraps each source in try/catch.
+// ═══════════════════════════════════════════════════════════════
+
+function makeAlertId({ source, stockId, publishedAt, nativeId }) {
+  const dateKey = (publishedAt || '').slice(0, 19);
+  const tail = String(nativeId || '').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 64);
+  return `${source}:${stockId}:${dateKey}:${tail}`;
+}
+
+function formatDartDate(d) {
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+}
+
+const SEC_FILING_FORMS = new Set(['10-K', '10-Q', '8-K', '20-F', '40-F', '6-K', 'S-1', 'S-3', 'DEF 14A']);
+let secTickerMapPromise = null;
+
+function normalizeSecTicker(symbol) {
+  return String(symbol || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\.(US|O|N)$/i, '')
+    .replace('.', '-');
+}
+
+function isSecEligibleStock(stock) {
+  return ['NASDAQ', 'NYSE', 'AMEX'].includes(stock?.market) || stock?.country === '미국';
+}
+
+async function fetchSecTickerMap() {
+  if (!secTickerMapPromise) {
+    secTickerMapPromise = (async () => {
+      const res = await fetch(buildSecApiUrl('files/company_tickers.json'));
+      if (!res.ok) throw new Error(`SEC ticker map HTTP ${res.status}`);
+      const data = await res.json();
+      const map = {};
+      for (const row of Object.values(data || {})) {
+        const ticker = normalizeSecTicker(row?.ticker);
+        if (!ticker || !row?.cik_str) continue;
+        map[ticker] = {
+          cik: String(row.cik_str).padStart(10, '0'),
+          title: String(row.title || ticker).trim(),
+        };
+      }
+      return map;
+    })().catch((e) => {
+      secTickerMapPromise = null;
+      throw e;
+    });
+  }
+  return secTickerMapPromise;
+}
+
+async function resolveSecCompany(stock) {
+  if (stock?.secCik) {
+    return {
+      cik: String(stock.secCik).replace(/\D/g, '').padStart(10, '0'),
+      title: stock.name || stock.symbol,
+    };
+  }
+  const map = await fetchSecTickerMap();
+  const key = normalizeSecTicker(stock?.symbol);
+  const hit = map[key];
+  if (!hit) throw new Error(`${stock?.symbol || 'symbol'} SEC CIK 매핑 없음`);
+  return hit;
+}
+
+async function fetchOpenDartDisclosures(corpCode, openDartKey, sinceISO) {
+  if (!openDartKey || !corpCode) return [];
+  const since = new Date(sinceISO);
+  if (!Number.isFinite(since.getTime())) throw new Error('잘못된 since 값');
+  const params = new URLSearchParams({
+    crtfc_key: openDartKey,
+    corp_code: corpCode,
+    bgn_de: formatDartDate(since),
+    end_de: formatDartDate(new Date()),
+    page_count: '50',
+  });
+  const res = await fetch(buildOpenDartApiUrl('list', params));
+  if (!res.ok) throw new Error(`OpenDART list HTTP ${res.status}`);
+  const data = await res.json();
+  // 000 = ok, 013 = no data
+  if (data.status && data.status !== '000' && data.status !== '013') {
+    throw new Error(`OpenDART status ${data.status} · ${data.message ?? ''}`);
+  }
+  const list = Array.isArray(data.list) ? data.list : [];
+  return list.map(item => {
+    const rcptNo = String(item.rcept_no ?? '').trim();
+    const dt = String(item.rcept_dt ?? '').trim();
+    const isoDate = dt.length === 8 ? `${dt.slice(0, 4)}-${dt.slice(4, 6)}-${dt.slice(6, 8)}` : '';
+    return {
+      source: 'OpenDART',
+      kind: '공시',
+      title: String(item.report_nm ?? '').trim(),
+      url: rcptNo ? `https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${rcptNo}` : '',
+      publishedAt: isoDate ? `${isoDate}T00:00:00+09:00` : new Date().toISOString(),
+      nativeId: rcptNo,
+      raw: { reporter: item.flr_nm, corpName: item.corp_name },
+    };
+  });
+}
+
+async function fetchSecFilings(stock, sinceISO) {
+  if (!isSecEligibleStock(stock)) return [];
+  const since = new Date(sinceISO);
+  if (!Number.isFinite(since.getTime())) throw new Error('잘못된 since 값');
+  const company = await resolveSecCompany(stock);
+  const res = await fetch(buildSecApiUrl(`submissions/CIK${company.cik}.json`));
+  if (!res.ok) throw new Error(`SEC submissions HTTP ${res.status}`);
+  const data = await res.json();
+  const recent = data?.filings?.recent || {};
+  const accession = recent.accessionNumber || [];
+  const forms = recent.form || [];
+  const filingDates = recent.filingDate || [];
+  const reportDates = recent.reportDate || [];
+  const docs = recent.primaryDocument || [];
+  const descs = recent.primaryDocDescription || [];
+  const cikNoZeros = String(Number(company.cik));
+  const rows = [];
+
+  for (let i = 0; i < accession.length; i++) {
+    const form = String(forms[i] || '').trim();
+    if (!SEC_FILING_FORMS.has(form)) continue;
+    const filingDate = String(filingDates[i] || '').trim();
+    const time = filingDate ? Date.parse(`${filingDate}T00:00:00-04:00`) : NaN;
+    if (Number.isFinite(time) && time < since.getTime()) continue;
+    const acc = String(accession[i] || '').trim();
+    const accNoDash = acc.replace(/-/g, '');
+    const doc = String(docs[i] || '').trim();
+    const url = accNoDash
+      ? `https://www.sec.gov/Archives/edgar/data/${cikNoZeros}/${accNoDash}/${doc || ''}`
+      : `https://www.sec.gov/edgar/browse/?CIK=${company.cik}`;
+    const desc = String(descs[i] || '').trim();
+    rows.push({
+      source: 'SEC',
+      kind: '공시',
+      title: `${form}${desc ? ` · ${desc}` : ''}`,
+      url,
+      publishedAt: Number.isFinite(time) ? new Date(time).toISOString() : new Date().toISOString(),
+      nativeId: acc,
+      raw: {
+        cik: company.cik,
+        company: data.name || company.title,
+        form,
+        filingDate,
+        reportDate: reportDates[i] || '',
+      },
+    });
+  }
+  return rows;
+}
+
+async function fetchYahooNewsExperimental(symbol) {
+  if (!symbol) return [];
+  const params = new URLSearchParams({ q: symbol, newsCount: '20', quotesCount: '0' });
+  const res = await fetch(buildYahooSearchUrl(params));
+  if (!res.ok) throw new Error(`Yahoo news HTTP ${res.status}`);
+  const data = await res.json();
+  const news = Array.isArray(data?.news) ? data.news : [];
+  return news.map(n => ({
+    source: 'Yahoo',
+    kind: '뉴스',
+    title: String(n.title ?? '').trim(),
+    url: String(n.link ?? '').trim(),
+    publishedAt: n.providerPublishTime
+      ? new Date(Number(n.providerPublishTime) * 1000).toISOString()
+      : new Date().toISOString(),
+    nativeId: String(n.uuid ?? n.link ?? ''),
+    raw: { publisher: n.publisher },
+  }));
+}
+
+async function fetchGoogleNewsRss(query, proxyPrefix = '') {
+  if (!query) return [];
+  // Korean locale by default; user can switch via stock-level hint later.
+  const target = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=ko&gl=KR&ceid=KR:ko`;
+  const url = proxyPrefix ? `${proxyPrefix}${encodeURIComponent(target)}` : target;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Google News HTTP ${res.status}`);
+  const text = await res.text();
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  if (doc.querySelector('parsererror')) throw new Error('Google News XML 파싱 실패');
+  const items = Array.from(doc.querySelectorAll('item'));
+  return items.map(item => {
+    const guid = item.querySelector('guid')?.textContent?.trim() ?? '';
+    const link = item.querySelector('link')?.textContent?.trim() ?? '';
+    const title = item.querySelector('title')?.textContent?.trim() ?? '';
+    const pubDate = item.querySelector('pubDate')?.textContent?.trim() ?? '';
+    const t = pubDate ? Date.parse(pubDate) : NaN;
+    return {
+      source: 'GoogleNews',
+      kind: '뉴스',
+      title,
+      url: link,
+      publishedAt: Number.isFinite(t) ? new Date(t).toISOString() : new Date().toISOString(),
+      nativeId: guid || link,
+      raw: {},
+    };
+  });
+}
+
+async function fetchAlertsForStock(stock, dartCorpMap, apiSettings, alertSettings) {
+  const stockId = stock.id ?? stock.symbol;
+  const sinceDays = Math.max(1, Math.min(30, alertSettings?.daysBack || 7));
+  const since = new Date(Date.now() - sinceDays * 86400000);
+  const sinceISO = since.toISOString();
+  const sources = alertSettings?.sources ?? {};
+  const tasks = [];
+  const errors = [];
+
+  if (sources.dart && stock.market === 'KRX') {
+    const corp = getDartCorpEntry(dartCorpMap, stock)?.corpCode;
+    if (!apiSettings.openDartKey) {
+      errors.push({ source: 'OpenDART', message: 'OpenDART key missing (F12 Settings/Data)' });
+    } else if (!corp) {
+      errors.push({ source: 'OpenDART', message: `${normalizeKrxStockCode(stock.symbol)} corp_code mapping missing` });
+    } else {
+      tasks.push({
+        label: 'OpenDART',
+        run: () => fetchOpenDartDisclosures(corp, apiSettings.openDartKey, sinceISO),
+      });
+    }
+  }
+  if (sources.sec && isSecEligibleStock(stock)) {
+    tasks.push({ label: 'SEC', run: () => fetchSecFilings(stock, sinceISO) });
+  }
+  if (sources.yahooNews) {
+    const sym = toYahooSymbol(stock);
+    tasks.push({ label: 'Yahoo', run: () => fetchYahooNewsExperimental(sym) });
+  }
+  if (sources.googleNews) {
+    const q = stock.name || stock.symbol;
+    tasks.push({
+      label: 'GoogleNews',
+      run: () => fetchGoogleNewsRss(q, alertSettings.googleNewsProxy || ''),
+    });
+  }
+
+  const items = [];
+  await Promise.all(tasks.map(async t => {
+    try {
+      const rows = await t.run();
+      for (const row of rows) {
+        items.push({
+          ...row,
+          stockId,
+          symbol: stock.symbol,
+          id: makeAlertId({ source: row.source, stockId, publishedAt: row.publishedAt, nativeId: row.nativeId }),
+        });
+      }
+    } catch (e) {
+      errors.push({ source: t.label, message: e?.message || String(e) });
+    }
+  }));
+
+  // Defensive: filter by since window
+  const sinceMs = since.getTime();
+  const filtered = items.filter(it => {
+    const t = Date.parse(it.publishedAt || '');
+    return Number.isFinite(t) ? t >= sinceMs : true;
+  });
+  return { items: filtered, errors };
+}
+
+function pruneAlerts(alerts, retentionDays = ALERT_RETENTION_DAYS) {
+  const cutoff = Date.now() - retentionDays * 86400000;
+  return (alerts || []).filter(a => {
+    const t = Date.parse(a.publishedAt || '');
+    return Number.isFinite(t) ? t >= cutoff : true;
+  });
+}
+
+async function summarizeWithClaude(text, key, model = 'claude-haiku-4-5-20251001') {
+  if (!key) throw new Error('Anthropic API key를 먼저 저장해 주세요.');
+  const prompt = [
+    '다음 주식 관련 뉴스/공시를 한국어로 아주 짧게 요약하세요.',
+    '출력 형식:',
+    '1) 핵심 내용: 한 문장',
+    '2) 투자 영향: Bull/Bear/Neutral 중 하나와 이유',
+    '3) 확인할 숫자/이벤트: 최대 2개',
+    '',
+    text,
+  ].join('\n');
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 420,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  if (!res.ok) {
+    let msg = `Anthropic HTTP ${res.status}`;
+    try {
+      const data = await res.json();
+      msg = data?.error?.message || msg;
+    } catch {}
+    throw new Error(msg);
+  }
+  const data = await res.json();
+  return (data?.content || []).map(part => part?.text || '').join('\n').trim();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Expose to window
+// ═══════════════════════════════════════════════════════════════
+Object.assign(window, {
+  TT_KEY, MARKET_PROFILES, COUNTRY_FLAGS,
+  DEFAULT_STOCKS, DEFAULT_WATCHLIST_IDS, DEFAULT_API_SETTINGS,
+  DEFAULT_DART_CORP_MAP, DEFAULT_MARKET_TICKERS, DEFAULT_ALERT_SETTINGS,
+  ALERT_RETENTION_DAYS,
+  loadAppState, saveAppState,
+  computeScores, computeDynamicQuality,
+  getDaysLeft, fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp,
+  normalizeKrxStockCode, getDartCorpEntry, fetchLocalDartCorpMap,
+  inferMarketFromExchange, normalizeSymbolForMarket, getMarketProfile, buildYahooChartUrl, buildYahooSearchUrl,
+  SCORE_CFG,
+  fetchOpenDartDisclosures, fetchSecFilings, fetchYahooNewsExperimental, fetchGoogleNewsRss,
+  fetchAlertsForStock, makeAlertId, pruneAlerts, summarizeWithClaude,
+});
