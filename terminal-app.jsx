@@ -58,7 +58,6 @@ const PANEL_DEFS = [
   { k: 'F8', label: 'CHECKLIST', short: 'CHK' },
   { k: 'F9', label: 'CALENDAR', short: 'CAL' },
   { k: 'F10', label: 'JOURNAL', short: 'JRN' },
-  { k: 'F11', label: 'PORTFOLIO', short: 'PORT' },
   { k: 'F12', label: 'SETTINGS', short: 'DATA' },
 ];
 
@@ -72,13 +71,6 @@ const CHECKLIST_TEMPLATE = [
   { category: 'VALUATION', text: 'target price와 bull/base/bear 가정 재검토' },
   { category: 'REVIEW', text: '다음 리뷰일 설정' },
 ];
-
-const DEFAULT_PORTFOLIO = {
-  baseCurrency: 'KRW',
-  cash: 0,
-  fxRates: { USD: 1350, KRW: 1, JPY: 9, EUR: 1450, GBP: 1680, CAD: 1000, HKD: 173, AUD: 890 },
-  positions: {},
-};
 
 const DEFAULT_SCORE_WEIGHTS = { profitability: 25, stability: 25, growth: 20, valuation: 20, risk: 10 };
 
@@ -198,7 +190,6 @@ function buildInitialAppState() {
   }
 
   const savedApiSettings = isPlainObject(saved.apiSettings) ? saved.apiSettings : {};
-  const savedPortfolio = isPlainObject(saved.portfolio) ? saved.portfolio : {};
   const savedAlertSettings = isPlainObject(saved.alertSettings) ? saved.alertSettings : {};
 
   return {
@@ -208,12 +199,6 @@ function buildInitialAppState() {
     apiSettings: { ...DEFAULT_API_SETTINGS, ...savedApiSettings },
     dataCache: isPlainObject(saved.dataCache) ? saved.dataCache : {},
     dartCorpMap: isPlainObject(saved.dartCorpMap) ? saved.dartCorpMap : DEFAULT_DART_CORP_MAP,
-    portfolio: {
-      ...DEFAULT_PORTFOLIO,
-      ...savedPortfolio,
-      positions: { ...DEFAULT_PORTFOLIO.positions, ...(isPlainObject(savedPortfolio.positions) ? savedPortfolio.positions : {}) },
-      fxRates: { ...DEFAULT_PORTFOLIO.fxRates, ...(isPlainObject(savedPortfolio.fxRates) ? savedPortfolio.fxRates : {}) },
-    },
     alerts: Array.isArray(saved.alerts) ? saved.alerts : [],
     alertSettings: {
       ...DEFAULT_ALERT_SETTINGS,
@@ -1821,93 +1806,6 @@ function JournalPanel({ stock, onCapture, onUpdate }) {
   );
 }
 
-function PortfolioPanel({ stocks, watchlistIds, portfolio, onSave, onSelect }) {
-  const pf = { ...DEFAULT_PORTFOLIO, ...(portfolio || {}), positions: { ...(portfolio?.positions || {}) }, fxRates: { ...DEFAULT_PORTFOLIO.fxRates, ...(portfolio?.fxRates || {}) } };
-  const symbols = watchlistIds.map(id => stocks[id]).filter(Boolean);
-  const fxFor = (currency) => currency === pf.baseCurrency ? 1 : Number(pf.fxRates?.[currency]) || 1;
-  const rows = symbols.map(s => {
-    const pos = pf.positions[s.symbol] || {};
-    const value = (Number(pos.shares) || 0) * (Number(s.price) || 0) * fxFor(s.currency);
-    return { stock: s, pos, value };
-  });
-  const invested = rows.reduce((sum, r) => sum + r.value, 0);
-  const cash = Number(pf.cash) || 0;
-  const total = invested + cash;
-  const save = (patch) => onSave?.({ ...pf, ...patch });
-  const updatePos = (symbol, patch) => onSave?.({ ...pf, positions: { ...pf.positions, [symbol]: { ...(pf.positions[symbol] || {}), ...patch } } });
-  const removePos = (symbol) => {
-    const next = { ...pf.positions };
-    delete next[symbol];
-    onSave?.({ ...pf, positions: next });
-  };
-  const exposures = rows.reduce((acc, r) => {
-    const c = r.stock.currency || 'USD';
-    acc[c] = (acc[c] || 0) + r.value;
-    return acc;
-  }, {});
-
-  return (
-    <Cell label="PORTFOLIO" accent={T.green} style={{ height: '100%', overflow: 'hidden' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 8, height: '100%' }}>
-        <div style={{ padding: 12, borderRight: `1px solid ${T.borderSoft}`, display: 'flex', flexDirection: 'column', gap: 12, overflowY: 'auto' }}>
-          <Stat label="Total Value" value={`${pf.baseCurrency} ${Math.round(total).toLocaleString('en-US')}`} color={T.green}/>
-          <Stat label="Invested" value={`${pf.baseCurrency} ${Math.round(invested).toLocaleString('en-US')}`} color={T.amber}/>
-          <SettingRow label="BASE CURRENCY">
-            <select value={pf.baseCurrency} onChange={(e) => save({ baseCurrency: e.target.value })} style={{ ...inputSt, width: '100%' }}>
-              {['KRW', 'USD', 'JPY', 'EUR', 'GBP', 'CAD', 'HKD', 'AUD'].map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </SettingRow>
-          <SettingRow label="CASH">
-            <input type="number" value={pf.cash ?? 0} onChange={(e) => save({ cash: Number(e.target.value) || 0 })} style={{ ...inputSt, width: '100%' }}/>
-          </SettingRow>
-          <div style={{ borderTop: `1px solid ${T.borderSoft}`, paddingTop: 10 }}>
-            <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.14em', marginBottom: 8 }}>FX TO BASE</div>
-            {Object.keys(pf.fxRates).map(c => (
-              <div key={c} style={{ display: 'grid', gridTemplateColumns: '52px 1fr', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-                <span style={{ color: T.inkDim, fontSize: 10 }}>{c}</span>
-                <input type="number" value={pf.fxRates[c]} disabled={c === pf.baseCurrency}
-                  onChange={(e) => save({ fxRates: { ...pf.fxRates, [c]: Number(e.target.value) || 0 } })}
-                  style={{ ...inputSt, width: '100%', opacity: c === pf.baseCurrency ? 0.45 : 1 }}/>
-              </div>
-            ))}
-          </div>
-          <div style={{ borderTop: `1px solid ${T.borderSoft}`, paddingTop: 10, fontSize: 10, color: T.inkFaint }}>
-            {Object.entries(exposures).map(([c, v]) => (
-              <div key={c} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span>{c}</span><span style={{ color: T.inkDim }}>{total ? safeFixed((v / total) * 100, 1) : '0.0'}%</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div style={{ padding: 12, overflowY: 'auto' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '88px 1fr 90px 90px 90px 90px 76px', gap: 8, color: T.inkFaint, fontSize: 9, letterSpacing: '0.12em', marginBottom: 8 }}>
-            <span>SYMBOL</span><span>NAME</span><span>SHARES</span><span>AVG</span><span>VALUE</span><span>WEIGHT</span><span></span>
-          </div>
-          {rows.map(({ stock: s, pos, value }) => {
-            const shares = Number(pos.shares) || 0;
-            const avg = Number(pos.avgCost) || 0;
-            const pnl = avg ? ((Number(s.price) - avg) / avg) * 100 : null;
-            return (
-              <div key={s.id} style={{ display: 'grid', gridTemplateColumns: '88px 1fr 90px 90px 90px 90px 76px', gap: 8, alignItems: 'center', padding: '7px 0', borderTop: `1px solid ${T.borderSoft}` }}>
-                <button onClick={() => onSelect?.(s.id)} style={{ ...btnSt, color: T.amber, border: `1px solid ${T.borderSoft}`, padding: '3px 7px', fontSize: 9 }}>{s.symbol}</button>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ color: T.ink, fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.name}</div>
-                  <div style={{ color: pnl === null ? T.inkFaint : colorForChange(pnl), fontSize: 9 }}>{pnl === null ? 'no cost' : `${sign(pnl)}${safeFixed(pnl, 1)}% P/L`}</div>
-                </div>
-                <input type="number" value={pos.shares ?? ''} onChange={(e) => updatePos(s.symbol, { shares: Number(e.target.value) || 0 })} style={{ ...inputSt, width: '100%', minWidth: 0 }}/>
-                <input type="number" value={pos.avgCost ?? ''} onChange={(e) => updatePos(s.symbol, { avgCost: Number(e.target.value) || 0 })} style={{ ...inputSt, width: '100%', minWidth: 0 }}/>
-                <div style={{ color: T.inkDim, fontSize: 10, fontVariantNumeric: 'tabular-nums' }}>{Math.round(value).toLocaleString('en-US')}</div>
-                <div style={{ color: T.green, fontSize: 10, fontVariantNumeric: 'tabular-nums' }}>{total ? safeFixed((value / total) * 100, 1) : '0.0'}%</div>
-                <button onClick={() => removePos(s.symbol)} disabled={!shares && !avg}
-                  style={{ ...btnSt, color: T.inkFaint, border: `1px solid ${T.borderSoft}`, padding: '3px 7px', fontSize: 9, opacity: !shares && !avg ? 0.4 : 1 }}>CLR</button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </Cell>
-  );
-}
 
 function EditPitchModal({ stock, onSave, onClose }) {
   const valuation = stock.valuation || {};
@@ -2249,8 +2147,6 @@ function App() {
     text: 'dart-corp-codes.json not checked',
   });
   const [marketTickers, setMarketTickers] = useState(DEFAULT_MARKET_TICKERS);
-  const [portfolio, setPortfolio]       = useState(initial.portfolio);
-
   const [alerts, setAlerts]                 = useState(initial.alerts);
   const [alertSettings, setAlertSettings]   = useState(initial.alertSettings);
   const [alertErrors, setAlertErrors]       = useState([]);
@@ -2293,7 +2189,7 @@ function App() {
 
   // ── Persistence ────────────────────────────────────────────────────────────
   useEffect(() => {
-    saveAppState({ stocks, watchlistIds, activeId, apiSettings, dataCache, dartCorpMap, alerts, alertSettings, portfolio });
+    saveAppState({ stocks, watchlistIds, activeId, apiSettings, dataCache, dartCorpMap, alerts, alertSettings });
   }, [stocks, watchlistIds, activeId, apiSettings, dataCache, dartCorpMap, alerts, alertSettings, portfolio]);
 
   // ── Supabase session bootstrap ────────────────────────────────────────────
@@ -2319,7 +2215,7 @@ function App() {
       .then(({ data, error }) => {
         if (error || !data?.payload) {
           // First login — push local state to Supabase (apiSettings/dataCache excluded: device-local only)
-          const snap = { stocks, watchlistIds, activeId, dartCorpMap, alerts, alertSettings, portfolio };
+          const snap = { stocks, watchlistIds, activeId, dartCorpMap, alerts, alertSettings };
           getSb().from('user_data').upsert({ user_id: session.user.id, payload: snap }, { onConflict: 'user_id' });
           return;
         }
@@ -2332,7 +2228,6 @@ function App() {
         if (p.dartCorpMap && typeof p.dartCorpMap === 'object') setDartCorpMap(p.dartCorpMap);
         if (Array.isArray(p.alerts)) setAlerts(p.alerts);
         if (p.alertSettings && typeof p.alertSettings === 'object') setAlertSettings(s => ({ ...s, ...p.alertSettings }));
-        if (p.portfolio && typeof p.portfolio === 'object') setPortfolio(s => ({ ...s, ...p.portfolio }));
       });
   }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2344,7 +2239,7 @@ function App() {
       setSbSyncStatus('saving');
       // apiSettings excluded: API keys stay device-local (localStorage only)
       // dataCache excluded: financial data cache is large and transient
-      const snap = { stocks, watchlistIds, activeId, dartCorpMap, alerts, alertSettings, portfolio };
+      const snap = { stocks, watchlistIds, activeId, dartCorpMap, alerts, alertSettings };
       const { error } = await getSb().from('user_data').upsert(
         { user_id: session.user.id, payload: snap },
         { onConflict: 'user_id' }
@@ -2352,7 +2247,7 @@ function App() {
       setSbSyncStatus(error ? 'error' : 'idle');
     }, 2000);
     return () => clearTimeout(sbSaveTimerRef.current);
-  }, [session, stocks, watchlistIds, activeId, dartCorpMap, alerts, alertSettings, portfolio]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [session, stocks, watchlistIds, activeId, dartCorpMap, alerts, alertSettings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Toast helpers ──────────────────────────────────────────────────────────
   const toast = useCallback((msg, kind = 'info', ms = 1500) => {
@@ -2658,15 +2553,6 @@ function App() {
     setStocks(prev => ({ ...prev, [stockId]: { ...prev[stockId], journal } }));
   }, []);
 
-  const handleSavePortfolio = useCallback((nextPortfolio) => {
-    setPortfolio({
-      ...DEFAULT_PORTFOLIO,
-      ...(nextPortfolio || {}),
-      positions: { ...(nextPortfolio?.positions || {}) },
-      fxRates: { ...DEFAULT_PORTFOLIO.fxRates, ...(nextPortfolio?.fxRates || {}) },
-    });
-  }, []);
-
   const handleRefreshAlerts = useCallback(async () => {
     if (alertsRefreshing) return;
     if (!alertSettings.enabled) {
@@ -2962,9 +2848,6 @@ function App() {
     ),
     F10: (
       <JournalPanel stock={stock} onCapture={handleCaptureJournal} onUpdate={handleUpdateJournal}/>
-    ),
-    F11: (
-      <PortfolioPanel stocks={stocks} watchlistIds={watchlistIds} portfolio={portfolio} onSave={handleSavePortfolio} onSelect={setActiveId}/>
     ),
     F12: (
       <SettingsDataPanel
