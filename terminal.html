@@ -502,39 +502,97 @@ const Spark = ({ data, width = 100, height = 24, color = T.amber, fill = true })
   );
 };
 
-const PriceChart = ({ data, height = 200, accent = T.amber }) => {
+const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.amber }) => {
   const ref = useRef(null);
   const [w, setW] = useState(0);
+  const [h, setH] = useState(0);
   useEffect(() => {
     if (!ref.current) return;
-    const ro = new ResizeObserver((e) => setW(e[0].contentRect.width));
+    const ro = new ResizeObserver(entries => {
+      const r = entries[0].contentRect;
+      setW(r.width);
+      setH(r.height);
+    });
     ro.observe(ref.current);
     return () => ro.disconnect();
   }, []);
-  const hasData = !!(data?.length);
-  const min = hasData ? Math.min(...data) : 0;
-  const max = hasData ? Math.max(...data) : 0;
-  const padded = max - min;
-  const top = max + padded * 0.1, bot = min - padded * 0.1;
-  const yTicks = useMemo(() => {
-    if (!hasData) return [];
-    const ticks = [];
-    for (let i = 0; i <= 4; i++) ticks.push(top - ((top - bot) * i) / 4);
-    return ticks;
-  }, [hasData, top, bot]);
-  if (!hasData) return <div ref={ref} style={{ width: '100%', height }} />;
+
+  const height = h || 200;
   const pad = { l: 50, r: 12, t: 10, b: 22 };
   const cw = Math.max(1, w - pad.l - pad.r);
-  const ch = height - pad.t - pad.b;
+  const ch = Math.max(1, height - pad.t - pad.b);
+
+  const isCandle = chartType === 'candle' && ohlcData.length > 0;
+
+  if (!data.length && !ohlcData.length) {
+    return <div ref={ref} style={{ width: '100%', height: '100%' }} />;
+  }
+
+  const yLabel = v => v >= 10000 ? (v / 1000).toFixed(0) + 'k' : v >= 1000 ? v.toFixed(0) : v.toFixed(1);
+
+  if (isCandle) {
+    const valid = ohlcData.filter(c => Number.isFinite(c.low) && Number.isFinite(c.high) && c.low > 0);
+    if (!valid.length) return <div ref={ref} style={{ width: '100%', height: '100%' }} />;
+    const allLo = valid.map(c => c.low), allHi = valid.map(c => c.high);
+    const mn = Math.min(...allLo), mx = Math.max(...allHi);
+    const rng = mx - mn || 1;
+    const top = mx + rng * 0.05, bot = mn - rng * 0.05;
+    const yp = v => pad.t + ((top - v) / (top - bot)) * ch;
+    const n = valid.length;
+    const cWid = Math.max(2, Math.floor(cw / n) - 1);
+    const xp = i => pad.l + ((i + 0.5) / n) * cw;
+    const ticks = Array.from({ length: 5 }, (_, i) => top - ((top - bot) * i) / 4);
+    return (
+      <div ref={ref} style={{ width: '100%', height: '100%', position: 'relative' }}>
+        {w > 0 && h > 0 && (
+          <svg width={w} height={height} style={{ display: 'block' }}>
+            {ticks.map((v, i) => {
+              const y = yp(v);
+              return (
+                <g key={i}>
+                  <line x1={pad.l} x2={pad.l + cw} y1={y} y2={y} stroke={T.border} strokeWidth="0.6" strokeDasharray="2 3" opacity="0.7"/>
+                  <text x={pad.l - 6} y={y + 3} textAnchor="end" fontSize="9" fill={T.inkFaint} fontFamily={T.font}>{yLabel(v)}</text>
+                </g>
+              );
+            })}
+            {valid.map((c, i) => {
+              const x = xp(i);
+              const openY = yp(c.open), closeY = yp(c.close);
+              const highY = yp(c.high), lowY = yp(c.low);
+              const green = c.close >= c.open;
+              const color = green ? T.green : T.red;
+              const bodyTop = Math.min(openY, closeY);
+              const bodyH = Math.max(1, Math.abs(closeY - openY));
+              return (
+                <g key={i}>
+                  <line x1={x} x2={x} y1={highY} y2={lowY} stroke={color} strokeWidth="1" opacity="0.8"/>
+                  <rect x={x - cWid / 2} y={bodyTop} width={cWid} height={bodyH} fill={color} opacity="0.9"/>
+                </g>
+              );
+            })}
+          </svg>
+        )}
+      </div>
+    );
+  }
+
+  // Line chart
+  const hasData = data.length > 0;
+  if (!hasData) return <div ref={ref} style={{ width: '100%', height: '100%' }} />;
+  const mn = Math.min(...data), mx = Math.max(...data);
+  const rng = mx - mn || 1;
+  const top = mx + rng * 0.1, bot = mn - rng * 0.1;
+  const ticks = Array.from({ length: 5 }, (_, i) => top - ((top - bot) * i) / 4);
   const pts = data.map((v, i) => [
-    pad.l + (i / (data.length - 1)) * cw,
+    pad.l + (i / Math.max(1, data.length - 1)) * cw,
     pad.t + ((top - v) / (top - bot)) * ch,
   ]);
   const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(' ');
   const area = pts.length ? `${path} L ${pad.l + cw} ${pad.t + ch} L ${pad.l} ${pad.t + ch} Z` : '';
+  const [lx, ly] = pts[pts.length - 1] || [0, 0];
   return (
-    <div ref={ref} style={{ width: '100%', height, position: 'relative' }}>
-      {w > 0 && (
+    <div ref={ref} style={{ width: '100%', height: '100%', position: 'relative' }}>
+      {w > 0 && h > 0 && (
         <svg width={w} height={height} style={{ display: 'block' }}>
           <defs>
             <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">
@@ -542,29 +600,24 @@ const PriceChart = ({ data, height = 200, accent = T.amber }) => {
               <stop offset="100%" stopColor={accent} stopOpacity="0"/>
             </linearGradient>
           </defs>
-          {yTicks.map((v, i) => {
+          {ticks.map((v, i) => {
             const y = pad.t + ((top - v) / (top - bot)) * ch;
             return (
               <g key={i}>
                 <line x1={pad.l} x2={pad.l + cw} y1={y} y2={y} stroke={T.border} strokeWidth="0.6" strokeDasharray="2 3" opacity="0.7"/>
-                <text x={pad.l - 6} y={y + 3} textAnchor="end" fontSize="9" fill={T.inkFaint} fontFamily={T.font}>
-                  {v >= 10000 ? (v/1000).toFixed(0)+'k' : v >= 1000 ? v.toFixed(0) : v.toFixed(1)}
-                </text>
+                <text x={pad.l - 6} y={y + 3} textAnchor="end" fontSize="9" fill={T.inkFaint} fontFamily={T.font}>{yLabel(v)}</text>
               </g>
             );
           })}
           <path d={area} fill="url(#chartFill)"/>
           <path d={path} fill="none" stroke={accent} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round"
             style={{ filter: `drop-shadow(0 0 3px ${accent}aa)` }}/>
-          {pts.length > 0 && (() => {
-            const [lx, ly] = pts[pts.length - 1];
-            return (
-              <g>
-                <circle cx={lx} cy={ly} r="3" fill={accent}/>
-                <line x1={pad.l} x2={pad.l + cw} y1={ly} y2={ly} stroke={accent} strokeWidth="0.6" strokeDasharray="3 3" opacity="0.5"/>
-              </g>
-            );
-          })()}
+          {pts.length > 0 && (
+            <g>
+              <circle cx={lx} cy={ly} r="3" fill={accent}/>
+              <line x1={pad.l} x2={pad.l + cw} y1={ly} y2={ly} stroke={accent} strokeWidth="0.6" strokeDasharray="3 3" opacity="0.5"/>
+            </g>
+          )}
         </svg>
       )}
     </div>
@@ -2266,6 +2319,26 @@ async function summarizeWithClaude(text, key, model = 'claude-haiku-4-5-20251001
   return (data?.content || []).map(part => part?.text || '').join('\n').trim();
 }
 
+async function fetchYahooChartOhlc(symbol, range, interval) {
+  const params = new URLSearchParams({ range, interval, includePrePost: 'false', events: 'div,splits' });
+  const res = await fetch(buildYahooChartUrl(symbol, params));
+  if (!res.ok) throw new Error(`Yahoo chart HTTP ${res.status}`);
+  const data = await res.json();
+  const err = data?.chart?.error;
+  if (err) throw new Error(err.description || err.code || 'chart error');
+  const result = data?.chart?.result?.[0];
+  if (!result) return [];
+  const timestamps = result.timestamp || [];
+  const q = result.indicators?.quote?.[0] || {};
+  return timestamps.map((ts, i) => ({
+    date: new Date(ts * 1000).toISOString().slice(0, 10),
+    open:  toNumber(q.open?.[i]),
+    high:  toNumber(q.high?.[i]),
+    low:   toNumber(q.low?.[i]),
+    close: toNumber(q.close?.[i]),
+  })).filter(c => Number.isFinite(c.close) && c.close > 0);
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Expose to window
 // ═══════════════════════════════════════════════════════════════
@@ -2282,6 +2355,7 @@ Object.assign(window, {
   SCORE_CFG,
   fetchOpenDartDisclosures, fetchSecFilings, fetchYahooNewsExperimental, fetchGoogleNewsRss,
   fetchAlertsForStock, makeAlertId, pruneAlerts, summarizeWithClaude,
+  fetchYahooChartOhlc, toYahooSymbol,
 });
   })();
   </script>
@@ -2294,6 +2368,7 @@ Object.assign(window, {
 /* global DEFAULT_ALERT_SETTINGS, ALERT_RETENTION_DAYS */
 /* global loadAppState, saveAppState, computeScores, computeDynamicQuality, getDaysLeft */
 /* global fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp, summarizeWithClaude */
+/* global fetchYahooChartOhlc, toYahooSymbol */
 /* global fetchAlertsForStock, pruneAlerts */
 /* global normalizeKrxStockCode, getDartCorpEntry, fetchLocalDartCorpMap */
 /* global inferMarketFromExchange, normalizeSymbolForMarket, getMarketProfile, buildYahooChartUrl, MARKET_PROFILES, COUNTRY_FLAGS, SCORE_CFG */
@@ -2712,21 +2787,72 @@ function MetricsGrid({ metrics, currency }) {
 }
 
 // ─── Chart panel ─────────────────────────────────────────────────────────────
+const CHART_PERIODS = [
+  { label: '1M', range: '1mo', interval: '1d' },
+  { label: '3M', range: '3mo', interval: '1d' },
+  { label: '6M', range: '6mo', interval: '1wk' },
+  { label: '1Y', range: '1y',  interval: '1wk' },
+];
+
 function ChartPanel({ stock, onRefresh, refreshing, fetchStatus }) {
+  const [period, setPeriod] = useState('3M');
+  const [chartType, setChartType] = useState('line');
+  const [ohlcData, setOhlcData] = useState(null);
+  const [chartLoading, setChartLoading] = useState(false);
+  const [chartErr, setChartErr] = useState('');
+
+  const sym = toYahooSymbol(stock);
+  const periodDef = CHART_PERIODS.find(p => p.label === period) || CHART_PERIODS[1];
+
+  useEffect(() => {
+    if (!sym || sym === 'EMPTY') return;
+    let cancelled = false;
+    setChartLoading(true);
+    setChartErr('');
+    fetchYahooChartOhlc(sym, periodDef.range, periodDef.interval)
+      .then(data => { if (!cancelled) { setOhlcData(data); setChartLoading(false); } })
+      .catch(e => { if (!cancelled) { setChartErr(e.message); setChartLoading(false); } });
+    return () => { cancelled = true; };
+  }, [sym, period]);
+
+  const lineData = ohlcData ? ohlcData.map(c => c.close) : (stock.priceHistory || []);
+
+  const btnSt = (active) => ({
+    background: 'transparent',
+    border: `1px solid ${active ? T.amber : T.border}`,
+    color: active ? T.amber : T.inkFaint,
+    padding: '2px 8px', fontFamily: T.font, fontSize: 9.5,
+    cursor: 'pointer', letterSpacing: '0.08em',
+  });
+
   return (
-    <Cell label="PRICE CHART · 3M" accent={T.amber} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Cell label={`PRICE CHART · ${period}`} accent={T.amber} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+        {CHART_PERIODS.map(p => (
+          <button key={p.label} onClick={() => setPeriod(p.label)} style={btnSt(period === p.label)}>{p.label}</button>
+        ))}
+        <div style={{ width: 1, height: 12, background: T.border, margin: '0 2px' }}/>
+        <button onClick={() => setChartType('line')}   style={btnSt(chartType === 'line')}>LINE</button>
+        <button onClick={() => setChartType('candle')} style={btnSt(chartType === 'candle')}>CANDLE</button>
+        <div style={{ flex: 1 }}/>
+        {chartLoading && <span style={{ color: T.amber, fontSize: 9.5 }}>⟳</span>}
+        {chartErr && <span style={{ color: T.red, fontSize: 9.5 }} title={chartErr}>ERR</span>}
+      </div>
       {fetchStatus && (
-        <div style={{ padding: '4px 12px', fontSize: 10.5, color: T.amber, background: `${T.amber}10`, borderBottom: `1px solid ${T.border}` }}>
+        <div style={{ padding: '4px 12px', fontSize: 10.5, color: T.amber, background: `${T.amber}10`, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
           ⟳ {fetchStatus}
         </div>
       )}
-      <div style={{ flex: 1, padding: '0 0 8px' }}>
-        <PriceChart data={stock.priceHistory || []} height={180} accent={T.amber}/>
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <PriceChart
+          data={chartType === 'candle' ? [] : lineData}
+          ohlcData={chartType === 'candle' ? (ohlcData || []) : []}
+          chartType={chartType}
+          accent={T.amber}
+        />
       </div>
-      <div style={{ padding: '0 12px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: 9.5, color: T.inkFaint }}>
-          출처: {stock.priceSrc || '–'} · {stock.asOf || '–'}
-        </span>
+      <div style={{ padding: '0 12px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+        <span style={{ fontSize: 9.5, color: T.inkFaint }}>출처: {stock.priceSrc || '–'} · {stock.asOf || '–'}</span>
         {onRefresh && (
           <button onClick={() => onRefresh(stock.id)} disabled={refreshing}
             style={{ padding: '3px 12px', fontSize: 9.5, fontFamily: T.font, background: 'transparent',
@@ -5068,7 +5194,7 @@ function App() {
       </div>
     ),
     F3: (
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, height: '100%' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <ValuationPanel stock={stock} onEdit={setPitchEditId}/>
         <ScenarioSim stock={stock}/>
       </div>
@@ -5200,8 +5326,8 @@ function App() {
         </div>
 
         {/* Panel area */}
-        <div style={{ overflow: 'auto', padding: 10 }}>
-          <div style={{ height: '100%', minHeight: 400 }}>
+        <div style={{ overflow: 'hidden', padding: 10, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <div style={{ flex: 1, overflow: 'auto', minHeight: 400 }}>
             {panelContent[activePanel] || panelContent.F1}
           </div>
         </div>

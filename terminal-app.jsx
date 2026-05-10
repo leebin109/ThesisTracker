@@ -5,6 +5,7 @@
 /* global DEFAULT_ALERT_SETTINGS, ALERT_RETENTION_DAYS */
 /* global loadAppState, saveAppState, computeScores, computeDynamicQuality, getDaysLeft */
 /* global fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp, summarizeWithClaude */
+/* global fetchYahooChartOhlc, toYahooSymbol */
 /* global fetchAlertsForStock, pruneAlerts */
 /* global normalizeKrxStockCode, getDartCorpEntry, fetchLocalDartCorpMap */
 /* global inferMarketFromExchange, normalizeSymbolForMarket, getMarketProfile, buildYahooChartUrl, MARKET_PROFILES, COUNTRY_FLAGS, SCORE_CFG */
@@ -423,21 +424,72 @@ function MetricsGrid({ metrics, currency }) {
 }
 
 // ─── Chart panel ─────────────────────────────────────────────────────────────
+const CHART_PERIODS = [
+  { label: '1M', range: '1mo', interval: '1d' },
+  { label: '3M', range: '3mo', interval: '1d' },
+  { label: '6M', range: '6mo', interval: '1wk' },
+  { label: '1Y', range: '1y',  interval: '1wk' },
+];
+
 function ChartPanel({ stock, onRefresh, refreshing, fetchStatus }) {
+  const [period, setPeriod] = useState('3M');
+  const [chartType, setChartType] = useState('line');
+  const [ohlcData, setOhlcData] = useState(null);
+  const [chartLoading, setChartLoading] = useState(false);
+  const [chartErr, setChartErr] = useState('');
+
+  const sym = toYahooSymbol(stock);
+  const periodDef = CHART_PERIODS.find(p => p.label === period) || CHART_PERIODS[1];
+
+  useEffect(() => {
+    if (!sym || sym === 'EMPTY') return;
+    let cancelled = false;
+    setChartLoading(true);
+    setChartErr('');
+    fetchYahooChartOhlc(sym, periodDef.range, periodDef.interval)
+      .then(data => { if (!cancelled) { setOhlcData(data); setChartLoading(false); } })
+      .catch(e => { if (!cancelled) { setChartErr(e.message); setChartLoading(false); } });
+    return () => { cancelled = true; };
+  }, [sym, period]);
+
+  const lineData = ohlcData ? ohlcData.map(c => c.close) : (stock.priceHistory || []);
+
+  const btnSt = (active) => ({
+    background: 'transparent',
+    border: `1px solid ${active ? T.amber : T.border}`,
+    color: active ? T.amber : T.inkFaint,
+    padding: '2px 8px', fontFamily: T.font, fontSize: 9.5,
+    cursor: 'pointer', letterSpacing: '0.08em',
+  });
+
   return (
-    <Cell label="PRICE CHART · 3M" accent={T.amber} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Cell label={`PRICE CHART · ${period}`} accent={T.amber} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+        {CHART_PERIODS.map(p => (
+          <button key={p.label} onClick={() => setPeriod(p.label)} style={btnSt(period === p.label)}>{p.label}</button>
+        ))}
+        <div style={{ width: 1, height: 12, background: T.border, margin: '0 2px' }}/>
+        <button onClick={() => setChartType('line')}   style={btnSt(chartType === 'line')}>LINE</button>
+        <button onClick={() => setChartType('candle')} style={btnSt(chartType === 'candle')}>CANDLE</button>
+        <div style={{ flex: 1 }}/>
+        {chartLoading && <span style={{ color: T.amber, fontSize: 9.5 }}>⟳</span>}
+        {chartErr && <span style={{ color: T.red, fontSize: 9.5 }} title={chartErr}>ERR</span>}
+      </div>
       {fetchStatus && (
-        <div style={{ padding: '4px 12px', fontSize: 10.5, color: T.amber, background: `${T.amber}10`, borderBottom: `1px solid ${T.border}` }}>
+        <div style={{ padding: '4px 12px', fontSize: 10.5, color: T.amber, background: `${T.amber}10`, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
           ⟳ {fetchStatus}
         </div>
       )}
-      <div style={{ flex: 1, padding: '0 0 8px' }}>
-        <PriceChart data={stock.priceHistory || []} height={180} accent={T.amber}/>
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <PriceChart
+          data={chartType === 'candle' ? [] : lineData}
+          ohlcData={chartType === 'candle' ? (ohlcData || []) : []}
+          chartType={chartType}
+          accent={T.amber}
+        />
       </div>
-      <div style={{ padding: '0 12px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: 9.5, color: T.inkFaint }}>
-          출처: {stock.priceSrc || '–'} · {stock.asOf || '–'}
-        </span>
+      <div style={{ padding: '0 12px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+        <span style={{ fontSize: 9.5, color: T.inkFaint }}>출처: {stock.priceSrc || '–'} · {stock.asOf || '–'}</span>
         {onRefresh && (
           <button onClick={() => onRefresh(stock.id)} disabled={refreshing}
             style={{ padding: '3px 12px', fontSize: 9.5, fontFamily: T.font, background: 'transparent',
@@ -2779,7 +2831,7 @@ function App() {
       </div>
     ),
     F3: (
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, height: '100%' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <ValuationPanel stock={stock} onEdit={setPitchEditId}/>
         <ScenarioSim stock={stock}/>
       </div>
@@ -2911,8 +2963,8 @@ function App() {
         </div>
 
         {/* Panel area */}
-        <div style={{ overflow: 'auto', padding: 10 }}>
-          <div style={{ height: '100%', minHeight: 400 }}>
+        <div style={{ overflow: 'hidden', padding: 10, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <div style={{ flex: 1, overflow: 'auto', minHeight: 400 }}>
             {panelContent[activePanel] || panelContent.F1}
           </div>
         </div>

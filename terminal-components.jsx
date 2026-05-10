@@ -114,39 +114,97 @@ const Spark = ({ data, width = 100, height = 24, color = T.amber, fill = true })
   );
 };
 
-const PriceChart = ({ data, height = 200, accent = T.amber }) => {
+const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.amber }) => {
   const ref = useRef(null);
   const [w, setW] = useState(0);
+  const [h, setH] = useState(0);
   useEffect(() => {
     if (!ref.current) return;
-    const ro = new ResizeObserver((e) => setW(e[0].contentRect.width));
+    const ro = new ResizeObserver(entries => {
+      const r = entries[0].contentRect;
+      setW(r.width);
+      setH(r.height);
+    });
     ro.observe(ref.current);
     return () => ro.disconnect();
   }, []);
-  const hasData = !!(data?.length);
-  const min = hasData ? Math.min(...data) : 0;
-  const max = hasData ? Math.max(...data) : 0;
-  const padded = max - min;
-  const top = max + padded * 0.1, bot = min - padded * 0.1;
-  const yTicks = useMemo(() => {
-    if (!hasData) return [];
-    const ticks = [];
-    for (let i = 0; i <= 4; i++) ticks.push(top - ((top - bot) * i) / 4);
-    return ticks;
-  }, [hasData, top, bot]);
-  if (!hasData) return <div ref={ref} style={{ width: '100%', height }} />;
+
+  const height = h || 200;
   const pad = { l: 50, r: 12, t: 10, b: 22 };
   const cw = Math.max(1, w - pad.l - pad.r);
-  const ch = height - pad.t - pad.b;
+  const ch = Math.max(1, height - pad.t - pad.b);
+
+  const isCandle = chartType === 'candle' && ohlcData.length > 0;
+
+  if (!data.length && !ohlcData.length) {
+    return <div ref={ref} style={{ width: '100%', height: '100%' }} />;
+  }
+
+  const yLabel = v => v >= 10000 ? (v / 1000).toFixed(0) + 'k' : v >= 1000 ? v.toFixed(0) : v.toFixed(1);
+
+  if (isCandle) {
+    const valid = ohlcData.filter(c => Number.isFinite(c.low) && Number.isFinite(c.high) && c.low > 0);
+    if (!valid.length) return <div ref={ref} style={{ width: '100%', height: '100%' }} />;
+    const allLo = valid.map(c => c.low), allHi = valid.map(c => c.high);
+    const mn = Math.min(...allLo), mx = Math.max(...allHi);
+    const rng = mx - mn || 1;
+    const top = mx + rng * 0.05, bot = mn - rng * 0.05;
+    const yp = v => pad.t + ((top - v) / (top - bot)) * ch;
+    const n = valid.length;
+    const cWid = Math.max(2, Math.floor(cw / n) - 1);
+    const xp = i => pad.l + ((i + 0.5) / n) * cw;
+    const ticks = Array.from({ length: 5 }, (_, i) => top - ((top - bot) * i) / 4);
+    return (
+      <div ref={ref} style={{ width: '100%', height: '100%', position: 'relative' }}>
+        {w > 0 && h > 0 && (
+          <svg width={w} height={height} style={{ display: 'block' }}>
+            {ticks.map((v, i) => {
+              const y = yp(v);
+              return (
+                <g key={i}>
+                  <line x1={pad.l} x2={pad.l + cw} y1={y} y2={y} stroke={T.border} strokeWidth="0.6" strokeDasharray="2 3" opacity="0.7"/>
+                  <text x={pad.l - 6} y={y + 3} textAnchor="end" fontSize="9" fill={T.inkFaint} fontFamily={T.font}>{yLabel(v)}</text>
+                </g>
+              );
+            })}
+            {valid.map((c, i) => {
+              const x = xp(i);
+              const openY = yp(c.open), closeY = yp(c.close);
+              const highY = yp(c.high), lowY = yp(c.low);
+              const green = c.close >= c.open;
+              const color = green ? T.green : T.red;
+              const bodyTop = Math.min(openY, closeY);
+              const bodyH = Math.max(1, Math.abs(closeY - openY));
+              return (
+                <g key={i}>
+                  <line x1={x} x2={x} y1={highY} y2={lowY} stroke={color} strokeWidth="1" opacity="0.8"/>
+                  <rect x={x - cWid / 2} y={bodyTop} width={cWid} height={bodyH} fill={color} opacity="0.9"/>
+                </g>
+              );
+            })}
+          </svg>
+        )}
+      </div>
+    );
+  }
+
+  // Line chart
+  const hasData = data.length > 0;
+  if (!hasData) return <div ref={ref} style={{ width: '100%', height: '100%' }} />;
+  const mn = Math.min(...data), mx = Math.max(...data);
+  const rng = mx - mn || 1;
+  const top = mx + rng * 0.1, bot = mn - rng * 0.1;
+  const ticks = Array.from({ length: 5 }, (_, i) => top - ((top - bot) * i) / 4);
   const pts = data.map((v, i) => [
-    pad.l + (i / (data.length - 1)) * cw,
+    pad.l + (i / Math.max(1, data.length - 1)) * cw,
     pad.t + ((top - v) / (top - bot)) * ch,
   ]);
   const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(' ');
   const area = pts.length ? `${path} L ${pad.l + cw} ${pad.t + ch} L ${pad.l} ${pad.t + ch} Z` : '';
+  const [lx, ly] = pts[pts.length - 1] || [0, 0];
   return (
-    <div ref={ref} style={{ width: '100%', height, position: 'relative' }}>
-      {w > 0 && (
+    <div ref={ref} style={{ width: '100%', height: '100%', position: 'relative' }}>
+      {w > 0 && h > 0 && (
         <svg width={w} height={height} style={{ display: 'block' }}>
           <defs>
             <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">
@@ -154,29 +212,24 @@ const PriceChart = ({ data, height = 200, accent = T.amber }) => {
               <stop offset="100%" stopColor={accent} stopOpacity="0"/>
             </linearGradient>
           </defs>
-          {yTicks.map((v, i) => {
+          {ticks.map((v, i) => {
             const y = pad.t + ((top - v) / (top - bot)) * ch;
             return (
               <g key={i}>
                 <line x1={pad.l} x2={pad.l + cw} y1={y} y2={y} stroke={T.border} strokeWidth="0.6" strokeDasharray="2 3" opacity="0.7"/>
-                <text x={pad.l - 6} y={y + 3} textAnchor="end" fontSize="9" fill={T.inkFaint} fontFamily={T.font}>
-                  {v >= 10000 ? (v/1000).toFixed(0)+'k' : v >= 1000 ? v.toFixed(0) : v.toFixed(1)}
-                </text>
+                <text x={pad.l - 6} y={y + 3} textAnchor="end" fontSize="9" fill={T.inkFaint} fontFamily={T.font}>{yLabel(v)}</text>
               </g>
             );
           })}
           <path d={area} fill="url(#chartFill)"/>
           <path d={path} fill="none" stroke={accent} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round"
             style={{ filter: `drop-shadow(0 0 3px ${accent}aa)` }}/>
-          {pts.length > 0 && (() => {
-            const [lx, ly] = pts[pts.length - 1];
-            return (
-              <g>
-                <circle cx={lx} cy={ly} r="3" fill={accent}/>
-                <line x1={pad.l} x2={pad.l + cw} y1={ly} y2={ly} stroke={accent} strokeWidth="0.6" strokeDasharray="3 3" opacity="0.5"/>
-              </g>
-            );
-          })()}
+          {pts.length > 0 && (
+            <g>
+              <circle cx={lx} cy={ly} r="3" fill={accent}/>
+              <line x1={pad.l} x2={pad.l + cw} y1={ly} y2={ly} stroke={accent} strokeWidth="0.6" strokeDasharray="3 3" opacity="0.5"/>
+            </g>
+          )}
         </svg>
       )}
     </div>

@@ -1422,6 +1422,26 @@ async function summarizeWithClaude(text, key, model = 'claude-haiku-4-5-20251001
   return (data?.content || []).map(part => part?.text || '').join('\n').trim();
 }
 
+async function fetchYahooChartOhlc(symbol, range, interval) {
+  const params = new URLSearchParams({ range, interval, includePrePost: 'false', events: 'div,splits' });
+  const res = await fetch(buildYahooChartUrl(symbol, params));
+  if (!res.ok) throw new Error(`Yahoo chart HTTP ${res.status}`);
+  const data = await res.json();
+  const err = data?.chart?.error;
+  if (err) throw new Error(err.description || err.code || 'chart error');
+  const result = data?.chart?.result?.[0];
+  if (!result) return [];
+  const timestamps = result.timestamp || [];
+  const q = result.indicators?.quote?.[0] || {};
+  return timestamps.map((ts, i) => ({
+    date: new Date(ts * 1000).toISOString().slice(0, 10),
+    open:  toNumber(q.open?.[i]),
+    high:  toNumber(q.high?.[i]),
+    low:   toNumber(q.low?.[i]),
+    close: toNumber(q.close?.[i]),
+  })).filter(c => Number.isFinite(c.close) && c.close > 0);
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Expose to window
 // ═══════════════════════════════════════════════════════════════
@@ -1438,4 +1458,5 @@ Object.assign(window, {
   SCORE_CFG,
   fetchOpenDartDisclosures, fetchSecFilings, fetchYahooNewsExperimental, fetchGoogleNewsRss,
   fetchAlertsForStock, makeAlertId, pruneAlerts, summarizeWithClaude,
+  fetchYahooChartOhlc, toYahooSymbol,
 });
