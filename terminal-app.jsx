@@ -1817,39 +1817,87 @@ function CalendarPanel({ stocks, watchlistIds, activeId, onSelect, onSaveEvents 
   );
 }
 
+const DECISION_TYPES = [
+  { k: 'BUY',    color: '#4ade80' },
+  { k: 'ADD',    color: '#60a5fa' },
+  { k: 'SELL',   color: '#f87171' },
+  { k: 'REVIEW', color: '#facc15' },
+];
+
 function JournalPanel({ stock, onCapture, onUpdate }) {
   const rows = [...(stock.journal || [])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
-  const updateRow = (id, patch) => onUpdate?.(stock.id, (stock.journal || []).map(r => r.id === id ? { ...r, ...patch } : r));
+  const current = Number(stock.price) || 0;
+
+  const updateRow = (id, patch, prevOutcome) => {
+    const now = new Date().toISOString();
+    const resolved = ['hit', 'miss', 'mixed'];
+    const extra = {};
+    if (patch.outcome && patch.outcome !== 'pending' && prevOutcome === 'pending' && resolved.includes(patch.outcome)) {
+      extra.outcomePrice = current;
+      extra.outcomeDate = now;
+    }
+    onUpdate?.(stock.id, (stock.journal || []).map(r => r.id === id ? { ...r, ...patch, ...extra } : r));
+  };
   const removeRow = (id) => onUpdate?.(stock.id, (stock.journal || []).filter(r => r.id !== id));
+
+  // Stats
+  const resolved = rows.filter(r => r.outcome && r.outcome !== 'pending');
+  const hits = resolved.filter(r => r.outcome === 'hit').length;
+  const hitRate = resolved.length ? Math.round((hits / resolved.length) * 100) : null;
+  const returns = resolved.filter(r => r.outcomePrice && r.price).map(r => ((r.outcomePrice - r.price) / r.price) * 100);
+  const avgReturn = returns.length ? returns.reduce((a, b) => a + b, 0) / returns.length : null;
+
+  const dtColor = { BUY: '#4ade80', ADD: '#60a5fa', SELL: '#f87171', REVIEW: '#facc15' };
+
   return (
     <Cell label="DECISION JOURNAL" accent={T.yellow} style={{ height: '100%', overflow: 'hidden' }}>
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-        <div style={{ padding: 12, borderBottom: `1px solid ${T.borderSoft}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: 10, color: T.inkFaint }}>Snapshot pitch, price, target, and later outcome.</div>
-          <button onClick={() => onCapture?.(stock.id)} style={{ ...btnSt, color: T.yellow, border: `1px solid ${T.yellow}` }}>CAPTURE SNAPSHOT</button>
+        {/* Stats bar */}
+        <div style={{ padding: '8px 12px', borderBottom: `1px solid ${T.borderSoft}`, display: 'flex', gap: 20, alignItems: 'center', background: T.surface2 }}>
+          <div style={{ fontSize: 10, color: T.inkFaint }}>SNAPSHOTS <span style={{ color: T.ink }}>{rows.length}</span></div>
+          <div style={{ fontSize: 10, color: T.inkFaint }}>HIT RATE <span style={{ color: hitRate === null ? T.inkFaint : hitRate >= 60 ? '#4ade80' : hitRate >= 40 ? T.yellow : '#f87171' }}>{hitRate === null ? '--' : `${hitRate}%`}</span></div>
+          <div style={{ fontSize: 10, color: T.inkFaint }}>AVG RETURN <span style={{ color: avgReturn === null ? T.inkFaint : colorForChange(avgReturn) }}>{avgReturn === null ? '--' : `${sign(avgReturn)}${safeFixed(avgReturn, 1)}%`}</span></div>
+          <div style={{ fontSize: 10, color: T.inkFaint, marginLeft: 'auto' }}>{resolved.length}/{rows.length} resolved</div>
+        </div>
+        {/* Capture buttons */}
+        <div style={{ padding: '8px 12px', borderBottom: `1px solid ${T.borderSoft}`, display: 'flex', gap: 6, alignItems: 'center' }}>
+          <span style={{ fontSize: 10, color: T.inkFaint, marginRight: 4 }}>CAPTURE AS:</span>
+          {DECISION_TYPES.map(({ k, color }) => (
+            <button key={k} onClick={() => onCapture?.(stock.id, k)}
+              style={{ ...btnSt, color, border: `1px solid ${color}`, padding: '3px 10px', fontSize: 10 }}>
+              {k}
+            </button>
+          ))}
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
           {rows.length === 0 && <div style={{ color: T.inkFaint, fontSize: 12 }}>No journal entries yet.</div>}
           {rows.map(row => {
             const entryPrice = Number(row.price) || 0;
-            const current = Number(stock.price) || 0;
             const move = entryPrice ? ((current - entryPrice) / entryPrice) * 100 : null;
+            const outP = Number(row.outcomePrice) || 0;
+            const outMove = (outP && entryPrice) ? ((outP - entryPrice) / entryPrice) * 100 : null;
+            const dc = row.decisionType ? (dtColor[row.decisionType] || T.inkFaint) : null;
             return (
               <div key={row.id} style={{ background: T.surface2, border: `1px solid ${T.borderSoft}`, padding: 12 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 120px auto', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 110px 1fr 110px auto', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  {dc ? (
+                    <span style={{ fontSize: 9, fontWeight: 700, color: dc, border: `1px solid ${dc}`, padding: '1px 6px', letterSpacing: '0.08em' }}>{row.decisionType}</span>
+                  ) : <span/>}
                   <div style={{ fontSize: 10, color: T.inkFaint }}>{String(row.date || '').replace('T', ' ').slice(0, 16)}</div>
-                  <div style={{ fontSize: 12, color: T.ink, fontWeight: 700 }}>{row.recommendation || 'Watch'} at {fmtPx(row.price, stock.currency)} / target {fmtPx(row.target, stock.currency)}</div>
-                  <select value={row.outcome || 'pending'} onChange={(e) => updateRow(row.id, { outcome: e.target.value })} style={{ ...inputSt, width: '100%' }}>
+                  <div style={{ fontSize: 11, color: T.ink, fontWeight: 700 }}>{row.recommendation || 'Watch'} · entry {fmtPx(row.price, stock.currency)} · target {fmtPx(row.target, stock.currency)}</div>
+                  <select value={row.outcome || 'pending'} onChange={(e) => updateRow(row.id, { outcome: e.target.value }, row.outcome)} style={{ ...inputSt, width: '100%' }}>
                     <option value="pending">PENDING</option><option value="hit">HIT</option><option value="miss">MISS</option><option value="mixed">MIXED</option>
                   </select>
                   <button onClick={() => removeRow(row.id)} style={{ ...btnSt, color: T.inkFaint, border: `1px solid ${T.borderSoft}`, padding: '4px 8px' }}>DEL</button>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 12 }}>
-                  <textarea value={row.note || ''} onChange={(e) => updateRow(row.id, { note: e.target.value })} rows={3} placeholder="post-mortem note" style={{ ...inputSt, resize: 'vertical' }}/>
-                  <div style={{ fontSize: 10, color: T.inkFaint, lineHeight: 1.7 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 12 }}>
+                  <textarea value={row.note || ''} onChange={(e) => updateRow(row.id, { note: e.target.value }, row.outcome)} rows={3} placeholder="post-mortem note" style={{ ...inputSt, resize: 'vertical' }}/>
+                  <div style={{ fontSize: 10, color: T.inkFaint, lineHeight: 1.8 }}>
                     <div>Now: <span style={{ color: T.ink }}>{fmtPx(current, stock.currency)}</span></div>
-                    <div>Move: <span style={{ color: move === null ? T.inkFaint : colorForChange(move) }}>{move === null ? '--' : `${sign(move)}${safeFixed(move, 1)}%`}</span></div>
-                    <div>Thesis: <span style={{ color: T.inkDim }}>{row.oneLine || '-'}</span></div>
+                    <div>Open P&L: <span style={{ color: move === null ? T.inkFaint : colorForChange(move) }}>{move === null ? '--' : `${sign(move)}${safeFixed(move, 1)}%`}</span></div>
+                    {outP > 0 && <div>Outcome px: <span style={{ color: T.inkDim }}>{fmtPx(outP, stock.currency)} <span style={{ color: outMove === null ? T.inkFaint : colorForChange(outMove) }}>({outMove === null ? '--' : `${sign(outMove)}${safeFixed(outMove, 1)}%`})</span></span></div>}
+                    <div style={{ borderTop: `1px solid ${T.borderSoft}`, marginTop: 4, paddingTop: 4 }}>Score: <span style={{ color: T.inkDim }}>{row.score !== null && row.score !== undefined ? row.score : '--'}</span></div>
+                    <div style={{ fontSize: 9, color: T.inkFaint, marginTop: 2 }}>{row.oneLine || '-'}</div>
                   </div>
                 </div>
               </div>
@@ -2586,13 +2634,14 @@ function App() {
     toast('Calendar saved', 'ok');
   }, [toast]);
 
-  const handleCaptureJournal = useCallback((stockId) => {
+  const handleCaptureJournal = useCallback((stockId, decisionType) => {
     setStocks(prev => {
       const s = prev[stockId];
       if (!s) return prev;
       const entry = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         date: new Date().toISOString(),
+        decisionType: decisionType || null,
         recommendation: s.recommendation || 'Watch',
         oneLine: s.oneLine || '',
         price: Number(s.price) || 0,
@@ -2601,11 +2650,13 @@ function App() {
         thesis: [...(s.thesis || [])],
         risks: [...(s.risks || [])],
         outcome: 'pending',
+        outcomePrice: null,
+        outcomeDate: null,
         note: '',
       };
       return { ...prev, [stockId]: { ...s, journal: [entry, ...(s.journal || [])] } };
     });
-    toast('Journal snapshot captured', 'ok');
+    toast(`Journal snapshot captured${decisionType ? ` (${decisionType})` : ''}`, 'ok');
   }, [toast]);
 
   const handleUpdateJournal = useCallback((stockId, journal) => {
