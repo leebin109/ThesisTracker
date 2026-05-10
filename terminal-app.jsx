@@ -2290,7 +2290,7 @@ function App() {
   // ── Persistence ────────────────────────────────────────────────────────────
   useEffect(() => {
     saveAppState({ stocks, watchlistIds, activeId, apiSettings, dataCache, dartCorpMap, alerts, alertSettings });
-  }, [stocks, watchlistIds, activeId, apiSettings, dataCache, dartCorpMap, alerts, alertSettings, portfolio]);
+  }, [stocks, watchlistIds, activeId, apiSettings, dataCache, dartCorpMap, alerts, alertSettings]);
 
   // ── Supabase session bootstrap ────────────────────────────────────────────
   useEffect(() => {
@@ -2802,7 +2802,6 @@ function App() {
       dataCache,
       alerts,
       alertSettings,
-      portfolio,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -2814,7 +2813,7 @@ function App() {
     a.remove();
     URL.revokeObjectURL(url);
     toast('JSON 백업 파일 생성 완료', 'ok');
-  }, [stocks, watchlistIds, activeId, apiSettings, dartCorpMap, dataCache, alerts, alertSettings, portfolio, toast]);
+  }, [stocks, watchlistIds, activeId, apiSettings, dartCorpMap, dataCache, alerts, alertSettings, toast]);
 
   const handleImportBackup = useCallback((raw, mode = 'merge') => {
     try {
@@ -2837,7 +2836,6 @@ function App() {
         setDataCache(data.dataCache || {});
         setAlerts(Array.isArray(data.alerts) ? data.alerts : []);
         setAlertSettings({ ...DEFAULT_ALERT_SETTINGS, ...(data.alertSettings || {}) });
-        setPortfolio({ ...DEFAULT_PORTFOLIO, ...(data.portfolio || {}), positions: { ...(data.portfolio?.positions || {}) }, fxRates: { ...DEFAULT_PORTFOLIO.fxRates, ...(data.portfolio?.fxRates || {}) } });
       } else {
         setStocks(prev => normalizeStocksMap({ ...prev, ...(data.stocks || {}) }));
         setWatchlistIds(prev => [...new Set([...prev.map(normalizeStockId), ...(data.watchlistIds || []).map(normalizeStockId)].filter(Boolean))]);
@@ -2853,13 +2851,6 @@ function App() {
           });
         }
         if (data.alertSettings) setAlertSettings(prev => ({ ...prev, ...data.alertSettings }));
-        if (data.portfolio) setPortfolio(prev => ({
-          ...DEFAULT_PORTFOLIO,
-          ...prev,
-          ...data.portfolio,
-          positions: { ...(prev.positions || {}), ...(data.portfolio.positions || {}) },
-          fxRates: { ...DEFAULT_PORTFOLIO.fxRates, ...(prev.fxRates || {}), ...(data.portfolio.fxRates || {}) },
-        }));
       }
       toast(`JSON 복원 완료 (${mode})`, 'ok');
     } catch (e) {
