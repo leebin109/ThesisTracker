@@ -3608,22 +3608,38 @@ function ReviewQueue({ stocks, watchlistIds, onSelect }) {
 }
 
 // ─── Peer comparison ─────────────────────────────────────────────────────────
-function PeersPanel({ stock, stocks, watchlistIds, onSelect }) {
+function PeersPanel({ stock, stocks, watchlistIds, onSelect, onSavePeers }) {
+  const [editing, setEditing] = React.useState(false);
+  const hasExplicit = (stock.peers || []).filter(id => id !== stock.id && stocks[id]).length > 0;
+
   const peerIds = useMemo(() => {
     const explicit = (stock.peers || []).filter(id => id !== stock.id && stocks[id]);
     const fallback = watchlistIds.filter(id => id !== stock.id && stocks[id]);
     return explicit.length ? explicit : fallback;
   }, [stock, stocks, watchlistIds]);
 
+  const allCandidates = watchlistIds.filter(id => id !== stock.id && stocks[id]);
+  const selectedSet = new Set(hasExplicit ? (stock.peers || []).filter(id => stocks[id] && id !== stock.id) : allCandidates.map(id => id));
+
+  const togglePeer = (id) => {
+    const current = hasExplicit
+      ? (stock.peers || []).filter(i => stocks[i] && i !== stock.id)
+      : allCandidates.map(i => i);
+    const next = current.includes(id) ? current.filter(i => i !== id) : [...current, id];
+    onSavePeers?.(stock.id, next);
+  };
+
+  const resetToAll = () => onSavePeers?.(stock.id, []);
+
   const rows = [stock.id, ...peerIds].map(id => stocks[id]).filter(Boolean);
   const metrics = [
-    { key: 'per', label: 'PER', fmt: v => Number.isFinite(Number(v)) ? `${safeFixed(v, 1)}x` : '–', lowerBetter: true },
-    { key: 'pbr', label: 'PBR', fmt: v => Number.isFinite(Number(v)) ? `${safeFixed(v, 1)}x` : '–', lowerBetter: true },
-    { key: 'roe', label: 'ROE', fmt: v => Number.isFinite(Number(v)) ? `${safeFixed(v, 1)}%` : '–' },
-    { key: 'opMargin', label: 'OPM', fmt: v => Number.isFinite(Number(v)) ? `${safeFixed(v, 1)}%` : '–' },
-    { key: 'debtRatio', label: 'DEBT', fmt: v => Number.isFinite(Number(v)) ? `${safeFixed(v, 0)}%` : '–', lowerBetter: true },
-    { key: 'revGrowth', label: 'REV G', fmt: v => Number.isFinite(Number(v)) ? `${safeFixed(v, 1)}%` : '–' },
-    { key: 'overall', label: 'SCORE', fmt: v => Number.isFinite(Number(v)) ? `${Math.round(v)}` : '–' },
+    { key: 'per',      label: 'PER',   fmt: v => Number.isFinite(Number(v)) ? `${safeFixed(v, 1)}x`  : '–', lowerBetter: true },
+    { key: 'pbr',      label: 'PBR',   fmt: v => Number.isFinite(Number(v)) ? `${safeFixed(v, 1)}x`  : '–', lowerBetter: true },
+    { key: 'roe',      label: 'ROE',   fmt: v => Number.isFinite(Number(v)) ? `${safeFixed(v, 1)}%`  : '–' },
+    { key: 'opMargin', label: 'OPM',   fmt: v => Number.isFinite(Number(v)) ? `${safeFixed(v, 1)}%`  : '–' },
+    { key: 'debtRatio',label: 'DEBT',  fmt: v => Number.isFinite(Number(v)) ? `${safeFixed(v, 0)}%`  : '–', lowerBetter: true },
+    { key: 'revGrowth',label: 'REV G', fmt: v => Number.isFinite(Number(v)) ? `${safeFixed(v, 1)}%`  : '–' },
+    { key: 'overall',  label: 'SCORE', fmt: v => Number.isFinite(Number(v)) ? `${Math.round(v)}`     : '–' },
   ];
   const peerRows = rows.filter(r => r.id !== stock.id);
   const med = {};
@@ -3640,13 +3656,52 @@ function PeersPanel({ stock, stocks, watchlistIds, onSelect }) {
 
   return (
     <Cell label="PEER COMPARISON" accent={T.cyan} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
       <div style={{ padding: '10px 14px', borderBottom: `1px solid ${T.borderSoft}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <div style={{ fontSize: 11, color: T.ink, fontWeight: 700 }}>{stock.symbol} vs watchlist peers</div>
+          <div style={{ fontSize: 11, color: T.ink, fontWeight: 700 }}>
+            {stock.symbol} vs {hasExplicit ? 'custom peers' : 'watchlist peers'}
+          </div>
           <div style={{ fontSize: 10, color: T.inkFaint, marginTop: 2 }}>Peer median 기준 premium/discount를 빠르게 확인합니다.</div>
         </div>
-        <div style={{ fontSize: 10, color: T.cyan, fontVariantNumeric: 'tabular-nums' }}>{peerRows.length} peers</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 10, color: T.cyan }}>{peerRows.length} peers</span>
+          <button onClick={() => setEditing(e => !e)}
+            style={{ background: editing ? T.cyan : 'transparent', color: editing ? '#000' : T.cyan, border: `1px solid ${T.cyan}`, padding: '3px 10px', fontSize: 9, fontFamily: T.font, letterSpacing: '0.1em', cursor: 'pointer' }}>
+            {editing ? 'DONE' : 'EDIT PEERS'}
+          </button>
+        </div>
       </div>
+
+      {/* Peer selector (edit mode) */}
+      {editing && (
+        <div style={{ padding: '10px 14px', borderBottom: `1px solid ${T.borderSoft}`, background: T.surface }}>
+          <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 8 }}>
+            PEER GROUP — 체크된 종목만 비교에 포함됩니다
+            {hasExplicit && (
+              <span onClick={resetToAll} style={{ marginLeft: 12, color: T.amber, cursor: 'pointer' }}>전체 초기화</span>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {allCandidates.map(id => {
+              const s = stocks[id];
+              const on = selectedSet.has(id);
+              return (
+                <div key={id} onClick={() => togglePeer(id)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', border: `1px solid ${on ? T.cyan : T.border}`, background: on ? `${T.cyan}18` : 'transparent', cursor: 'pointer', fontSize: 10 }}>
+                  <span style={{ color: on ? T.cyan : T.inkFaint, fontWeight: 700 }}>{s.symbol}</span>
+                  <span style={{ color: T.inkFaint, fontSize: 9 }}>{s.name}</span>
+                </div>
+              );
+            })}
+            {allCandidates.length === 0 && (
+              <span style={{ color: T.inkFaint, fontSize: 10 }}>워치리스트에 다른 종목이 없습니다.</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Table */}
       <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5, fontVariantNumeric: 'tabular-nums' }}>
           <thead>
@@ -3679,7 +3734,7 @@ function PeersPanel({ stock, stocks, watchlistIds, onSelect }) {
             {peerRows.length > 0 && (
               <tr>
                 <td style={{ color: T.cyan, fontWeight: 700, padding: '8px', borderTop: `1px solid ${T.border}` }}>MEDIAN</td>
-                <td style={{ color: T.inkFaint, padding: '8px', borderTop: `1px solid ${T.border}` }}>watchlist peers</td>
+                <td style={{ color: T.inkFaint, padding: '8px', borderTop: `1px solid ${T.border}` }}>{hasExplicit ? 'custom peers' : 'watchlist peers'}</td>
                 {metrics.map(m => (
                   <td key={m.key} style={{ textAlign: 'right', color: T.cyan, padding: '8px', borderTop: `1px solid ${T.border}` }}>{m.fmt(med[m.key])}</td>
                 ))}
@@ -3689,7 +3744,7 @@ function PeersPanel({ stock, stocks, watchlistIds, onSelect }) {
         </table>
         {peerRows.length === 0 && (
           <div style={{ padding: 18, color: T.inkFaint, fontSize: 11, textAlign: 'center' }}>
-            비교할 peer가 없습니다. 관심종목을 더 추가하면 자동으로 비교 대상이 됩니다.
+            비교할 peer가 없습니다. EDIT PEERS를 눌러 추가하세요.
           </div>
         )}
       </div>
@@ -5170,6 +5225,10 @@ function App() {
   }, [toast]);
 
   // ── Alert actions (Phase 2) ────────────────────────────────────────────────
+  const handleSavePeers = useCallback((stockId, peers) => {
+    setStocks(prev => ({ ...prev, [stockId]: { ...prev[stockId], peers } }));
+  }, []);
+
   const handleSaveChecklist = useCallback((stockId, checklist) => {
     setStocks(prev => ({ ...prev, [stockId]: { ...prev[stockId], checklist } }));
     toast('Checklist saved', 'ok');
@@ -5491,7 +5550,7 @@ function App() {
       />
     ),
     F7: (
-      <PeersPanel stock={stock} stocks={stocks} watchlistIds={watchlistIds} onSelect={setActiveId}/>
+      <PeersPanel stock={stock} stocks={stocks} watchlistIds={watchlistIds} onSelect={setActiveId} onSavePeers={handleSavePeers}/>
     ),
     F8: (
       <ChecklistPanel stock={stock} onSave={handleSaveChecklist}/>
