@@ -46,8 +46,8 @@ Bloomberg Terminal 스타일의 주식 투자 관리 앱. React 18 + Babel Stand
 ### 2026-05-10 퀀트 스코어링 엔진 마이그레이션 (Phase 5) 완료 메모
 
 - **데이터 추출 확장**: `terminal-data.jsx`의 Alpha Vantage, FMP, OpenDART 매핑 로직을 확장하여 `evEbitda`, `gpa`(Gross Profit/Assets), `roic` 등 신규 팩터를 `metrics`로 수집하도록 변경.
-- **통계 유틸리티 추가**: `winsorize`, `zScore`, `zToScore`, `industryDemean` 등 퀀트 분석용 통계 함수들을 `terminal-data.jsx`에 구현.
-- **상대평가(Cross-sectional) 로직 도입**: 기존 절대평가 `computeScores` 대신 유니버스 전체를 기반으로 팩터별 Z-Score를 산출하는 `computeQuantScores` 추가.
+- **시장 기준점 (Market Baseline Anchoring) 도입**: 소규모 워치리스트에서의 표본 오염(Sample Contamination) 문제를 해결하기 위해, `terminal-data.jsx` 내에 정적 `MARKET_BASELINES` 상수를 도입.
+- **절대-상대평가 하이브리드 산출**: 기존의 `winsorize`, `industryDemean` 등 크로스섹셔널 연산을 제거하고, 고정된 시장 평균/표준편차 잣대에 대조하는 `zScoreMarket` 함수로 Z-Score를 산출하도록 전면 개편. 관련 논리적 배경과 공식은 `SCORING_METHODOLOGY.md`에 단일 문서로 통합 저장.
 - **상태 관리 리팩터링**: `terminal-app.jsx`의 `handleRefresh`, `handleAddFromSearch`, `handleRemove`가 개별 종목 점수가 아닌 **워치리스트 전체의 상대 점수**를 재계산(applyQuantScores)하도록 수정. (이를 통해 종목 추가/삭제 시에도 유니버스에 맞는 점수 재조정이 이뤄짐).
 - **점진적 배포 고려**: 프론트엔드 UI를 파괴하지 않기 위해, 새로운 `composite`, `quality`, `safety`, `value`, `growth` Z-score 결과를 기존 UI에서 사용하는 `overall`, `profitability`, `stability`, `valuation`, `growth` 필드에 매핑.
 - **앱 빌드 완료**: `tools/build-terminal-html.ps1` 스크립트를 실행하여 변경된 코드를 `terminal.html`에 인라인 빌드.

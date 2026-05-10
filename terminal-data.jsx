@@ -514,26 +514,29 @@ function computeScores(metrics, industryGroup) {
 const statMean = a => a.length ? a.reduce((s,x)=>s+x,0) / a.length : 0;
 const statStdev = a => { const m=statMean(a); return Math.sqrt(statMean(a.map(x=>(x-m)**2))); };
 
-function winsorize(arr, p = 0.05) {
-  const s = [...arr].sort((a,b)=>a-b);
-  if (!s.length) return [];
-  const lo = s[Math.floor(p*s.length)] ?? s[0];
-  const hi = s[Math.ceil((1-p)*s.length)-1] ?? s[s.length-1];
-  return arr.map(x => Math.max(lo, Math.min(hi, x)));
-}
+const MARKET_BASELINES = {
+  ALL:        { per: { m: 18, s: 8 }, pbr: { m: 2.5, s: 1.5 }, evEbitda: { m: 12, s: 6 }, roe: { m: 12, s: 10 }, roic: { m: 10, s: 8 }, opMargin: { m: 12, s: 10 }, gpa: { m: 25, s: 15 }, debtRatio: { m: 100, s: 60 }, currentRatio: { m: 150, s: 80 }, revGrowth: { m: 8, s: 10 }, epsGrowth: { m: 10, s: 15 } },
+  SEMI:       { per: { m: 22, s: 10 }, pbr: { m: 4.0, s: 2.0 }, evEbitda: { m: 15, s: 8 }, roe: { m: 18, s: 15 }, roic: { m: 15, s: 12 }, opMargin: { m: 22, s: 15 }, gpa: { m: 35, s: 20 }, debtRatio: { m: 50, s: 40 }, currentRatio: { m: 200, s: 100 }, revGrowth: { m: 12, s: 20 }, epsGrowth: { m: 15, s: 25 } },
+  SW_AI:      { per: { m: 35, s: 20 }, pbr: { m: 6.0, s: 4.0 }, evEbitda: { m: 25, s: 15 }, roe: { m: 15, s: 25 }, roic: { m: 12, s: 20 }, opMargin: { m: 15, s: 25 }, gpa: { m: 45, s: 25 }, debtRatio: { m: 40, s: 30 }, currentRatio: { m: 220, s: 120 }, revGrowth: { m: 20, s: 25 }, epsGrowth: { m: 20, s: 30 } },
+  PLATFORM:   { per: { m: 30, s: 15 }, pbr: { m: 5.0, s: 3.0 }, evEbitda: { m: 20, s: 10 }, roe: { m: 15, s: 15 }, roic: { m: 12, s: 12 }, opMargin: { m: 18, s: 15 }, gpa: { m: 40, s: 20 }, debtRatio: { m: 60, s: 40 }, currentRatio: { m: 180, s: 90 }, revGrowth: { m: 15, s: 15 }, epsGrowth: { m: 15, s: 20 } },
+  TECH_HW:    { per: { m: 16, s: 6 }, pbr: { m: 2.5, s: 1.2 }, evEbitda: { m: 10, s: 5 }, roe: { m: 12, s: 8 }, roic: { m: 10, s: 8 }, opMargin: { m: 10, s: 6 }, gpa: { m: 25, s: 15 }, debtRatio: { m: 80, s: 50 }, currentRatio: { m: 160, s: 70 }, revGrowth: { m: 6, s: 8 }, epsGrowth: { m: 8, s: 12 } },
+  BIOTECH:    { per: { m: 30, s: 20 }, pbr: { m: 4.0, s: 3.0 }, evEbitda: { m: 20, s: 15 }, roe: { m: -5, s: 30 }, roic: { m: -5, s: 30 }, opMargin: { m: -10, s: 40 }, gpa: { m: 10, s: 20 }, debtRatio: { m: 40, s: 50 }, currentRatio: { m: 300, s: 200 }, revGrowth: { m: 15, s: 30 }, epsGrowth: { m: 10, s: 30 } },
+  HEALTHCARE: { per: { m: 20, s: 8 }, pbr: { m: 3.5, s: 1.5 }, evEbitda: { m: 14, s: 5 }, roe: { m: 16, s: 10 }, roic: { m: 12, s: 8 }, opMargin: { m: 18, s: 10 }, gpa: { m: 35, s: 15 }, debtRatio: { m: 90, s: 60 }, currentRatio: { m: 150, s: 70 }, revGrowth: { m: 7, s: 6 }, epsGrowth: { m: 9, s: 8 } },
+  FINANCIAL:  { per: { m: 11, s: 4 }, pbr: { m: 1.1, s: 0.6 }, evEbitda: { m: 8, s: 4 }, roe: { m: 11, s: 5 }, roic: { m: 8, s: 4 }, opMargin: { m: 30, s: 15 }, gpa: { m: 15, s: 10 }, debtRatio: { m: 500, s: 400 }, currentRatio: { m: 110, s: 30 }, revGrowth: { m: 5, s: 5 }, epsGrowth: { m: 6, s: 8 } },
+  DEFENSIVE:  { per: { m: 16, s: 5 }, pbr: { m: 1.8, s: 0.8 }, evEbitda: { m: 10, s: 3 }, roe: { m: 10, s: 4 }, roic: { m: 7, s: 3 }, opMargin: { m: 15, s: 8 }, gpa: { m: 20, s: 10 }, debtRatio: { m: 120, s: 70 }, currentRatio: { m: 120, s: 50 }, revGrowth: { m: 4, s: 4 }, epsGrowth: { m: 5, s: 5 } },
+  CYCLICAL:   { per: { m: 14, s: 6 }, pbr: { m: 1.5, s: 0.8 }, evEbitda: { m: 8, s: 4 }, roe: { m: 12, s: 12 }, roic: { m: 9, s: 10 }, opMargin: { m: 10, s: 8 }, gpa: { m: 20, s: 15 }, debtRatio: { m: 100, s: 60 }, currentRatio: { m: 150, s: 60 }, revGrowth: { m: 6, s: 15 }, epsGrowth: { m: 8, s: 20 } },
+  CONSUMER:   { per: { m: 18, s: 8 }, pbr: { m: 3.0, s: 1.5 }, evEbitda: { m: 12, s: 5 }, roe: { m: 15, s: 10 }, roic: { m: 12, s: 8 }, opMargin: { m: 12, s: 8 }, gpa: { m: 30, s: 15 }, debtRatio: { m: 110, s: 70 }, currentRatio: { m: 140, s: 60 }, revGrowth: { m: 6, s: 8 }, epsGrowth: { m: 8, s: 12 } },
+};
 
-function zScore(rawValues, higherIsBetter = true, winsorPct = 0.05) {
-  const valid = rawValues.filter(v => v != null && Number.isFinite(v));
-  if (valid.length < 2) return rawValues.map(() => 0);
-  const w = winsorize(valid, winsorPct);
-  const m = statMean(w), sd = statStdev(w) || 1;
-  return rawValues.map(v => {
-    if (v == null || !Number.isFinite(v)) return 0;
-    const wv = Math.max(w[0], Math.min(w[w.length-1], v));
-    const z  = (wv - m) / sd;
-    const clipped = Math.max(-3, Math.min(3, z));
-    return higherIsBetter ? clipped : -clipped;
-  });
+function zScoreMarket(value, metricKey, industryGroup, higherIsBetter = true) {
+  if (value == null || !Number.isFinite(value)) return 0;
+  const cfg = MARKET_BASELINES[industryGroup] || MARKET_BASELINES.ALL;
+  const stat = cfg[metricKey] || MARKET_BASELINES.ALL[metricKey];
+  if (!stat || !stat.s) return 0;
+  
+  let z = (value - stat.m) / stat.s;
+  const clipped = Math.max(-3, Math.min(3, z));
+  return higherIsBetter ? clipped : -clipped;
 }
 
 function zToScore(z) {
@@ -547,74 +550,55 @@ function zToScore(z) {
   return Math.round(50*(1+erf((z||0)/Math.SQRT2)));
 }
 
-function industryDemean(scores, groups) {
-  const byGroup = {};
-  scores.forEach((s,i) => {
-    const k = groups[i] || 'UNK';
-    (byGroup[k] = byGroup[k] || []).push(s);
-  });
-  const groupMean = {}, groupSd = {};
-  for (const k in byGroup) {
-    groupMean[k] = statMean(byGroup[k]);
-    groupSd[k]   = statStdev(byGroup[k]) || 1;
-  }
-  return scores.map((s,i) => {
-    const k = groups[i] || 'UNK';
-    return byGroup[k].length >= 3 ? (s - groupMean[k])/groupSd[k] : s;
-  });
-}
-
-function computeQuantScores(universe, forceRelative = false) {
+function computeQuantScores(universe) {
   const N = universe.length;
-  // Fallback removed: always use cross-sectional Z-score logic even for small watchlists
   const getMetric = (s, key) => toNumber(s.metrics?.[key]);
   const nonZeroArray = a => a.filter(v => v !== 0);
-
-  const zPer = zScore(universe.map(s => getMetric(s, 'per') > 0 ? getMetric(s, 'per') : 999), false);
-  const zPbr = zScore(universe.map(s => getMetric(s, 'pbr') > 0 ? getMetric(s, 'pbr') : 999), false);
-  const zEvEbitda = zScore(universe.map(s => getMetric(s, 'evEbitda') > 0 ? getMetric(s, 'evEbitda') : 999), false);
-  const value = universe.map((_, i) => statMean(nonZeroArray([zPer[i], zPbr[i], zEvEbitda[i]]) || [0]));
-
-  const zRoe = zScore(universe.map(s => getMetric(s, 'roe')), true);
-  const zRoic = zScore(universe.map(s => getMetric(s, 'roic')), true);
-  const zOpMargin = zScore(universe.map(s => getMetric(s, 'opMargin')), true);
-  const zGpa = zScore(universe.map(s => getMetric(s, 'gpa')), true);
-  const quality = universe.map((_, i) => statMean(nonZeroArray([zRoe[i], zRoic[i], zOpMargin[i], zGpa[i]]) || [0]));
-
-  const zDebt = zScore(universe.map(s => getMetric(s, 'debtRatio')), false);
-  const zCurrent = zScore(universe.map(s => getMetric(s, 'currentRatio')), true);
-  const safety = universe.map((_, i) => statMean(nonZeroArray([zDebt[i], zCurrent[i]]) || [0]));
-
-  const zRevG = zScore(universe.map(s => getMetric(s, 'revGrowth')), true);
-  const zEpsG = zScore(universe.map(s => getMetric(s, 'epsGrowth')), true);
-  const growth = universe.map((_, i) => statMean(nonZeroArray([zRevG[i], zEpsG[i]]) || [0]));
-
-  const groups = universe.map(s => s.industryGroup);
-  const valueNeut = industryDemean(value, groups);
-  const qualityNeut = industryDemean(quality, groups);
-  const safetyNeut = industryDemean(safety, groups);
-  const growthNeut = industryDemean(growth, groups);
 
   const updates = {};
   for (let i = 0; i < N; i++) {
     const stock = universe[i];
-    const zComp = 0.3 * valueNeut[i] + 0.3 * qualityNeut[i] + 0.2 * safetyNeut[i] + 0.2 * growthNeut[i];
+    const ind = stock.industryGroup || 'ALL';
+
+    const rawPer = getMetric(stock, 'per');
+    const rawPbr = getMetric(stock, 'pbr');
+    const rawEvEbitda = getMetric(stock, 'evEbitda');
     
-    const per = getMetric(stock, 'per');
+    const zPer = zScoreMarket(rawPer > 0 ? rawPer : 999, 'per', ind, false);
+    const zPbr = zScoreMarket(rawPbr > 0 ? rawPbr : 999, 'pbr', ind, false);
+    const zEv = zScoreMarket(rawEvEbitda > 0 ? rawEvEbitda : 999, 'evEbitda', ind, false);
+    const valueNeut = statMean(nonZeroArray([zPer, zPbr, zEv]) || [0]);
+
+    const zRoe = zScoreMarket(getMetric(stock, 'roe'), 'roe', ind, true);
+    const zRoic = zScoreMarket(getMetric(stock, 'roic'), 'roic', ind, true);
+    const zOpM = zScoreMarket(getMetric(stock, 'opMargin'), 'opMargin', ind, true);
+    const zGpa = zScoreMarket(getMetric(stock, 'gpa'), 'gpa', ind, true);
+    const qualityNeut = statMean(nonZeroArray([zRoe, zRoic, zOpM, zGpa]) || [0]);
+
+    const zDebt = zScoreMarket(getMetric(stock, 'debtRatio'), 'debtRatio', ind, false);
+    const zCur = zScoreMarket(getMetric(stock, 'currentRatio'), 'currentRatio', ind, true);
+    const safetyNeut = statMean(nonZeroArray([zDebt, zCur]) || [0]);
+
+    const zRevG = zScoreMarket(getMetric(stock, 'revGrowth'), 'revGrowth', ind, true);
+    const zEpsG = zScoreMarket(getMetric(stock, 'epsGrowth'), 'epsGrowth', ind, true);
+    const growthNeut = statMean(nonZeroArray([zRevG, zEpsG]) || [0]);
+
+    const zComp = 0.3 * valueNeut + 0.3 * qualityNeut + 0.2 * safetyNeut + 0.2 * growthNeut;
+    
     const riskFlags = [
       getMetric(stock, 'epsGrowth') < -15,
       getMetric(stock, 'fcfMargin') < -5,
       getMetric(stock, 'debtRatio') > 250,
-      per > 60,
-      per <= 0 && getMetric(stock, 'roe') < 0,
+      rawPer > 60,
+      rawPer <= 0 && getMetric(stock, 'roe') < 0,
     ].filter(Boolean).length;
 
     updates[stock.id] = {
       overall: zToScore(zComp),
-      profitability: zToScore(qualityNeut[i]),
-      stability: zToScore(safetyNeut[i]),
-      growth: zToScore(growthNeut[i]),
-      valuation: zToScore(valueNeut[i]),
+      profitability: zToScore(qualityNeut),
+      stability: zToScore(safetyNeut),
+      growth: zToScore(growthNeut),
+      valuation: zToScore(valueNeut),
       risk: clamp(100 - riskFlags * 20),
       riskFlagCount: riskFlags,
       weights: { profitability: 30, stability: 20, growth: 20, valuation: 30, risk: 0 },
