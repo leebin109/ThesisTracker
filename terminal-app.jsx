@@ -55,10 +55,9 @@ const PANEL_DEFS = [
   { k: 'F5', label: 'CHART', short: 'CHART' },
   { k: 'F6', label: 'ALERTS', short: 'ALRT' },
   { k: 'F7', label: 'PEERS', short: 'PEER' },
-  { k: 'F8', label: 'CHECKLIST', short: 'CHK' },
-  { k: 'F9', label: 'CALENDAR', short: 'CAL' },
-  { k: 'F10', label: 'JOURNAL', short: 'JRN' },
-  { k: 'F11', label: 'SETTINGS', short: 'DATA' },
+  { k: 'F8', label: 'JOURNAL', short: 'JRN' },
+  { k: 'F9', label: 'PORTFOLIO', short: 'PF' },
+  { k: 'F10', label: 'SETTINGS', short: 'DATA' },
 ];
 
 const BACKUP_SCHEMA_VERSION = 2;
@@ -175,8 +174,8 @@ function normalizeStockSource(value) {
   return DEFAULT_STOCKS;
 }
 
-function buildInitialAppState() {
-  const savedRaw = loadAppState();
+async function buildInitialAppState() {
+  const savedRaw = await loadAppState();
   const saved = isPlainObject(savedRaw) ? savedRaw : {};
   let stocks = normalizeStocksMap(normalizeStockSource(saved.stocks));
   if (!Object.keys(stocks).length) stocks = normalizeStocksMap(DEFAULT_STOCKS);
@@ -211,10 +210,10 @@ function buildInitialAppState() {
   };
 }
 
-function repairSavedActiveStock() {
-  const savedRaw = loadAppState();
+async function repairSavedActiveStock() {
+  const savedRaw = await loadAppState();
   const saved = isPlainObject(savedRaw) ? savedRaw : {};
-  const next = buildInitialAppState();
+  const next = await buildInitialAppState();
   saveAppState({
     ...saved,
     stocks: next.stocks,
@@ -2359,7 +2358,7 @@ class AppErrorBoundary extends React.Component {
   }
 }
 
-function App() {
+function App({ initialData }) {
   // ── Supabase auth state ───────────────────────────────────────────────────
   const sbConfigured = isSupabaseConfigured();
   const [session, setSession]         = useState(null);
@@ -2369,9 +2368,7 @@ function App() {
   const sbSaveTimerRef  = useRef(null);
 
   // ── State ──────────────────────────────────────────────────────────────────
-  const initialRef = useRef(null);
-  if (!initialRef.current) initialRef.current = buildInitialAppState();
-  const initial = initialRef.current;
+  const initial = initialData;
 
   const [stocks, setStocks]               = useState(initial.stocks);
   const [watchlistIds, setWatchlistIds]   = useState(initial.watchlistIds);
@@ -3097,15 +3094,12 @@ function App() {
       <PeersPanel stock={stock} stocks={stocks} watchlistIds={watchlistIds} onSelect={setActiveId} onSavePeers={handleSavePeers}/>
     ),
     F8: (
-      <ChecklistPanel stock={stock} onSave={handleSaveChecklist}/>
-    ),
-    F9: (
-      <CalendarPanel stocks={stocks} watchlistIds={watchlistIds} activeId={activeId} onSelect={setActiveId} onSaveEvents={handleSaveCalendarEvents}/>
-    ),
-    F10: (
       <JournalPanel stock={stock} onCapture={handleCaptureJournal} onUpdate={handleUpdateJournal}/>
     ),
-    F11: (
+    F9: (
+      <div style={{ padding: 20, color: T.inkDim, textAlign: 'center', fontFamily: T.font }}>Portfolio 기능 준비 중 (Phase 6)</div>
+    ),
+    F10: (
       <SettingsDataPanel
         apiSettings={apiSettings}
         dartCorpMap={dartCorpMap}
@@ -3215,6 +3209,27 @@ function App() {
 }
 
 // ─── Mount ────────────────────────────────────────────────────────────────────
+function AppWrapper() {
+  const [initial, setInitial] = useState(null);
+  useEffect(() => {
+    buildInitialAppState().then(setInitial);
+  }, []);
+
+  if (!initial) {
+    return (
+      <div style={{
+        minHeight: '100vh', background: '#0a0a0a', color: '#e5e7eb', display: 'grid', placeItems: 'center', fontFamily: '"JetBrains Mono", monospace'
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 16, color: '#22d3ee' }}>THESISTRACK</div>
+          <div style={{ color: '#9ca3af', fontSize: 13, letterSpacing: '0.1em' }}>Booting Database...</div>
+        </div>
+      </div>
+    );
+  }
+  return <App initialData={initial} />;
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
-  React.createElement(AppErrorBoundary, null, React.createElement(App))
+  React.createElement(AppErrorBoundary, null, React.createElement(AppWrapper))
 );

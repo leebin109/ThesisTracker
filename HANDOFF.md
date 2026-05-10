@@ -44,6 +44,9 @@ Bloomberg Terminal 스타일의 주식 투자 관리 웹 애플리케이션입�
 - **2024-05-08 (Phase 2)**: F6 Alerts 기능 완료. `build-terminal-html.ps1` 빌드 파이프라인 도입.
 
 ## 6. 향후 과제 (Next Steps)
-- **F8 Checklist, F9 Calendar, F10 Journal**: 현재 Placeholder인 패널들을 실제 기능으로 구현.
-- **F11 Portfolio & BYOK LLM**: 사용자의 개인 API 키(OpenAI/Anthropic)를 입력받아, 보유 포트폴리오나 수집된 뉴스/공시를 AI가 자동으로 요약해주는 기능.
+- **Phase 6: UI 정돈 및 IndexedDB 마이그레이션 (진행 예정)**
+  - 사용하지 않는 `F8(Checklist)`, `F9(Calendar)` 제거 및 `F10(Journal)` → `F8` 등 단축키 라인업 최적화.
+  - 앱 용량 초과(시한폭탄) 문제를 방지하기 위해 데이터를 동기식 `localStorage`에서 비동기식 대용량 `IndexedDB`로 안전하게 이전(Migration).
+  - 초기 부팅 시 짧은 대기 화면(Booting Screen) 도입.
+- **F9 Portfolio & BYOK LLM**: 사용자의 개인 API 키(OpenAI/Anthropic)를 입력받아, 보유 포트폴리오나 수집된 뉴스/공시를 AI가 자동으로 요약해주는 기능.
 - **외부 알림 연동**: Telegram / Discord Webhook 봇 연동 (F6 Alerts의 알림을 스마트폰으로 푸시).
