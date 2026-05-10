@@ -3000,6 +3000,9 @@ function buildInitialAppState() {
   const savedApiSettings = isPlainObject(saved.apiSettings) ? saved.apiSettings : {};
   const savedAlertSettings = isPlainObject(saved.alertSettings) ? saved.alertSettings : {};
 
+  // Recalibrate relative scores on initial load so user doesn't have to manually refresh
+  stocks = applyQuantScores(stocks, watchlistIds);
+
   return {
     stocks,
     watchlistIds,
