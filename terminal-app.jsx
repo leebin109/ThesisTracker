@@ -3,7 +3,7 @@
 /* global fmtNum, fmtPx, sign, colorForChange, safeFixed, kbdStyle */
 /* global TT_KEY, DEFAULT_STOCKS, DEFAULT_WATCHLIST_IDS, DEFAULT_API_SETTINGS, DEFAULT_DART_CORP_MAP, DEFAULT_MARKET_TICKERS */
 /* global DEFAULT_ALERT_SETTINGS, ALERT_RETENTION_DAYS */
-/* global loadAppState, saveAppState, computeScores, computeDynamicQuality, getDaysLeft */
+/* global loadAppState, saveAppState, computeScores, computeQuantScores, applyQuantScores, computeDynamicQuality, getDaysLeft */
 /* global fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp, summarizeWithClaude */
 /* global fetchYahooChartOhlc, toYahooSymbol */
 /* global fetchAlertsForStock, pruneAlerts */
@@ -2653,9 +2653,11 @@ function App() {
         const old = { ...updated[stockId] };
         const newMetrics = { ...old.metrics, ...(payload.metrics || {}) };
         const newIndustryGroup = payload.industryGroup || old.industryGroup || null;
-        const newScores = computeScores(newMetrics, newIndustryGroup);
+        
+        // Push the old score to history before computing the new one
         const now = new Date().toISOString().slice(0, 10);
-        const newScoreHistory = [...(old.scoreHistory || []).slice(-11), newScores.overall ?? old.scores?.overall ?? 0];
+        const newScoreHistory = [...(old.scoreHistory || []).slice(-11), old.scores?.overall ?? 0];
+
         updated[stockId] = {
           ...old,
           ...(payload.name !== undefined ? { name: payload.name } : {}),
@@ -2668,10 +2670,11 @@ function App() {
           ...(newIndustryGroup ? { industryGroup: newIndustryGroup } : {}),
           refreshedAt: now,
           metrics: newMetrics,
-          scores: newScores,
           scoreHistory: newScoreHistory,
         };
-        return updated;
+
+        // Recompute cross-sectional Z-Scores for the entire watchlist
+        return applyQuantScores(updated, watchlistIdsRef.current || []);
       });
 
       if (Object.keys(cacheUpdates).length) {
@@ -2711,8 +2714,12 @@ function App() {
         currency: result.currency || 'USD',
         flag: result.flag || '🏷️', country: result.country || '기타',
       });
-      setStocks(prev => prev[id] ? prev : ({ ...prev, [id]: newStock }));
-      setWatchlistIds(prev => [...new Set([...normalizeIdList(prev), id].filter(Boolean))]);
+      const newWatchlistIds = [...new Set([...normalizeIdList(watchlistIdsRef.current), id].filter(Boolean))];
+      setStocks(prev => {
+        const next = prev[id] ? prev : ({ ...prev, [id]: newStock });
+        return applyQuantScores(next, newWatchlistIds);
+      });
+      setWatchlistIds(newWatchlistIds);
       setActiveId(id);
       toast(`${id} 워치리스트 추가 완료. 데이터를 새로고침하세요.`, 'ok');
     } catch (e) {
@@ -2725,9 +2732,13 @@ function App() {
   const handleRemove = useCallback((id) => {
     const removeId = normalizeStockId(id);
     setWatchlistIds(prev => {
-      const next = prev.filter(x => normalizeStockId(x) !== removeId);
-      if (activeId === removeId && next.length) setActiveId(next[0]);
-      return next;
+      const nextWatchlistIds = prev.filter(x => normalizeStockId(x) !== removeId);
+      if (activeId === removeId && nextWatchlistIds.length) setActiveId(nextWatchlistIds[0]);
+      
+      // Update scores for the new universe
+      setStocks(currStocks => applyQuantScores(currStocks, nextWatchlistIds));
+      
+      return nextWatchlistIds;
     });
   }, [activeId]);
 

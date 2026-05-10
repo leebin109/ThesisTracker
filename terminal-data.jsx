@@ -508,6 +508,145 @@ function computeScores(metrics, industryGroup) {
   return { overall, profitability, stability, growth, valuation, risk, riskFlagCount: riskFlags.filter(Boolean).length, weights: w, industryGroup: industryGroup || null };
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Quant Scoring Engine (Cross-Sectional Z-Scores)
+// ═══════════════════════════════════════════════════════════════
+const statMean = a => a.length ? a.reduce((s,x)=>s+x,0) / a.length : 0;
+const statStdev = a => { const m=statMean(a); return Math.sqrt(statMean(a.map(x=>(x-m)**2))); };
+
+function winsorize(arr, p = 0.05) {
+  const s = [...arr].sort((a,b)=>a-b);
+  if (!s.length) return [];
+  const lo = s[Math.floor(p*s.length)] ?? s[0];
+  const hi = s[Math.ceil((1-p)*s.length)-1] ?? s[s.length-1];
+  return arr.map(x => Math.max(lo, Math.min(hi, x)));
+}
+
+function zScore(rawValues, higherIsBetter = true, winsorPct = 0.05) {
+  const valid = rawValues.filter(v => v != null && Number.isFinite(v));
+  if (valid.length < 2) return rawValues.map(() => 0);
+  const w = winsorize(valid, winsorPct);
+  const m = statMean(w), sd = statStdev(w) || 1;
+  return rawValues.map(v => {
+    if (v == null || !Number.isFinite(v)) return 0;
+    const wv = Math.max(w[0], Math.min(w[w.length-1], v));
+    const z  = (wv - m) / sd;
+    const clipped = Math.max(-3, Math.min(3, z));
+    return higherIsBetter ? clipped : -clipped;
+  });
+}
+
+function zToScore(z) {
+  const erf = x => {
+    const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911;
+    const sign = x<0 ? -1 : 1; x = Math.abs(x);
+    const t = 1/(1+p*x);
+    const y = 1-(((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-x*x);
+    return sign*y;
+  };
+  return Math.round(50*(1+erf((z||0)/Math.SQRT2)));
+}
+
+function industryDemean(scores, groups) {
+  const byGroup = {};
+  scores.forEach((s,i) => {
+    const k = groups[i] || 'UNK';
+    (byGroup[k] = byGroup[k] || []).push(s);
+  });
+  const groupMean = {}, groupSd = {};
+  for (const k in byGroup) {
+    groupMean[k] = statMean(byGroup[k]);
+    groupSd[k]   = statStdev(byGroup[k]) || 1;
+  }
+  return scores.map((s,i) => {
+    const k = groups[i] || 'UNK';
+    return byGroup[k].length >= 3 ? (s - groupMean[k])/groupSd[k] : s;
+  });
+}
+
+function computeQuantScores(universe, forceRelative = false) {
+  const N = universe.length;
+  if (N < 15 && !forceRelative) {
+    const updates = {};
+    for (const stock of universe) {
+      updates[stock.id] = computeScores(stock.metrics || {}, stock.industryGroup);
+    }
+    return updates;
+  }
+
+  const getMetric = (s, key) => toNumber(s.metrics?.[key]);
+  const nonZeroArray = a => a.filter(v => v !== 0);
+
+  const zPer = zScore(universe.map(s => getMetric(s, 'per') > 0 ? getMetric(s, 'per') : 999), false);
+  const zPbr = zScore(universe.map(s => getMetric(s, 'pbr') > 0 ? getMetric(s, 'pbr') : 999), false);
+  const zEvEbitda = zScore(universe.map(s => getMetric(s, 'evEbitda') > 0 ? getMetric(s, 'evEbitda') : 999), false);
+  const value = universe.map((_, i) => statMean(nonZeroArray([zPer[i], zPbr[i], zEvEbitda[i]]) || [0]));
+
+  const zRoe = zScore(universe.map(s => getMetric(s, 'roe')), true);
+  const zRoic = zScore(universe.map(s => getMetric(s, 'roic')), true);
+  const zOpMargin = zScore(universe.map(s => getMetric(s, 'opMargin')), true);
+  const zGpa = zScore(universe.map(s => getMetric(s, 'gpa')), true);
+  const quality = universe.map((_, i) => statMean(nonZeroArray([zRoe[i], zRoic[i], zOpMargin[i], zGpa[i]]) || [0]));
+
+  const zDebt = zScore(universe.map(s => getMetric(s, 'debtRatio')), false);
+  const zCurrent = zScore(universe.map(s => getMetric(s, 'currentRatio')), true);
+  const safety = universe.map((_, i) => statMean(nonZeroArray([zDebt[i], zCurrent[i]]) || [0]));
+
+  const zRevG = zScore(universe.map(s => getMetric(s, 'revGrowth')), true);
+  const zEpsG = zScore(universe.map(s => getMetric(s, 'epsGrowth')), true);
+  const growth = universe.map((_, i) => statMean(nonZeroArray([zRevG[i], zEpsG[i]]) || [0]));
+
+  const groups = universe.map(s => s.industryGroup);
+  const valueNeut = industryDemean(value, groups);
+  const qualityNeut = industryDemean(quality, groups);
+  const safetyNeut = industryDemean(safety, groups);
+  const growthNeut = industryDemean(growth, groups);
+
+  const updates = {};
+  for (let i = 0; i < N; i++) {
+    const stock = universe[i];
+    const zComp = 0.3 * valueNeut[i] + 0.3 * qualityNeut[i] + 0.2 * safetyNeut[i] + 0.2 * growthNeut[i];
+    
+    const per = getMetric(stock, 'per');
+    const riskFlags = [
+      getMetric(stock, 'epsGrowth') < -15,
+      getMetric(stock, 'fcfMargin') < -5,
+      getMetric(stock, 'debtRatio') > 250,
+      per > 60,
+      per <= 0 && getMetric(stock, 'roe') < 0,
+    ].filter(Boolean).length;
+
+    updates[stock.id] = {
+      overall: zToScore(zComp),
+      profitability: zToScore(qualityNeut[i]),
+      stability: zToScore(safetyNeut[i]),
+      growth: zToScore(growthNeut[i]),
+      valuation: zToScore(valueNeut[i]),
+      risk: clamp(100 - riskFlags * 20),
+      riskFlagCount: riskFlags,
+      weights: { profitability: 30, stability: 20, growth: 20, valuation: 30, risk: 0 },
+      industryGroup: stock.industryGroup || null,
+      isRelative: true
+    };
+  }
+  return updates;
+}
+
+function applyQuantScores(stocksMap, watchlistIds) {
+  const universe = (watchlistIds || []).map(id => stocksMap[id]).filter(Boolean);
+  const scoreUpdates = computeQuantScores(universe);
+  let changed = false;
+  const next = { ...stocksMap };
+  for (const [id, newScores] of Object.entries(scoreUpdates)) {
+    const old = next[id];
+    if (old) {
+      next[id] = { ...old, scores: newScores };
+      changed = true;
+    }
+  }
+  return changed ? next : stocksMap;
+}
+
 function computeDynamicQuality(stock) {
   const items = [];
   const today = new Date();
@@ -939,6 +1078,12 @@ function mapAlphaPayload(stock, raw) {
   const capex = Math.abs(toNumber(cashFlowReport.capitalExpenditures));
   const revenue = toNumber(incomeReport.totalRevenue);
   const fcfMargin = revenue ? ((opCF - capex) / revenue) * 100 : NaN;
+  const totalAssets = toNumber(balanceReport.totalAssets);
+  const grossProfit = toNumber(overview.GrossProfitTTM) || toNumber(incomeReport.grossProfit);
+  const gpa = (grossProfit && totalAssets) ? (grossProfit / totalAssets) * 100 : NaN;
+  const evEbitda = toNumber(overview.EVToEBITDA);
+  const roa = decimalToPercent(overview.ReturnOnAssetsTTM); // Proxy for ROIC
+
   const latestQuarter = overview.LatestQuarter || '';
   const metrics = compactMetrics({
     per: toNumber(overview.PERatio),
@@ -950,6 +1095,9 @@ function mapAlphaPayload(stock, raw) {
     epsGrowth: decimalToPercent(overview.QuarterlyEarningsGrowthYOY),
     currentRatio,
     fcfMargin,
+    evEbitda,
+    gpa,
+    roic: roa, // fallback to ROA
   });
   const industryGroup = detectIndustry(overview.Sector, overview.Industry);
   return {
@@ -991,6 +1139,8 @@ function mapFmpPayload(stock, raw, fmpSym) {
     debtRatio: decimalToPercent(firstFinite(ratios.debtEquityRatioTTM, ratios.debtToEquityRatioTTM)),
     revGrowth: decimalToPercent(firstFinite(ratios.revenueGrowthTTM, keyMetrics.revenueGrowthTTM)),
     currentRatio: decimalToPercent(firstFinite(ratios.currentRatioTTM, ratios.currentRatio)),
+    evEbitda: firstFinite(ratios.enterpriseValueMultipleTTM, keyMetrics.enterpriseValueOverEBITDATTM),
+    roic: decimalToPercent(firstFinite(ratios.returnOnCapitalEmployedTTM, ratios.returnOnInvestedCapitalTTM)),
   });
   const industryGroup = detectIndustry(profile.sector, profile.industry);
   return {
@@ -1038,9 +1188,11 @@ function mapOpenDartPayload(stock, raw, corp, currentPrice, shares) {
 
   const totalLiab = getDartAmt(findDartRow(rows, ['ifrs-full_Liabilities'], ['부채총계', 'Total liabilities']));
   const totalEquity = getDartAmt(findDartRow(rows, ['ifrs-full_Equity','ifrs-full_EquityAttributableToOwnersOfParent'], ['자본총계', 'Total equity']));
+  const totalAssets = getDartAmt(findDartRow(rows, ['ifrs-full_Assets'], ['자산총계', 'Total assets']));
   const currAssets = getDartAmt(findDartRow(rows, ['ifrs-full_CurrentAssets'], ['유동자산', 'Current assets']));
   const currLiab = getDartAmt(findDartRow(rows, ['ifrs-full_CurrentLiabilities'], ['유동부채', 'Current liabilities']));
   const revenueRow = findDartRow(rows, ['ifrs-full_Revenue','ifrs-full_SalesRevenue'], ['매출액', '수익(매출액)', 'Revenue']);
+  const grossProfitRow = findDartRow(rows, ['ifrs-full_GrossProfit'], ['매출총이익', 'Gross profit']);
   const opIncomeRow = findDartRow(rows, ['dart_OperatingIncomeLoss','ifrs-full_ProfitLossFromOperatingActivities'], ['영업이익', 'Operating income']);
   const netIncomeRow = findDartRow(rows, ['ifrs-full_ProfitLoss'], ['당기순이익', 'Profit']);
   const epsRow = findDartRow(rows, ['ifrs-full_BasicEarningsLossPerShare','ifrs-full_BasicAndDilutedEarningsLossPerShare'], ['기본주당이익', '주당순이익', 'Basic earnings']);
@@ -1053,6 +1205,7 @@ function mapOpenDartPayload(stock, raw, corp, currentPrice, shares) {
 
   const revenue = getDartAmt(revenueRow);
   const prevRevenue = getPrevDartAmt(revenueRow);
+  const grossProfit = getDartAmt(grossProfitRow);
   const opIncome = getDartAmt(opIncomeRow);
   const netIncome = getDartAmt(netIncomeRow);
   const eps = getDartAmt(epsRow);
@@ -1084,6 +1237,8 @@ function mapOpenDartPayload(stock, raw, corp, currentPrice, shares) {
     revGrowth: prevRevenue ? ((revenue - prevRevenue) / Math.abs(prevRevenue)) * 100 : NaN,
     epsGrowth: prevEps ? ((eps - prevEps) / Math.abs(prevEps)) * 100 : NaN,
     currentRatio: currLiab ? (currAssets / currLiab) * 100 : NaN,
+    gpa: (grossProfit && totalAssets) ? (grossProfit / totalAssets) * 100 : NaN,
+    roic: (totalEquity && totalLiab) ? (opIncome / (totalEquity + totalLiab - currLiab)) * 100 : NaN, // Proxy ROIC: EBIT / (Total Assets - Current Liabilities)
   });
 
   return {
@@ -1649,7 +1804,7 @@ Object.assign(window, {
   DEFAULT_DART_CORP_MAP, DEFAULT_MARKET_TICKERS, DEFAULT_ALERT_SETTINGS,
   ALERT_RETENTION_DAYS,
   loadAppState, saveAppState,
-  computeScores, computeDynamicQuality,
+  computeScores, computeQuantScores, applyQuantScores, computeDynamicQuality,
   getDaysLeft, fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp,
   normalizeKrxStockCode, getDartCorpEntry, fetchLocalDartCorpMap,
   inferMarketFromExchange, normalizeSymbolForMarket, getMarketProfile, buildYahooChartUrl, buildYahooSearchUrl,
