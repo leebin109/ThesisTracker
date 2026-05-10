@@ -360,7 +360,7 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
       <button
         onClick={onSearch}
         style={{
-          flex: '1 1 auto', minWidth: 100, maxWidth: 340,
+          flex: '0 1 640px', minWidth: 200,
           height: 22, background: T.bg, border: `1px solid ${T.border}`,
           display: 'flex', alignItems: 'center', gap: 8, padding: '0 10px',
           cursor: 'pointer', textAlign: 'left',
@@ -372,7 +372,7 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
         </span>
       </button>
 
-      <div style={{ flex: '0 0 auto' }}/>
+      <div style={{ flex: '1 1 auto' }}/>
 
       {/* Right side status */}
       {providerStatus && (

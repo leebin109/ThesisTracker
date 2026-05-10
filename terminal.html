@@ -748,7 +748,7 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
       <button
         onClick={onSearch}
         style={{
-          flex: '1 1 auto', minWidth: 100, maxWidth: 340,
+          flex: '0 1 640px', minWidth: 200,
           height: 22, background: T.bg, border: `1px solid ${T.border}`,
           display: 'flex', alignItems: 'center', gap: 8, padding: '0 10px',
           cursor: 'pointer', textAlign: 'left',
@@ -760,7 +760,7 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
         </span>
       </button>
 
-      <div style={{ flex: '0 0 auto' }}/>
+      <div style={{ flex: '1 1 auto' }}/>
 
       {/* Right side status */}
       {providerStatus && (
@@ -1583,6 +1583,38 @@ async function fetchYahooChart(symbol) {
   return data;
 }
 
+async function fetchKrxYahooPrice(stock) {
+  const baseSym = String(stock.symbol || '').replace(/\D/g, '').padStart(6, '0');
+  if (baseSym.length !== 6) throw new Error(`KRX 심볼 파싱 실패: ${stock.symbol}`);
+  const candidates = [`${baseSym}.KS`, `${baseSym}.KQ`];
+  let lastErr = null;
+  for (const sym of candidates) {
+    try {
+      const data = await fetchYahooChart(sym);
+      const result = data?.chart?.result?.[0];
+      if (!result) continue;
+      const meta = result.meta || {};
+      const closes = (result.indicators?.quote?.[0]?.close || []).map(toNumber).filter(v => Number.isFinite(v) && v > 0);
+      const price = firstFinite(meta.regularMarketPrice, closes.at(-1));
+      if (!Number.isFinite(price) || price <= 0) continue;
+      const prevClose = firstFinite(meta.chartPreviousClose, meta.previousClose, closes.length > 1 ? closes.at(-2) : NaN);
+      return {
+        name: meta.longName || meta.shortName || stock.name,
+        currency: 'KRW',
+        price: Math.round(price),
+        prevClose: Number.isFinite(prevClose) ? Math.round(prevClose) : undefined,
+        priceHistory: closes.slice(-15).map(v => Math.round(v)),
+        metrics: {},
+        asOf: new Date().toISOString().slice(0, 10),
+        priceSrc: `Yahoo (${sym})`,
+      };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw new Error(`Yahoo KRX 가격 조회 실패: ${lastErr?.message || 'no data'}`);
+}
+
 async function fetchYahooQuote(symbol) {
   const fields = 'symbol,shortName,longName,currency,regularMarketPrice,regularMarketTime,trailingPE,forwardPE,priceToBook,bookValue,epsTrailingTwelveMonths,epsForward,marketCap';
   const params = new URLSearchParams({ symbols: symbol, fields });
@@ -1883,7 +1915,13 @@ function mapOpenDartPayload(stock, raw, corp, currentPrice) {
   const revenueRow = findDartRow(rows, ['ifrs-full_Revenue','ifrs-full_SalesRevenue'], ['매출액', '수익(매출액)', 'Revenue']);
   const opIncomeRow = findDartRow(rows, ['dart_OperatingIncomeLoss','ifrs-full_ProfitLossFromOperatingActivities'], ['영업이익', 'Operating income']);
   const netIncomeRow = findDartRow(rows, ['ifrs-full_ProfitLoss'], ['당기순이익', 'Profit']);
-  const epsRow = findDartRow(rows, ['ifrs-full_BasicEarningsLossPerShare'], ['기본주당이익', 'Basic earnings']);
+  const epsRow = findDartRow(rows, ['ifrs-full_BasicEarningsLossPerShare','ifrs-full_BasicAndDilutedEarningsLossPerShare'], ['기본주당이익', '주당순이익', 'Basic earnings']);
+  const opCFRow = findDartRow(rows,
+    ['ifrs-full_CashFlowsFromUsedInOperatingActivities','dart_CashFlowsFromOperatingActivities'],
+    ['영업활동현금흐름', '영업활동으로 인한 현금흐름', 'Operating cash']);
+  const capexRow = findDartRow(rows,
+    ['ifrs-full_PurchaseOfPropertyPlantAndEquipment','dart_PurchaseOfPropertyPlantAndEquipment'],
+    ['유형자산의 취득', '유형자산취득', 'Property, plant']);
 
   const revenue = getDartAmt(revenueRow);
   const prevRevenue = getPrevDartAmt(revenueRow);
@@ -1891,11 +1929,26 @@ function mapOpenDartPayload(stock, raw, corp, currentPrice) {
   const netIncome = getDartAmt(netIncomeRow);
   const eps = getDartAmt(epsRow);
   const prevEps = getPrevDartAmt(epsRow);
+  const opCF = getDartAmt(opCFRow);
+  const capex = Math.abs(getDartAmt(capexRow));
+  const fcf = (Number.isFinite(opCF) && Number.isFinite(capex)) ? opCF - capex : NaN;
+
+  // PBR via implied shares: shares = netIncome / eps  →  BPS = totalEquity / shares
+  let pbr = NaN;
+  if (currentPrice && totalEquity > 0 && Number.isFinite(eps) && Math.abs(eps) > 0.01 && Number.isFinite(netIncome) && netIncome !== 0) {
+    const sharesEst = netIncome / eps;
+    if (sharesEst > 0) {
+      const bps = totalEquity / sharesEst;
+      if (bps > 0) pbr = currentPrice / bps;
+    }
+  }
 
   const metrics = compactMetrics({
     per: (currentPrice && eps) ? currentPrice / eps : NaN,
+    pbr,
     roe: totalEquity ? (netIncome / totalEquity) * 100 : NaN,
     opMargin: revenue ? (opIncome / revenue) * 100 : NaN,
+    fcfMargin: (revenue && Number.isFinite(fcf)) ? (fcf / revenue) * 100 : NaN,
     debtRatio: totalEquity ? (totalLiab / totalEquity) * 100 : NaN,
     revGrowth: prevRevenue ? ((revenue - prevRevenue) / Math.abs(prevRevenue)) * 100 : NaN,
     epsGrowth: prevEps ? ((eps - prevEps) / Math.abs(prevEps)) * 100 : NaN,
@@ -1922,16 +1975,30 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
     const results = {};
 
     if (apiSettings.dataGoKrKey) {
-      const priceKey = buildKrPriceCacheKey(stock);
-      const priceCache = getCachedEntry(cache, priceKey, apiSettings.cacheDays);
-      if (priceCache) {
-        results.price = priceCache.payload;
-      } else {
-        onStatus('공공데이터 주가 조회 중...');
-        const item = await fetchKoreanStockPrice(stock.symbol, apiSettings.dataGoKrKey);
-        results.price = mapKrPricePayload(stock, item);
-        results.priceKey = priceKey;
-        results.priceCacheEntry = { fetchedAt: new Date().toISOString(), provider: 'dataGoKrStockPrice', payload: results.price };
+      try {
+        const priceKey = buildKrPriceCacheKey(stock);
+        const priceCache = getCachedEntry(cache, priceKey, apiSettings.cacheDays);
+        if (priceCache) {
+          results.price = priceCache.payload;
+        } else {
+          onStatus('공공데이터 주가 조회 중...');
+          const item = await fetchKoreanStockPrice(stock.symbol, apiSettings.dataGoKrKey);
+          results.price = mapKrPricePayload(stock, item);
+          results.priceKey = priceKey;
+          results.priceCacheEntry = { fetchedAt: new Date().toISOString(), provider: 'dataGoKrStockPrice', payload: results.price };
+        }
+      } catch (e) {
+        onStatus(`data.go.kr 실패 — Yahoo로 폴백 (${e.message?.slice(0, 50)})`);
+      }
+    }
+
+    // Fallback: Yahoo Finance for KRX price if data.go.kr unavailable/failed
+    if (!results.price) {
+      try {
+        onStatus('Yahoo 한국주식 가격 조회 중...');
+        results.price = await fetchKrxYahooPrice(stock);
+      } catch (e) {
+        onStatus(`Yahoo 폴백 실패 (${e.message?.slice(0, 50)})`);
       }
     }
 
