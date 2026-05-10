@@ -1604,7 +1604,7 @@ async function fetchKrxYahooPrice(stock) {
       if (!result) continue;
       const meta = result.meta || {};
       const closes = (result.indicators?.quote?.[0]?.close || []).map(toNumber).filter(v => Number.isFinite(v) && v > 0);
-      const price = firstFinite(meta.regularMarketPrice, closes.at(-1));
+      const price = firstFinite(closes.at(-1), meta.regularMarketPrice);
       if (!Number.isFinite(price) || price <= 0) continue;
       const prevClose = firstFinite(meta.chartPreviousClose, meta.previousClose, closes.length > 1 ? closes.at(-2) : NaN);
       const yahooName = isCleanCompanyName(meta.longName) ? meta.longName
@@ -1656,7 +1656,7 @@ async function fetchLivePriceForSymbol(stock, yahooSym) {
 
   if (!result) throw new Error('Yahoo live result 없음');
   const meta = result.meta || {};
-  const price = firstFinite(meta.regularMarketPrice, closes.at(-1));
+  const price = firstFinite(closes.at(-1), meta.regularMarketPrice);
   const prevClose = firstFinite(meta.chartPreviousClose, meta.previousClose, closes.length > 1 ? closes.at(-2) : NaN, stock.prevClose);
   if (!Number.isFinite(price) || price <= 0) throw new Error('Yahoo live 가격 없음');
   const ts = firstFinite(meta.regularMarketTime, result.timestamp?.at(-1));
