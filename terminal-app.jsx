@@ -304,19 +304,28 @@ function WatchlistPanel({ stocks, watchlistIds, activeId, onSelect, onAdd, onRem
                 background: active ? `${T.amber}12` : 'transparent',
                 borderLeft: `2px solid ${active ? T.amber : 'transparent'}`,
               }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
-                <span style={{ fontWeight: 700, fontSize: 12, color: active ? T.amber : T.ink }}>{s.symbol}</span>
-                <span style={{ fontSize: 10, color: rec.color, fontWeight: 600 }}>{rec.text}</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 10.5, color: T.inkDim, fontVariantNumeric: 'tabular-nums' }}>
-                  {s.currency === 'KRW' ? `₩${fmtPx(s.price, 'KRW')}` : `$${fmtPx(s.price, s.currency)}`}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2, gap: 4 }}>
+                <span style={{
+                  fontWeight: 700, fontSize: 12, color: active ? T.amber : T.ink,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  minWidth: 0, flex: 1,
+                }} title={s.name || s.symbol}>
+                  {s.name || s.symbol}
                 </span>
-                <span style={{ fontSize: 10, color: colorForChange(change), fontVariantNumeric: 'tabular-nums' }}>
+                <span style={{ fontSize: 10, color: rec.color, fontWeight: 600, flex: '0 0 auto' }}>{rec.text}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                  <span style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.06em', flex: '0 0 auto' }}>{s.symbol}</span>
+                  <span style={{ fontSize: 10.5, color: T.inkDim, fontVariantNumeric: 'tabular-nums' }}>
+                    {s.currency === 'KRW' ? `₩${fmtPx(s.price, 'KRW')}` : `$${fmtPx(s.price, s.currency)}`}
+                  </span>
+                </span>
+                <span style={{ fontSize: 10, color: colorForChange(change), fontVariantNumeric: 'tabular-nums', flex: '0 0 auto' }}>
                   {sign(pct)}{safeFixed(pct, 2)}%
                 </span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Spark data={s.priceHistory || []} width={80} height={16} color={colorForChange(change)} fill={false}/>
                 <span style={{ fontSize: 9.5, color: T.inkFaint }}>
                   {Number.isFinite(s.scores?.overall) ? `${s.scores.overall}pt` : '–'}
