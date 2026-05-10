@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/terminal.html" }
+    { "source": "/((?!api/).*)", "destination": "/terminal.html" }
   ],
   "headers": [
     {
