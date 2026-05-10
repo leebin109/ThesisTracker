@@ -1555,14 +1555,7 @@ function industryDemean(scores, groups) {
 
 function computeQuantScores(universe, forceRelative = false) {
   const N = universe.length;
-  if (N < 15 && !forceRelative) {
-    const updates = {};
-    for (const stock of universe) {
-      updates[stock.id] = computeScores(stock.metrics || {}, stock.industryGroup);
-    }
-    return updates;
-  }
-
+  // Fallback removed: always use cross-sectional Z-score logic even for small watchlists
   const getMetric = (s, key) => toNumber(s.metrics?.[key]);
   const nonZeroArray = a => a.filter(v => v !== 0);
 
@@ -3146,11 +3139,11 @@ function WatchlistPanel({ stocks, watchlistIds, activeId, onSelect, onAdd, onRem
 
 // ─── Score breakdown ──────────────────────────────────────────────────────────
 const SCORE_TOOLTIPS = {
-  profitability: 'ROE (50%) + OP MARGIN (30%) + FCF MARGIN (20%)\n높을수록 좋음 · 산업군별 임계값 적용',
-  stability:     'DEBT/EQ (55%) + CUR RATIO (45%)\n부채비율↓ 유동비율↑ 좋음 · 산업군별 임계값 적용',
-  growth:        'REV GROWTH (48%) + EPS GROWTH (52%)\n전년 대비 성장률 · 산업군별 임계값 적용',
-  valuation:     'PER (60%) + PBR (40%)\n낮을수록 좋음 · 음수 PER는 0점 처리',
-  risk:          '아래 플래그 1개당 -22점:\n· EPS 성장률 < 0\n· FCF 마진 < 0\n· 부채비율 > 150%\n· PER > 70\n· PER ≤ 0 (적자)',
+  profitability: 'QUALITY 팩터 (Cross-sectional Z-Score)\nROE, ROIC, GP/A, OP Margin 종합\n워치리스트/섹터 내 상대 평가',
+  stability:     'SAFETY 팩터 (Cross-sectional Z-Score)\n부채비율(Debt/Eq), 유동비율(Cur Ratio) 종합\n워치리스트/섹터 내 상대 평가',
+  growth:        'GROWTH 팩터 (Cross-sectional Z-Score)\n매출 성장률, EPS 성장률 종합\n워치리스트/섹터 내 상대 평가',
+  valuation:     'VALUE 팩터 (Cross-sectional Z-Score)\nPER, PBR, EV/EBITDA 종합 (낮을수록 고득점)\n워치리스트/섹터 내 상대 평가',
+  risk:          'RISK 플래그\n아래 플래그 1개당 감점:\n· EPS 성장률 < -15%\n· FCF 마진 < -5%\n· 부채비율 > 250%\n· PER > 60\n· 적자 (PER<=0 & ROE<0)',
 };
 
 function ScoreBreakdown({ scores, activeDim, onDimClick }) {

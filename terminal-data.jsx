@@ -566,14 +566,7 @@ function industryDemean(scores, groups) {
 
 function computeQuantScores(universe, forceRelative = false) {
   const N = universe.length;
-  if (N < 15 && !forceRelative) {
-    const updates = {};
-    for (const stock of universe) {
-      updates[stock.id] = computeScores(stock.metrics || {}, stock.industryGroup);
-    }
-    return updates;
-  }
-
+  // Fallback removed: always use cross-sectional Z-score logic even for small watchlists
   const getMetric = (s, key) => toNumber(s.metrics?.[key]);
   const nonZeroArray = a => a.filter(v => v !== 0);
 
