@@ -197,7 +197,7 @@ const CommandBar = ({ symbol, onSymbol, activePanel = 'F1', onSearch, onSettings
   const statusColor = providerStatus?.kind === 'ok' ? T.green : providerStatus?.kind === 'warn' ? T.yellow : providerStatus?.kind === 'error' ? T.red : T.inkFaint;
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 18, height: 36, padding: '0 14px',
+      display: 'flex', alignItems: 'center', gap: 18, height: 36, padding: '0 14px 0 20px',
       background: T.surface, borderBottom: `1px solid ${T.border}`,
       whiteSpace: 'nowrap', overflow: 'hidden',
     }}>
