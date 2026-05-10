@@ -240,7 +240,7 @@ function resetSavedAppState() {
   window.location.reload();
 }
 
-const APP_UI_SCALE = 1.1;
+const APP_UI_SCALE = 1.0;
 
 const providerLabels = {
   yahooExperimental: 'YAHOO',
