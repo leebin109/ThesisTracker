@@ -135,7 +135,7 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
   }, []);
 
   const height = h || 200;
-  const pad = { l: 50, r: 12, t: 10, b: 22 };
+  const pad = { l: 50, r: 12, t: 10, b: 30 };
   const cw = Math.max(1, w - pad.l - pad.r);
   const ch = Math.max(1, height - pad.t - pad.b);
 
@@ -146,6 +146,18 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
   }
 
   const yLabel = v => v >= 10000 ? (v / 1000).toFixed(0) + 'k' : v >= 1000 ? v.toFixed(0) : v.toFixed(1);
+  const fmtXDate = d => {
+    if (!d) return '';
+    const m = parseInt(d.slice(5, 7), 10);
+    const day = parseInt(d.slice(8, 10), 10);
+    return `${m}/${day}`;
+  };
+  const xTickIndices = len => {
+    if (len <= 1) return [0];
+    const n = Math.min(6, len);
+    const step = (len - 1) / (n - 1);
+    return Array.from({ length: n }, (_, i) => Math.round(i * step));
+  };
 
   if (isCandle) {
     const valid = ohlcData.filter(c => Number.isFinite(c.low) && Number.isFinite(c.high) && c.low > 0);
@@ -159,6 +171,7 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
     const cWid = Math.max(2, Math.floor(cw / n) - 1);
     const xp = i => pad.l + ((i + 0.5) / n) * cw;
     const ticks = Array.from({ length: 5 }, (_, i) => top - ((top - bot) * i) / 4);
+    const xTicks = xTickIndices(valid.length);
     return (
       <div ref={ref} style={{ width: '100%', height: '100%', position: 'relative' }}>
         {w > 0 && h > 0 && (
@@ -187,6 +200,11 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
                 </g>
               );
             })}
+            {xTicks.map(i => (
+              <text key={i} x={xp(i)} y={pad.t + ch + 16} textAnchor="middle" fontSize="8.5" fill={T.inkFaint} fontFamily={T.font}>
+                {fmtXDate(valid[i]?.date)}
+              </text>
+            ))}
           </svg>
         )}
       </div>
@@ -207,6 +225,7 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
   const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(' ');
   const area = pts.length ? `${path} L ${pad.l + cw} ${pad.t + ch} L ${pad.l} ${pad.t + ch} Z` : '';
   const [lx, ly] = pts[pts.length - 1] || [0, 0];
+  const xTicks = ohlcData.length > 0 ? xTickIndices(ohlcData.length) : [];
   return (
     <div ref={ref} style={{ width: '100%', height: '100%', position: 'relative' }}>
       {w > 0 && h > 0 && (
@@ -235,6 +254,14 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
               <line x1={pad.l} x2={pad.l + cw} y1={ly} y2={ly} stroke={accent} strokeWidth="0.6" strokeDasharray="3 3" opacity="0.5"/>
             </g>
           )}
+          {xTicks.map(i => {
+            const x = pad.l + (i / Math.max(1, ohlcData.length - 1)) * cw;
+            return (
+              <text key={i} x={x} y={pad.t + ch + 16} textAnchor="middle" fontSize="8.5" fill={T.inkFaint} fontFamily={T.font}>
+                {fmtXDate(ohlcData[i]?.date)}
+              </text>
+            );
+          })}
         </svg>
       )}
     </div>
