@@ -2966,7 +2966,7 @@ function App() {
 
         {/* Panel area */}
         <div style={{ overflow: 'hidden', padding: 10, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          <div style={{ flex: 1, overflow: 'auto', minHeight: 400 }}>
+          <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
             {panelContent[activePanel] || panelContent.F1}
           </div>
         </div>
