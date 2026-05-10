@@ -2815,7 +2815,7 @@ function App() {
   // ── Panel content ──────────────────────────────────────────────────────────
   const panelContent = {
     F1: (
-      <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gridTemplateRows: '1fr 1fr', gap: 8, height: '100%' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gridTemplateRows: 'auto 1fr', gap: 8, height: '100%' }}>
         <div style={{ gridRow: '1 / 3' }}>
           <ScoreBreakdown scores={stock.scores}/>
         </div>

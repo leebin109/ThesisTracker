@@ -36,7 +36,7 @@ const safeFixed = (v, d = 1) => Number.isFinite(Number(v)) ? Number(v).toFixed(d
 const Cell = ({ label, children, accent, style }) => (
   <div style={{
     border: `1px solid ${T.border}`, background: T.surface, position: 'relative',
-    display: 'flex', flexDirection: 'column', minHeight: 0,
+    display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden',
     ...style,
   }}>
     {label && (
