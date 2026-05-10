@@ -3064,13 +3064,13 @@ function OverviewPanel({ stock }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 8, height: '100%' }}>
       <ScoreBreakdown scores={stock.scores} activeDim={activeDim} onDimClick={setActiveDim}/>
-      <MetricsGrid metrics={stock.metrics} currency={stock.currency} activeDim={activeDim} asOf={stock.asOf}/>
+      <MetricsGrid metrics={stock.metrics} currency={stock.currency} activeDim={activeDim} refreshedAt={stock.refreshedAt}/>
     </div>
   );
 }
 
 // ─── Metrics grid ─────────────────────────────────────────────────────────────
-function MetricsGrid({ metrics, currency, activeDim, asOf }) {
+function MetricsGrid({ metrics, currency, activeDim, refreshedAt }) {
   const categories = [
     {
       label: 'PROFITABILITY', color: T.amber,
@@ -3110,9 +3110,9 @@ function MetricsGrid({ metrics, currency, activeDim, asOf }) {
     return T.ink;
   };
   const staleFlag = (() => {
-    if (!asOf) return false;
-    const parsed = new Date(asOf);
-    return Number.isFinite(parsed.getTime()) && (Date.now() - parsed.getTime()) > 30 * 86400000;
+    if (!refreshedAt) return false;
+    const parsed = new Date(refreshedAt);
+    return Number.isFinite(parsed.getTime()) && (Date.now() - parsed.getTime()) > 90 * 86400000;
   })();
   const dimKey = activeDim?.toUpperCase();
   return (
@@ -3120,7 +3120,7 @@ function MetricsGrid({ metrics, currency, activeDim, asOf }) {
       <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 9 }}>
         {staleFlag && (
           <div style={{ fontSize: 9, color: T.yellow, background: `${T.yellow}15`, border: `1px solid ${T.yellow}44`, padding: '4px 8px' }}>
-            ⚠ 데이터 갱신 30일+ 경과 ({asOf?.slice(0, 10)}) — REFRESH 권장
+            ⚠ 마지막 Refresh 3개월+ 경과 ({refreshedAt?.slice(0, 10)}) — REFRESH 권장
           </div>
         )}
         {categories.map(cat => {
@@ -5319,6 +5319,7 @@ function App() {
           ...(payload.asOf !== undefined ? { asOf: payload.asOf } : {}),
           ...(payload.priceSrc !== undefined ? { priceSrc: payload.priceSrc } : {}),
           ...(newIndustryGroup ? { industryGroup: newIndustryGroup } : {}),
+          refreshedAt: now,
           metrics: newMetrics,
           scores: newScores,
           scoreHistory: newScoreHistory,
