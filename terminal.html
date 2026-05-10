@@ -2995,7 +2995,7 @@ const SCORE_TOOLTIPS = {
   risk:          '아래 플래그 1개당 -22점:\n· EPS 성장률 < 0\n· FCF 마진 < 0\n· 부채비율 > 150%\n· PER > 70\n· PER ≤ 0 (적자)',
 };
 
-function ScoreBreakdown({ scores }) {
+function ScoreBreakdown({ scores, activeDim, onDimClick }) {
   const [tip, setTip] = React.useState(null);
   if (!scores) return null;
   const dims = [
@@ -3013,14 +3013,18 @@ function ScoreBreakdown({ scores }) {
           const w = scores.weights?.[d.key] ?? 20;
           const isRisk = d.key === 'risk';
           const flagCount = isRisk ? (scores.riskFlagCount ?? Math.round((100 - (v || 0)) / 22)) : null;
+          const isActive = activeDim === d.key;
+          const isDimmed = activeDim && !isActive;
           return (
-            <div key={d.key} style={{ position: 'relative' }}>
+            <div key={d.key} style={{ position: 'relative', opacity: isDimmed ? 0.4 : 1, cursor: 'pointer', transition: 'opacity 0.15s' }}
+              onClick={() => onDimClick?.(isActive ? null : d.key)}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <span style={{ fontSize: 9.5, color: T.inkFaint, letterSpacing: '0.1em' }}>{d.label}</span>
+                  <span style={{ fontSize: 9.5, color: isActive ? d.color : T.inkFaint, letterSpacing: '0.1em', fontWeight: isActive ? 700 : 400 }}>{d.label}</span>
                   <span
-                    onMouseEnter={() => setTip(d.key)}
+                    onMouseEnter={(e) => { e.stopPropagation(); setTip(d.key); }}
                     onMouseLeave={() => setTip(null)}
+                    onClick={(e) => e.stopPropagation()}
                     style={{ fontSize: 8.5, color: T.inkFaint, border: `1px solid ${T.border}`, borderRadius: '50%', width: 13, height: 13, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'default', flexShrink: 0, lineHeight: 1 }}
                   >?</span>
                   {tip === d.key && (
@@ -3046,13 +3050,27 @@ function ScoreBreakdown({ scores }) {
             </div>
           );
         })}
+        {activeDim && (
+          <div style={{ fontSize: 9, color: T.inkFaint, textAlign: 'center', marginTop: 2 }}>클릭하면 필터 해제</div>
+        )}
       </div>
     </Cell>
   );
 }
 
+// ─── Overview panel (wraps ScoreBreakdown + MetricsGrid with shared activeDim) ─
+function OverviewPanel({ stock }) {
+  const [activeDim, setActiveDim] = useState(null);
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 8, height: '100%' }}>
+      <ScoreBreakdown scores={stock.scores} activeDim={activeDim} onDimClick={setActiveDim}/>
+      <MetricsGrid metrics={stock.metrics} currency={stock.currency} activeDim={activeDim} asOf={stock.asOf}/>
+    </div>
+  );
+}
+
 // ─── Metrics grid ─────────────────────────────────────────────────────────────
-function MetricsGrid({ metrics, currency }) {
+function MetricsGrid({ metrics, currency, activeDim, asOf }) {
   const categories = [
     {
       label: 'PROFITABILITY', color: T.amber,
@@ -3091,35 +3109,49 @@ function MetricsGrid({ metrics, currency }) {
     if (key === 'debtRatio') return n > 150 ? T.red : n > 80 ? T.yellow : T.green;
     return T.ink;
   };
+  const staleFlag = (() => {
+    if (!asOf) return false;
+    const parsed = new Date(asOf);
+    return Number.isFinite(parsed.getTime()) && (Date.now() - parsed.getTime()) > 30 * 86400000;
+  })();
+  const dimKey = activeDim?.toUpperCase();
   return (
     <Cell label="KEY METRICS" accent={T.cyan} style={{ height: '100%' }}>
       <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 9 }}>
-        {categories.map(cat => (
-          <div key={cat.label}>
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              marginBottom: 5, fontSize: 8.5, fontWeight: 700,
-              letterSpacing: '0.14em', color: cat.color,
-            }}>
-              <span style={{ width: 4, height: 4, background: cat.color, borderRadius: 1 }}/>
-              {cat.label}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-              {cat.items.map(({ key, label, fmt }) => {
-                const v = metrics?.[key];
-                const display = Number.isFinite(Number(v)) ? fmt(v) : '–';
-                return (
-                  <div key={key} style={{ background: T.surface2, padding: '7px 10px', border: `1px solid ${T.borderSoft}` }}>
-                    <div style={{ fontSize: 8.5, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 3 }}>{label}</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: colorFor(key, v), fontVariantNumeric: 'tabular-nums' }}>
-                      {display}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+        {staleFlag && (
+          <div style={{ fontSize: 9, color: T.yellow, background: `${T.yellow}15`, border: `1px solid ${T.yellow}44`, padding: '4px 8px' }}>
+            ⚠ 데이터 갱신 30일+ 경과 ({asOf?.slice(0, 10)}) — REFRESH 권장
           </div>
-        ))}
+        )}
+        {categories.map(cat => {
+          const isActive = !dimKey || cat.label === dimKey;
+          return (
+            <div key={cat.label} style={{ opacity: isActive ? 1 : 0.35, transition: 'opacity 0.15s' }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                marginBottom: 5, fontSize: 8.5, fontWeight: 700,
+                letterSpacing: '0.14em', color: cat.color,
+              }}>
+                <span style={{ width: 4, height: 4, background: cat.color, borderRadius: 1 }}/>
+                {cat.label}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                {cat.items.map(({ key, label, fmt }) => {
+                  const v = metrics?.[key];
+                  const display = Number.isFinite(Number(v)) ? fmt(v) : '–';
+                  return (
+                    <div key={key} style={{ background: T.surface2, padding: '7px 10px', border: `1px solid ${isActive && dimKey ? cat.color + '55' : T.borderSoft}` }}>
+                      <div style={{ fontSize: 8.5, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 3 }}>{label}</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: colorFor(key, v), fontVariantNumeric: 'tabular-nums' }}>
+                        {display}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </Cell>
   );
@@ -3133,9 +3165,13 @@ const CHART_PERIODS = [
   { label: '1Y', range: '1y',  interval: '1wk' },
 ];
 
-function ChartPanel({ stock, onRefresh, refreshing, fetchStatus }) {
-  const [period, setPeriod] = useState('3M');
-  const [chartType, setChartType] = useState('line');
+function ChartPanel({ stock, onRefresh, refreshing, fetchStatus, period: periodProp, chartType: chartTypeProp, onPeriodChange, onChartTypeChange }) {
+  const [localPeriod, setLocalPeriod] = useState('3M');
+  const [localChartType, setLocalChartType] = useState('line');
+  const period = periodProp ?? localPeriod;
+  const chartType = chartTypeProp ?? localChartType;
+  const setPeriod = onPeriodChange ?? setLocalPeriod;
+  const setChartType = onChartTypeChange ?? setLocalChartType;
   const [ohlcData, setOhlcData] = useState(null);
   const [chartLoading, setChartLoading] = useState(false);
   const [chartErr, setChartErr] = useState('');
@@ -3298,7 +3334,6 @@ function ValuationPanel({ stock, onEdit }) {
   const currency = stock.currency;
   const isKrw = currency === 'KRW';
   const px = (v) => isKrw ? `₩${fmtPx(v ?? 0, 'KRW')}` : `$${fmtPx(v ?? 0, currency)}`;
-  const mos = (price, v) => price ? `MOS ${(((price - v) / price) * 100).toFixed(1)}%` : '–';
 
   const scenarios = [
     { label: 'BEAR', data: bear, color: T.red },
@@ -3310,20 +3345,27 @@ function ValuationPanel({ stock, onEdit }) {
     <Cell label="VALUATION" accent={T.green} style={{ height: '100%' }}>
       <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-          {scenarios.map(({ label, data, color }) => (
-            <div key={label} style={{ background: T.surface2, border: `1px solid ${T.borderSoft}`, padding: '10px 12px' }}>
-              <div style={{ fontSize: 9, color, letterSpacing: '0.14em', fontWeight: 700, marginBottom: 6 }}>{label}</div>
+          {scenarios.map(({ label, data, color }) => {
+            const scUpside = (data?.price && cur) ? ((data.price - cur) / cur * 100) : null;
+            const thinUpside = label === 'BASE' && scUpside !== null && scUpside < 10;
+            return (
+            <div key={label} style={{ background: T.surface2, border: `1px solid ${thinUpside ? T.yellow : T.borderSoft}`, padding: '10px 12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ fontSize: 9, color, letterSpacing: '0.14em', fontWeight: 700 }}>{label}</span>
+                {thinUpside && <span style={{ fontSize: 8.5, color: T.yellow, border: `1px solid ${T.yellow}55`, padding: '1px 5px' }}>상승여력 부족</span>}
+              </div>
               <div style={{ fontSize: 18, fontWeight: 800, color, fontVariantNumeric: 'tabular-nums', marginBottom: 4 }}>
                 {px(data?.price)}
               </div>
               <div style={{ fontSize: 10, color: T.inkDim, marginBottom: 2 }}>
                 {Number.isFinite(Number(data?.multiple)) ? `${data.multiple}x multiple` : '–'}
               </div>
-              {data?.mos > 0 && (
-                <div style={{ fontSize: 10, color: T.cyan }}>{mos(data.price, cur)}</div>
+              {scUpside !== null && (
+                <div style={{ fontSize: 10, color: scUpside >= 0 ? T.green : T.red }}>{sign(scUpside)}{safeFixed(scUpside, 1)}% upside</div>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {note && (
@@ -3369,8 +3411,15 @@ function HistoryPanel({ stock, onAddNote, onSaveReview }) {
     setReviewForm({ next: stock.review?.next || '', cadence: stock.review?.cadence ?? 30 });
   }, [stock.id]);
 
+  const [search, setSearch] = useState('');
   const notes = [...(stock.notes || [])].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const filteredNotes = notes.filter(n => !search.trim() ||
+    n.text?.toLowerCase().includes(search.toLowerCase()) ||
+    (n.source || '').toLowerCase().includes(search.toLowerCase())
+  );
   const kindColor = { 실적: T.amber, 공시: T.cyan, 뉴스: T.green, 기타: T.inkDim };
+  const kindCount = {};
+  notes.forEach(n => { kindCount[n.kind] = (kindCount[n.kind] || 0) + 1; });
   const set = (k) => (e) => setDraft(d => ({ ...d, [k]: e.target.value }));
   const addNote = () => {
     if (!draft.text.trim()) return;
@@ -3408,11 +3457,24 @@ function HistoryPanel({ stock, onAddNote, onSaveReview }) {
         <textarea value={draft.text} onChange={set('text')} placeholder="실적, 공시, 뉴스에서 확인한 핵심 메모"
           rows={2} style={{ ...inputSt, gridColumn: '1 / -1', resize: 'vertical' }}/>
       </div>
+      {/* Search + kind counts */}
+      <div style={{ padding: '6px 14px', borderBottom: `1px solid ${T.borderSoft}`, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="검색..."
+          style={{ ...inputSt, flex: 1, padding: '4px 8px' }}/>
+        <div style={{ display: 'flex', gap: 5 }}>
+          {['실적', '공시', '뉴스', '기타'].map(k => kindCount[k] ? (
+            <span key={k} style={{ fontSize: 9, color: kindColor[k], border: `1px solid ${kindColor[k]}55`, padding: '2px 6px' }}>
+              {k} {kindCount[k]}
+            </span>
+          ) : null)}
+        </div>
+        {notes.length > 0 && <span style={{ fontSize: 9, color: T.inkFaint, whiteSpace: 'nowrap' }}>{filteredNotes.length}/{notes.length}</span>}
+      </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {notes.length === 0 && (
-          <div style={{ color: T.inkFaint, fontSize: 11, paddingTop: 8 }}>기록 없음</div>
+        {filteredNotes.length === 0 && (
+          <div style={{ color: T.inkFaint, fontSize: 11, paddingTop: 8 }}>{notes.length === 0 ? '기록 없음' : '검색 결과 없음'}</div>
         )}
-        {notes.map((n, i) => (
+        {filteredNotes.map((n, i) => (
           <div key={i} style={{ borderLeft: `2px solid ${kindColor[n.kind] || T.border}`, paddingLeft: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
               <span style={{ fontSize: 9.5, color: T.inkFaint }}>{n.date}</span>
@@ -3607,6 +3669,8 @@ function SliderRow({ label, value, min, max, step, onChange }) {
 // ─── Peer comparison ─────────────────────────────────────────────────────────
 function PeersPanel({ stock, stocks, watchlistIds, onSelect, onSavePeers }) {
   const [editing, setEditing] = React.useState(false);
+  const [sortBy, setSortBy] = React.useState(null);
+  const [sortDir, setSortDir] = React.useState(1);
   const hasExplicit = (stock.peers || []).filter(id => id !== stock.id && stocks[id]).length > 0;
 
   const peerIds = useMemo(() => {
@@ -3628,7 +3692,21 @@ function PeersPanel({ stock, stocks, watchlistIds, onSelect, onSavePeers }) {
 
   const resetToAll = () => onSavePeers?.(stock.id, []);
 
-  const rows = [stock.id, ...peerIds].map(id => stocks[id]).filter(Boolean);
+  const baseRows = [stock.id, ...peerIds].map(id => stocks[id]).filter(Boolean);
+  const rows = sortBy ? [...baseRows].sort((a, b) => {
+    const av = sortBy === 'overall' ? (a.scores?.overall ?? null) : (a.metrics?.[sortBy] ?? null);
+    const bv = sortBy === 'overall' ? (b.scores?.overall ?? null) : (b.metrics?.[sortBy] ?? null);
+    if (av === null && bv === null) return 0;
+    if (av === null) return 1;
+    if (bv === null) return -1;
+    if (a.id === stock.id) return -1;
+    if (b.id === stock.id) return 1;
+    return (av - bv) * sortDir;
+  }) : baseRows;
+  const handleSort = (key) => {
+    if (sortBy === key) setSortDir(d => -d);
+    else { setSortBy(key); setSortDir(1); }
+  };
   const metrics = [
     { key: 'per',      label: 'PER',   fmt: v => Number.isFinite(Number(v)) ? `${safeFixed(v, 1)}x`  : '–', lowerBetter: true },
     { key: 'pbr',      label: 'PBR',   fmt: v => Number.isFinite(Number(v)) ? `${safeFixed(v, 1)}x`  : '–', lowerBetter: true },
@@ -3706,7 +3784,9 @@ function PeersPanel({ stock, stocks, watchlistIds, onSelect, onSavePeers }) {
               <th style={{ textAlign: 'left', color: T.inkFaint, padding: '7px 8px', borderBottom: `1px solid ${T.border}` }}>SYMBOL</th>
               <th style={{ textAlign: 'left', color: T.inkFaint, padding: '7px 8px', borderBottom: `1px solid ${T.border}` }}>NAME</th>
               {metrics.map(m => (
-                <th key={m.key} style={{ textAlign: 'right', color: T.inkFaint, padding: '7px 8px', borderBottom: `1px solid ${T.border}` }}>{m.label}</th>
+                <th key={m.key} onClick={() => handleSort(m.key)} style={{ textAlign: 'right', color: sortBy === m.key ? T.cyan : T.inkFaint, padding: '7px 8px', borderBottom: `1px solid ${T.border}`, cursor: 'pointer', userSelect: 'none' }}>
+                  {m.label}{sortBy === m.key ? (sortDir === 1 ? ' ↑' : ' ↓') : ''}
+                </th>
               ))}
             </tr>
           </thead>
@@ -3996,7 +4076,18 @@ function SettingsDataPanel({
     reader.readAsText(file, 'utf-8');
   };
 
-  const cacheCount = Object.keys(dataCache || {}).length;
+  const cacheEntries = Object.values(dataCache || {});
+  const cacheCount = cacheEntries.length;
+  const cacheByProvider = cacheEntries.reduce((acc, e) => {
+    const p = e.provider || 'unknown';
+    if (!acc[p]) acc[p] = { count: 0, oldest: null };
+    acc[p].count++;
+    if (e.fetchedAt) {
+      const ageD = Math.floor((Date.now() - new Date(e.fetchedAt).getTime()) / 86400000);
+      if (acc[p].oldest === null || ageD > acc[p].oldest) acc[p].oldest = ageD;
+    }
+    return acc;
+  }, {});
   const statusColor = providerStatus?.kind === 'ok' ? T.green : providerStatus?.kind === 'warn' ? T.yellow : providerStatus?.kind === 'error' ? T.red : T.inkFaint;
 
   return (
@@ -4089,9 +4180,16 @@ function SettingsDataPanel({
           </div>
 
           <div style={{ background: T.surface2, border: `1px solid ${T.borderSoft}`, padding: 12 }}>
-            <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 6 }}>CACHE</div>
-            <div style={{ color: T.ink, fontSize: 13, marginBottom: 10 }}>{cacheCount} cached entries</div>
-            <button onClick={onClearCache} style={{ ...btnSt, color: T.red, border: `1px solid ${T.red}` }}>CLEAR CACHE</button>
+            <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 6 }}>CACHE HEALTH</div>
+            <div style={{ color: T.ink, fontSize: 12, marginBottom: 8 }}>{cacheCount} entries total</div>
+            {Object.entries(cacheByProvider).map(([p, { count, oldest }]) => (
+              <div key={p} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: T.inkDim, marginBottom: 4 }}>
+                <span style={{ color: T.inkFaint }}>{p}</span>
+                <span>{count}개 · 최대 {oldest ?? '?'}일</span>
+              </div>
+            ))}
+            {cacheCount === 0 && <div style={{ fontSize: 10, color: T.inkFaint }}>캐시 없음</div>}
+            <button onClick={onClearCache} style={{ ...btnSt, color: T.red, border: `1px solid ${T.red}`, marginTop: 8 }}>CLEAR CACHE</button>
           </div>
 
           <div style={{ background: T.surface2, border: `1px solid ${T.borderSoft}`, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -4121,7 +4219,7 @@ function SettingsDataPanel({
 // ─── F6 Alerts panel ──────────────────────────────────────────────────────────
 function AlertsPanel({
   stocks, watchlistIds, alerts, alertSettings, alertErrors, alertStatus,
-  dartCoverage,
+  dartCoverage, lastPolled,
   onRefresh, onOpen, onLog, onDismiss, onSettingsChange, onSummarize, canSummarize,
 }) {
   const [filter, setFilter] = useState({ status: 'new', source: '', kind: '', stockId: '' });
@@ -4216,10 +4314,12 @@ function AlertsPanel({
               style={{ ...inputSt, width: '100%', opacity: setting.autoPolling ? 1 : 0.5 }}/>
             <div style={{ fontSize: 9, color: T.inkFaint }}>분 단위. 무료 API 한도 주의.</div>
           </div>
-          <button onClick={onRefresh}
-            style={{ ...btnSt, color: T.amber, border: `1px solid ${T.amber}`, marginTop: 4 }}>
-            REFRESH NOW
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+            <button onClick={onRefresh} style={{ ...btnSt, color: T.amber, border: `1px solid ${T.amber}` }}>
+              REFRESH NOW
+            </button>
+            {lastPolled && <span style={{ fontSize: 9, color: T.inkFaint }}>마지막: {lastPolled.replace('T', ' ').slice(0, 16)}</span>}
+          </div>
           {alertStatus && (
             <div style={{ fontSize: 10, color: alertStatus.kind === 'error' ? T.red : T.inkFaint, lineHeight: 1.5 }}>
               {alertStatus.text}
@@ -4333,6 +4433,13 @@ function ChecklistPanel({ stock, onSave }) {
   const groups = ['DATA', 'THESIS', 'RISK', 'VALUATION', 'REVIEW', 'GENERAL'];
   const done = rows.filter(r => r.done).length;
   const pct = rows.length ? Math.round((done / rows.length) * 100) : 0;
+  const lastDoneAt = {};
+  rows.forEach(r => {
+    if (r.done && r.updatedAt) {
+      const g = r.category || 'GENERAL';
+      if (!lastDoneAt[g] || r.updatedAt > lastDoneAt[g]) lastDoneAt[g] = r.updatedAt;
+    }
+  });
   const saveRows = (next) => onSave?.(stock.id, next);
   const toggleRow = (id) => saveRows(rows.map(r => r.id === id ? { ...r, done: !r.done, updatedAt: new Date().toISOString() } : r));
   const removeRow = (id) => saveRows(rows.filter(r => r.id !== id));
@@ -4377,7 +4484,10 @@ function ChecklistPanel({ stock, onSave }) {
             if (!items.length) return null;
             return (
               <div key={group}>
-                <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.14em', marginBottom: 6 }}>{group}</div>
+                <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.14em', marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
+                  <span>{group}</span>
+                  {lastDoneAt[group] && <span style={{ color: T.inkFaint, fontWeight: 400 }}>완료 {lastDoneAt[group].slice(0, 10)}</span>}
+                </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {items.map(item => (
                     <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto', gap: 8, alignItems: 'center', padding: '8px 10px', background: T.surface2, border: `1px solid ${item.done ? T.green + '55' : T.borderSoft}` }}>
@@ -4441,13 +4551,21 @@ function CalendarPanel({ stocks, watchlistIds, activeId, onSelect, onSaveEvents 
           <input value={draft.url} onChange={(e) => setDraft(d => ({ ...d, url: e.target.value }))} placeholder="url" style={{ ...inputSt, width: '100%' }}/>
           <button onClick={addEvent} style={{ ...btnSt, color: T.cyan, border: `1px solid ${T.cyan}` }}>ADD EVENT</button>
         </div>
-        <div style={{ padding: 12, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 7 }}>
+        <div style={{ padding: 12, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
           {events.length === 0 && <div style={{ color: T.inkFaint, fontSize: 12 }}>No calendar events yet.</div>}
-          {events.map(e => {
-            const overdue = e.date && e.date < today && !e.done;
-            return (
-              <div key={`${e.stockId}-${e.id}`} style={{ display: 'grid', gridTemplateColumns: '96px 76px 1fr auto', gap: 10, alignItems: 'center', padding: '8px 10px', background: T.surface2, border: `1px solid ${overdue ? T.red + '55' : T.borderSoft}`, opacity: e.done ? 0.55 : 1 }}>
-                <div style={{ fontSize: 10, color: overdue ? T.red : T.inkFaint }}>{e.date || '--'}</div>
+          {(() => {
+            const week = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+            const month = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+            const buckets = [
+              { key: 'overdue', label: 'OVERDUE',      color: T.red,     items: events.filter(e => !e.done && e.date && e.date < today) },
+              { key: 'week',    label: 'THIS WEEK',    color: T.yellow,  items: events.filter(e => !e.done && e.date >= today && e.date <= week) },
+              { key: 'month',   label: 'NEXT 30 DAYS', color: T.cyan,    items: events.filter(e => !e.done && e.date > week && e.date <= month) },
+              { key: 'later',   label: 'LATER',        color: T.inkFaint, items: events.filter(e => !e.done && (!e.date || e.date > month)) },
+              { key: 'done',    label: 'DONE',         color: T.inkFaint, items: events.filter(e => e.done) },
+            ].filter(b => b.items.length > 0);
+            const renderRow = (e) => (
+              <div key={`${e.stockId}-${e.id}`} style={{ display: 'grid', gridTemplateColumns: '96px 76px 1fr auto', gap: 10, alignItems: 'center', padding: '8px 10px', background: T.surface2, border: `1px solid ${T.borderSoft}`, opacity: e.done ? 0.5 : 1 }}>
+                <div style={{ fontSize: 10, color: T.inkFaint }}>{e.date || '--'}</div>
                 <button onClick={() => onSelect?.(e.stockId)} style={{ ...btnSt, color: T.amber, border: `1px solid ${T.borderSoft}`, padding: '3px 7px', fontSize: 9 }}>{e.symbol}</button>
                 <div>
                   <div style={{ color: T.ink, fontSize: 11.5 }}>{e.title}</div>
@@ -4460,7 +4578,16 @@ function CalendarPanel({ stocks, watchlistIds, activeId, onSelect, onSaveEvents 
                 </div>
               </div>
             );
-          })}
+            return buckets.map(b => (
+              <div key={b.key}>
+                <div style={{ fontSize: 9, color: b.color, letterSpacing: '0.14em', fontWeight: 700, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ width: 4, height: 4, background: b.color, borderRadius: 1 }}/>
+                  {b.label} <span style={{ color: T.inkFaint, fontWeight: 400 }}>({b.items.length})</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>{b.items.map(renderRow)}</div>
+              </div>
+            ));
+          })()}
         </div>
       </div>
     </Cell>
@@ -4527,6 +4654,8 @@ function JournalPanel({ stock, onCapture, onUpdate }) {
             const outP = Number(row.outcomePrice) || 0;
             const outMove = (outP && entryPrice) ? ((outP - entryPrice) / entryPrice) * 100 : null;
             const dc = row.decisionType ? (dtColor[row.decisionType] || T.inkFaint) : null;
+            const endMs = row.outcomeDate ? new Date(row.outcomeDate).getTime() : (row.outcome === 'pending' ? Date.now() : null);
+            const heldDays = row.date && endMs ? Math.floor((endMs - new Date(row.date).getTime()) / 86400000) : null;
             return (
               <div key={row.id} style={{ background: T.surface2, border: `1px solid ${T.borderSoft}`, padding: 12 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 110px 1fr 110px auto', gap: 8, alignItems: 'center', marginBottom: 8 }}>
@@ -4540,12 +4669,17 @@ function JournalPanel({ stock, onCapture, onUpdate }) {
                   </select>
                   <button onClick={() => removeRow(row.id)} style={{ ...btnSt, color: T.inkFaint, border: `1px solid ${T.borderSoft}`, padding: '4px 8px' }}>DEL</button>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px', gap: 12 }}>
                   <textarea value={row.note || ''} onChange={(e) => updateRow(row.id, { note: e.target.value }, row.outcome)} rows={3} placeholder="post-mortem note" style={{ ...inputSt, resize: 'vertical' }}/>
                   <div style={{ fontSize: 10, color: T.inkFaint, lineHeight: 1.8 }}>
                     <div>Now: <span style={{ color: T.ink }}>{fmtPx(current, stock.currency)}</span></div>
                     <div>Open P&L: <span style={{ color: move === null ? T.inkFaint : colorForChange(move) }}>{move === null ? '--' : `${sign(move)}${safeFixed(move, 1)}%`}</span></div>
-                    {outP > 0 && <div>Outcome px: <span style={{ color: T.inkDim }}>{fmtPx(outP, stock.currency)} <span style={{ color: outMove === null ? T.inkFaint : colorForChange(outMove) }}>({outMove === null ? '--' : `${sign(outMove)}${safeFixed(outMove, 1)}%`})</span></span></div>}
+                    {outP > 0 && (
+                      <div>Realized: <span style={{ color: outMove === null ? T.inkFaint : colorForChange(outMove), fontWeight: 700 }}>{outMove === null ? '--' : `${sign(outMove)}${safeFixed(outMove, 1)}%`}</span></div>
+                    )}
+                    {heldDays !== null && (
+                      <div>Held: <span style={{ color: T.inkDim }}>{row.outcome === 'pending' ? `${heldDays}d (진행중)` : `${heldDays}d`}</span></div>
+                    )}
                     <div style={{ borderTop: `1px solid ${T.borderSoft}`, marginTop: 4, paddingTop: 4 }}>Score: <span style={{ color: T.inkDim }}>{row.score !== null && row.score !== undefined ? row.score : '--'}</span></div>
                     <div style={{ fontSize: 9, color: T.inkFaint, marginTop: 2 }}>{row.oneLine || '-'}</div>
                   </div>
@@ -4905,9 +5039,11 @@ function App() {
   const [alertErrors, setAlertErrors]       = useState([]);
   const [alertStatus, setAlertStatus]       = useState(null);
   const [alertsRefreshing, setAlertsRefreshing] = useState(false);
+  const [lastAlertsPolled, setLastAlertsPolled] = useState(null);
 
   const [refreshing, setRefreshing]       = useState(false);
   const [fetchStatus, setFetchStatus]     = useState('');
+  const [chartPrefs, setChartPrefs]       = useState({});
   const [providerStatus, setProviderStatus] = useState(() => ({
     kind: 'idle',
     label: providerLabels[apiSettings.globalProvider] || 'DATA',
@@ -5365,6 +5501,7 @@ function App() {
       text: `${incomingMap.size}건 수신 · ${allErrors.length}개 소스 실패 · ${new Date().toLocaleTimeString('ko-KR')}`,
     });
     setAlertsRefreshing(false);
+    setLastAlertsPolled(new Date().toISOString());
     if (incomingMap.size > 0) toast(`알림 ${incomingMap.size}건 갱신`, 'ok');
   }, [alertsRefreshing, alertSettings, watchlistIds, stocks, dartCorpMap, apiSettings, toast]);
 
@@ -5543,12 +5680,7 @@ function App() {
 
   // ── Panel content ──────────────────────────────────────────────────────────
   const panelContent = {
-    F1: (
-      <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 8, height: '100%' }}>
-        <ScoreBreakdown scores={stock.scores}/>
-        <MetricsGrid metrics={stock.metrics} currency={stock.currency}/>
-      </div>
-    ),
+    F1: <OverviewPanel stock={stock}/>,
     F2: (
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 8, height: '100%' }}>
         <PitchPanel stock={stock} onEditPitch={setPitchEditId} onCaptureJournal={handleCaptureJournal}/>
@@ -5570,8 +5702,14 @@ function App() {
       </div>
     ),
     F5: (
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8, height: '100%' }}>
-        <ChartPanel stock={stock} onRefresh={handleRefresh} refreshing={refreshing} fetchStatus={fetchStatus}/>
+      <div style={{ height: '100%' }}>
+        <ChartPanel
+          stock={stock} onRefresh={handleRefresh} refreshing={refreshing} fetchStatus={fetchStatus}
+          period={chartPrefs[stock?.id]?.period}
+          chartType={chartPrefs[stock?.id]?.chartType}
+          onPeriodChange={v => setChartPrefs(p => ({ ...p, [stock.id]: { ...(p[stock.id] || {}), period: v } }))}
+          onChartTypeChange={v => setChartPrefs(p => ({ ...p, [stock.id]: { ...(p[stock.id] || {}), chartType: v } }))}
+        />
       </div>
     ),
     F6: (
@@ -5583,6 +5721,7 @@ function App() {
         alertErrors={alertErrors}
         alertStatus={alertsRefreshing ? { kind: 'info', text: '가져오는 중...' } : alertStatus}
         dartCoverage={dartCoverage}
+        lastPolled={lastAlertsPolled}
         onRefresh={handleRefreshAlerts}
         onOpen={handleAlertOpen}
         onLog={handleAlertLog}
