@@ -2839,22 +2839,36 @@ function ScoreBreakdown({ scores }) {
 
 // ─── Metrics grid ─────────────────────────────────────────────────────────────
 function MetricsGrid({ metrics, currency }) {
-  const rows = [
-    [
-      { key: 'per',          label: 'PER',          fmt: v => safeFixed(v, 1) + 'x' },
-      { key: 'pbr',          label: 'PBR',          fmt: v => safeFixed(v, 1) + 'x' },
-      { key: 'roe',          label: 'ROE',          fmt: v => safeFixed(v, 1) + '%' },
-    ],
-    [
-      { key: 'opMargin',     label: 'OP MARGIN',    fmt: v => safeFixed(v, 1) + '%' },
-      { key: 'fcfMargin',    label: 'FCF MARGIN',   fmt: v => safeFixed(v, 1) + '%' },
-      { key: 'debtRatio',    label: 'DEBT/EQ',      fmt: v => safeFixed(v, 0) + '%' },
-    ],
-    [
-      { key: 'currentRatio', label: 'CUR RATIO',    fmt: v => safeFixed(v, 0) + '%' },
-      { key: 'revGrowth',    label: 'REV GROWTH',   fmt: v => safeFixed(v, 1) + '%' },
-      { key: 'epsGrowth',    label: 'EPS GROWTH',   fmt: v => safeFixed(v, 1) + '%' },
-    ],
+  const categories = [
+    {
+      label: 'PROFITABILITY', color: T.amber,
+      items: [
+        { key: 'roe',       label: 'ROE',        fmt: v => safeFixed(v, 1) + '%' },
+        { key: 'opMargin',  label: 'OP MARGIN',  fmt: v => safeFixed(v, 1) + '%' },
+        { key: 'fcfMargin', label: 'FCF MARGIN', fmt: v => safeFixed(v, 1) + '%' },
+      ],
+    },
+    {
+      label: 'STABILITY', color: T.cyan,
+      items: [
+        { key: 'debtRatio',    label: 'DEBT/EQ',   fmt: v => safeFixed(v, 0) + '%' },
+        { key: 'currentRatio', label: 'CUR RATIO', fmt: v => safeFixed(v, 0) + '%' },
+      ],
+    },
+    {
+      label: 'GROWTH', color: T.green,
+      items: [
+        { key: 'revGrowth', label: 'REV GROWTH', fmt: v => safeFixed(v, 1) + '%' },
+        { key: 'epsGrowth', label: 'EPS GROWTH', fmt: v => safeFixed(v, 1) + '%' },
+      ],
+    },
+    {
+      label: 'VALUATION', color: T.yellow,
+      items: [
+        { key: 'per', label: 'PER', fmt: v => safeFixed(v, 1) + 'x' },
+        { key: 'pbr', label: 'PBR', fmt: v => safeFixed(v, 1) + 'x' },
+      ],
+    },
   ];
   const colorFor = (key, v) => {
     if (!Number.isFinite(Number(v))) return T.ink;
@@ -2865,21 +2879,31 @@ function MetricsGrid({ metrics, currency }) {
   };
   return (
     <Cell label="KEY METRICS" accent={T.cyan} style={{ height: '100%' }}>
-      <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {rows.map((row, ri) => (
-          <div key={ri} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-            {row.map(({ key, label, fmt }) => {
-              const v = metrics?.[key];
-              const display = Number.isFinite(Number(v)) ? fmt(v) : '–';
-              return (
-                <div key={key} style={{ background: T.surface2, padding: '7px 10px', border: `1px solid ${T.borderSoft}` }}>
-                  <div style={{ fontSize: 8.5, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 3 }}>{label}</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: colorFor(key, v), fontVariantNumeric: 'tabular-nums' }}>
-                    {display}
+      <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 9 }}>
+        {categories.map(cat => (
+          <div key={cat.label}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              marginBottom: 5, fontSize: 8.5, fontWeight: 700,
+              letterSpacing: '0.14em', color: cat.color,
+            }}>
+              <span style={{ width: 4, height: 4, background: cat.color, borderRadius: 1 }}/>
+              {cat.label}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+              {cat.items.map(({ key, label, fmt }) => {
+                const v = metrics?.[key];
+                const display = Number.isFinite(Number(v)) ? fmt(v) : '–';
+                return (
+                  <div key={key} style={{ background: T.surface2, padding: '7px 10px', border: `1px solid ${T.borderSoft}` }}>
+                    <div style={{ fontSize: 8.5, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 3 }}>{label}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: colorFor(key, v), fontVariantNumeric: 'tabular-nums' }}>
+                      {display}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         ))}
       </div>
