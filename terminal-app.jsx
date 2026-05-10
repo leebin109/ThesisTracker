@@ -1005,7 +1005,7 @@ function PeersPanel({ stock, stocks, watchlistIds, onSelect }) {
 }
 
 // ─── Search overlay ───────────────────────────────────────────────────────────
-function SearchOverlay({ apiSettings, onAdd, onClose }) {
+function SearchOverlay({ apiSettings, dartCorpMap, onAdd, onClose }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -1014,8 +1014,29 @@ function SearchOverlay({ apiSettings, onAdd, onClose }) {
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
+  const isKorean = q => /[가-힣ㄱ-ㅎㅏ-ㅣ]/.test(q);
+
+  const searchKorean = (q) => {
+    const map = dartCorpMap || {};
+    return Object.entries(map)
+      .filter(([, v]) => v.corpName && v.corpName.includes(q))
+      .slice(0, 30)
+      .map(([ticker, v]) => ({
+        symbol: ticker,
+        name: v.corpName,
+        market: 'KRX',
+        currency: 'KRW',
+        flag: '🇰🇷',
+        country: '대한민국',
+      }));
+  };
+
   const doSearch = useCallback(async (q) => {
     if (!q.trim()) { setResults([]); return; }
+    if (isKorean(q)) {
+      setResults(searchKorean(q));
+      return;
+    }
     setLoading(true); setError('');
     try {
       const [yahoo, fmp] = await Promise.allSettled([
@@ -1033,7 +1054,7 @@ function SearchOverlay({ apiSettings, onAdd, onClose }) {
     } finally {
       setLoading(false);
     }
-  }, [apiSettings.fmpKey]);
+  }, [apiSettings.fmpKey, dartCorpMap]);
 
   useEffect(() => {
     const t = setTimeout(() => doSearch(query), 500);
@@ -1050,7 +1071,7 @@ function SearchOverlay({ apiSettings, onAdd, onClose }) {
           <input ref={inputRef} value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKey}
-            placeholder="종목 검색 — 회사명 또는 심볼"
+            placeholder="종목 검색 — 한글 기업명, 영문명, 티커 모두 가능"
             style={{ flex: 1, background: 'transparent', border: 0, outline: 0, color: T.ink, fontFamily: T.font, fontSize: 13 }}/>
           {loading && <span style={{ color: T.amber, fontSize: 11 }}>검색 중...</span>}
         </div>
@@ -2983,7 +3004,7 @@ function App() {
 
       {/* Overlays */}
       {searchOpen && (
-        <SearchOverlay apiSettings={apiSettings} onAdd={handleAddFromSearch} onClose={() => setSearchOpen(false)}/>
+        <SearchOverlay apiSettings={apiSettings} dartCorpMap={dartCorpMap} onAdd={handleAddFromSearch} onClose={() => setSearchOpen(false)}/>
       )}
       {settingsOpen && (
         <ApiSettingsModal settings={apiSettings} dartCorpMap={dartCorpMap} onSave={handleSaveSettings} onClose={() => setSettingsOpen(false)}/>
