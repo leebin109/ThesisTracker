@@ -349,14 +349,23 @@ function WatchlistPanel({ stocks, watchlistIds, activeId, onSelect, onAdd, onRem
 }
 
 // ─── Score breakdown ──────────────────────────────────────────────────────────
+const SCORE_TOOLTIPS = {
+  profitability: 'ROE (50%) + OP MARGIN (30%) + FCF MARGIN (20%)\n높을수록 좋음 · 산업군별 임계값 적용',
+  stability:     'DEBT/EQ (55%) + CUR RATIO (45%)\n부채비율↓ 유동비율↑ 좋음 · 산업군별 임계값 적용',
+  growth:        'REV GROWTH (48%) + EPS GROWTH (52%)\n전년 대비 성장률 · 산업군별 임계값 적용',
+  valuation:     'PER (60%) + PBR (40%)\n낮을수록 좋음 · 음수 PER는 0점 처리',
+  risk:          '아래 플래그 1개당 -22점:\n· EPS 성장률 < 0\n· FCF 마진 < 0\n· 부채비율 > 150%\n· PER > 70\n· PER ≤ 0 (적자)',
+};
+
 function ScoreBreakdown({ scores }) {
+  const [tip, setTip] = React.useState(null);
   if (!scores) return null;
   const dims = [
     { key: 'profitability', label: 'PROFITABILITY', color: T.amber },
     { key: 'stability',     label: 'STABILITY',     color: T.cyan },
     { key: 'growth',        label: 'GROWTH',        color: T.green },
     { key: 'valuation',     label: 'VALUATION',     color: T.yellow },
-    { key: 'risk',          label: 'RISK',          color: T.red },
+    { key: 'risk',          label: 'RISK GUARD',    color: T.red },
   ];
   return (
     <Cell label="SCORE BREAKDOWN" accent={T.amber} style={{ height: '100%' }}>
@@ -364,14 +373,36 @@ function ScoreBreakdown({ scores }) {
         {dims.map(d => {
           const v = scores[d.key];
           const w = scores.weights?.[d.key] ?? 20;
+          const isRisk = d.key === 'risk';
+          const flagCount = isRisk ? (scores.riskFlagCount ?? Math.round((100 - (v || 0)) / 22)) : null;
           return (
-            <div key={d.key}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span style={{ fontSize: 9.5, color: T.inkFaint, letterSpacing: '0.1em' }}>{d.label}</span>
-                <span style={{ fontSize: 10.5, fontWeight: 700, color: d.color, fontVariantNumeric: 'tabular-nums' }}>
-                  {Number.isFinite(v) ? v : '–'} <span style={{ color: T.inkFaint, fontWeight: 400 }}>/ 100</span>
-                  <span style={{ color: T.inkFaint, fontWeight: 400, fontSize: 9, marginLeft: 6 }}>{w}%</span>
-                </span>
+            <div key={d.key} style={{ position: 'relative' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ fontSize: 9.5, color: T.inkFaint, letterSpacing: '0.1em' }}>{d.label}</span>
+                  <span
+                    onMouseEnter={() => setTip(d.key)}
+                    onMouseLeave={() => setTip(null)}
+                    style={{ fontSize: 8.5, color: T.inkFaint, border: `1px solid ${T.border}`, borderRadius: '50%', width: 13, height: 13, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'default', flexShrink: 0, lineHeight: 1 }}
+                  >?</span>
+                  {tip === d.key && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 99, background: T.surface, border: `1px solid ${T.border}`, padding: '8px 10px', fontSize: 9.5, color: T.inkDim, lineHeight: 1.7, whiteSpace: 'pre', minWidth: 220, marginTop: 4, pointerEvents: 'none' }}>
+                      {SCORE_TOOLTIPS[d.key]}
+                    </div>
+                  )}
+                </div>
+                {isRisk ? (
+                  <span style={{ fontSize: 10.5, fontVariantNumeric: 'tabular-nums' }}>
+                    <span style={{ fontWeight: 700, color: flagCount === 0 ? T.green : flagCount <= 2 ? T.yellow : T.red }}>{flagCount}</span>
+                    <span style={{ color: T.inkFaint, fontWeight: 400 }}>/5 flags</span>
+                    <span style={{ color: T.inkFaint, fontWeight: 400, fontSize: 9, marginLeft: 6 }}>{w}%</span>
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: d.color, fontVariantNumeric: 'tabular-nums' }}>
+                    {Number.isFinite(v) ? v : '–'} <span style={{ color: T.inkFaint, fontWeight: 400 }}>/ 100</span>
+                    <span style={{ color: T.inkFaint, fontWeight: 400, fontSize: 9, marginLeft: 6 }}>{w}%</span>
+                  </span>
+                )}
               </div>
               <ScoreBar pct={Number.isFinite(v) ? v : 0} color={d.color} height={5}/>
             </div>

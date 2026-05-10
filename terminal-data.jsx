@@ -505,7 +505,7 @@ function computeScores(metrics, industryGroup) {
     if (tw > 0) overall = Math.round(parts.reduce((s, p) => s + p.value * p.weight, 0) / tw);
   }
 
-  return { overall, profitability, stability, growth, valuation, risk, weights: w, industryGroup: industryGroup || null };
+  return { overall, profitability, stability, growth, valuation, risk, riskFlagCount: riskFlags.filter(Boolean).length, weights: w, industryGroup: industryGroup || null };
 }
 
 function computeDynamicQuality(stock) {
