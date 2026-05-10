@@ -1583,6 +1583,15 @@ async function fetchYahooChart(symbol) {
   return data;
 }
 
+function isCleanCompanyName(s) {
+  if (!s || typeof s !== 'string') return false;
+  if (s.includes(',')) return false;
+  if (/^\d/.test(s)) return false;
+  if (/\.(KS|KQ|HK|T|L)$/i.test(s)) return false;
+  if (/^0P[0-9A-Z]{6,}/i.test(s)) return false;
+  return true;
+}
+
 async function fetchKrxYahooPrice(stock) {
   const baseSym = String(stock.symbol || '').replace(/\D/g, '').padStart(6, '0');
   if (baseSym.length !== 6) throw new Error(`KRX 심볼 파싱 실패: ${stock.symbol}`);
@@ -1598,8 +1607,10 @@ async function fetchKrxYahooPrice(stock) {
       const price = firstFinite(meta.regularMarketPrice, closes.at(-1));
       if (!Number.isFinite(price) || price <= 0) continue;
       const prevClose = firstFinite(meta.chartPreviousClose, meta.previousClose, closes.length > 1 ? closes.at(-2) : NaN);
+      const yahooName = isCleanCompanyName(meta.longName) ? meta.longName
+                      : isCleanCompanyName(meta.shortName) ? meta.shortName : null;
       return {
-        name: meta.longName || meta.shortName || stock.name,
+        ...(yahooName ? { name: yahooName } : {}),
         currency: 'KRW',
         price: Math.round(price),
         prevClose: Number.isFinite(prevClose) ? Math.round(prevClose) : undefined,
@@ -1626,8 +1637,7 @@ async function fetchYahooQuote(symbol) {
   return quote;
 }
 
-async function fetchLivePrice(stock) {
-  const yahooSym = toYahooSymbol(stock);
+async function fetchLivePriceForSymbol(stock, yahooSym) {
   const params = new URLSearchParams({ range: '1d', interval: '1m', includePrePost: 'false' });
   let res = await fetch(buildYahooChartUrl(yahooSym, params));
   if (!res.ok) throw new Error(`Yahoo live HTTP ${res.status}`);
@@ -1663,6 +1673,20 @@ async function fetchLivePrice(stock) {
     priceSrc: `Yahoo live (${yahooSym})`,
     priceAsOf: asOf,
   };
+}
+
+async function fetchLivePrice(stock) {
+  // KRX: try .KS then .KQ (KOSPI vs KOSDAQ are not encoded in our market field)
+  if (stock.market === 'KRX') {
+    const baseSym = String(stock.symbol || '').replace(/\D/g, '').padStart(6, '0');
+    let lastErr = null;
+    for (const suffix of ['.KS', '.KQ']) {
+      try { return await fetchLivePriceForSymbol(stock, `${baseSym}${suffix}`); }
+      catch (e) { lastErr = e; }
+    }
+    throw lastErr || new Error('Yahoo live KRX 실패');
+  }
+  return fetchLivePriceForSymbol(stock, toYahooSymbol(stock));
 }
 
 async function fetchAlphaVantage(fn, symbol, key) {
@@ -2025,7 +2049,12 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
     const merged = {
       cacheUpdates: {},
       ...results.price,
-      ...(results.dart ? { metrics: { ...(results.price?.metrics ?? {}), ...results.dart.metrics }, asOf: results.dart.asOf, priceSrc: results.dart.priceSrc } : {}),
+      ...(results.dart ? {
+        metrics: { ...(results.price?.metrics ?? {}), ...results.dart.metrics },
+        asOf: results.dart.asOf,
+        priceSrc: results.dart.priceSrc,
+        ...(results.dart.name ? { name: results.dart.name } : {}),  // prefer DART corpName for KRX
+      } : {}),
     };
     if (results.priceKey) merged.cacheUpdates[results.priceKey] = results.priceCacheEntry;
     if (results.dartKey) merged.cacheUpdates[results.dartKey] = results.dartCacheEntry;
