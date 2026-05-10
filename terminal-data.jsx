@@ -342,21 +342,93 @@ function getReportEndDate(year, reportCode) {
 // ═══════════════════════════════════════════════════════════════
 // Score computation (uses terminal metric naming: opMargin, revGrowth)
 // ═══════════════════════════════════════════════════════════════
-const SCORE_CFG = {
-  thresholds: {
-    roe:          { poor: 0,   ideal: 20  },
-    opMargin:     { poor: 0,   ideal: 25  },
-    fcfMargin:    { poor: -5,  ideal: 15  },
-    debtRatio:    { ideal: 40, poor: 180  },
-    currentRatio: { poor: 70,  ideal: 220 },
-    revGrowth:    { poor: -8,  ideal: 22  },
-    epsGrowth:    { poor: -15, ideal: 25  },
-    per:          { ideal: 10, poor: 55   },
-    pbr:          { ideal: 1,  poor: 8    },
-  },
-  weights: { profitability: 25, stability: 25, growth: 20, valuation: 20, risk: 10 },
-  riskRules: { epsGrowthBelow: 0, fcfMarginBelow: 0, debtRatioAbove: 150, perAbove: 70, penalty: 22 },
+const DEFAULT_SCORE = {
+  t:  { roe:{poor:0,ideal:20}, opMargin:{poor:0,ideal:25}, fcfMargin:{poor:-5,ideal:15}, debtRatio:{ideal:40,poor:180}, currentRatio:{poor:70,ideal:220}, revGrowth:{poor:-8,ideal:22}, epsGrowth:{poor:-15,ideal:25}, per:{ideal:10,poor:55}, pbr:{ideal:1,poor:8} },
+  w:  { profitability:25, stability:25, growth:20, valuation:20, risk:10 },
+  mw: { roe:0.5, opMargin:0.3, fcfMargin:0.2, debtRatio:0.55, currentRatio:0.45, revGrowth:0.48, epsGrowth:0.52, per:0.6, pbr:0.4 },
+  rr: { epsGrowthBelow:0, fcfMarginBelow:0, debtRatioAbove:150, perAbove:70, penalty:22 },
 };
+
+const INDUSTRY_CFG = {
+  SEMI: {
+    t:  { roe:{poor:8,ideal:25}, opMargin:{poor:15,ideal:40}, fcfMargin:{poor:5,ideal:25}, debtRatio:{ideal:50,poor:180}, currentRatio:{poor:120,ideal:300}, revGrowth:{poor:0,ideal:35}, epsGrowth:{poor:-20,ideal:45}, per:{ideal:8,poor:30}, pbr:{ideal:0.8,poor:4} },
+    w:  { profitability:25, stability:20, growth:30, valuation:15, risk:10 },
+    rr: { epsGrowthBelow:-15, fcfMarginBelow:0, debtRatioAbove:200, perAbove:35, penalty:22 },
+  },
+  SW_AI: {
+    t:  { roe:{poor:12,ideal:30}, opMargin:{poor:15,ideal:35}, fcfMargin:{poor:10,ideal:30}, debtRatio:{ideal:30,poor:120}, currentRatio:{poor:150,ideal:400}, revGrowth:{poor:15,ideal:40}, epsGrowth:{poor:10,ideal:40}, per:{ideal:15,poor:45}, pbr:{ideal:2,poor:12} },
+    w:  { profitability:20, stability:10, growth:40, valuation:20, risk:10 },
+    rr: { epsGrowthBelow:5, fcfMarginBelow:5, debtRatioAbove:120, perAbove:60, penalty:22 },
+  },
+  TECH_HW: {
+    t:  { roe:{poor:8,ideal:22}, opMargin:{poor:8,ideal:22}, fcfMargin:{poor:3,ideal:15}, debtRatio:{ideal:60,poor:200}, currentRatio:{poor:100,ideal:250}, revGrowth:{poor:5,ideal:25}, epsGrowth:{poor:0,ideal:25}, per:{ideal:10,poor:30}, pbr:{ideal:1,poor:5} },
+    w:  { profitability:22, stability:18, growth:30, valuation:20, risk:10 },
+    rr: { epsGrowthBelow:0, fcfMarginBelow:0, debtRatioAbove:200, perAbove:40, penalty:22 },
+  },
+  PLATFORM: {
+    t:  { roe:{poor:8,ideal:25}, opMargin:{poor:5,ideal:25}, fcfMargin:{poor:0,ideal:20}, debtRatio:{ideal:40,poor:150}, currentRatio:{poor:100,ideal:250}, revGrowth:{poor:10,ideal:30}, epsGrowth:{poor:5,ideal:30}, per:{ideal:15,poor:50}, pbr:{ideal:2,poor:10} },
+    w:  { profitability:18, stability:15, growth:35, valuation:22, risk:10 },
+    rr: { epsGrowthBelow:0, fcfMarginBelow:-5, debtRatioAbove:150, perAbove:60, penalty:22 },
+  },
+  HEALTHCARE: {
+    t:  { roe:{poor:10,ideal:22}, opMargin:{poor:18,ideal:35}, fcfMargin:{poor:10,ideal:25}, debtRatio:{ideal:40,poor:150}, currentRatio:{poor:130,ideal:300}, revGrowth:{poor:5,ideal:20}, epsGrowth:{poor:5,ideal:20}, per:{ideal:12,poor:35}, pbr:{ideal:1.5,poor:6} },
+    w:  { profitability:25, stability:20, growth:25, valuation:20, risk:10 },
+    rr: { epsGrowthBelow:0, fcfMarginBelow:5, debtRatioAbove:150, perAbove:50, penalty:22 },
+  },
+  BIOTECH: {
+    t:  { roe:{poor:-50,ideal:5}, opMargin:{poor:-80,ideal:-5}, fcfMargin:{poor:-80,ideal:-5}, debtRatio:{ideal:30,poor:100}, currentRatio:{poor:200,ideal:600}, revGrowth:{poor:-20,ideal:50}, epsGrowth:{poor:-50,ideal:30}, per:{ideal:10,poor:50}, pbr:{ideal:1,poor:8} },
+    w:  { profitability:5, stability:30, growth:45, valuation:10, risk:10 },
+    mw: { roe:1, opMargin:0, fcfMargin:0, debtRatio:0.4, currentRatio:0.6 },
+    rr: { epsGrowthBelow:-30, fcfMarginBelow:-50, debtRatioAbove:100, perAbove:100, penalty:15 },
+  },
+  CONSUMER: {
+    t:  { roe:{poor:10,ideal:20}, opMargin:{poor:8,ideal:18}, fcfMargin:{poor:5,ideal:15}, debtRatio:{ideal:60,poor:200}, currentRatio:{poor:90,ideal:200}, revGrowth:{poor:0,ideal:12}, epsGrowth:{poor:0,ideal:15}, per:{ideal:8,poor:22}, pbr:{ideal:0.8,poor:4} },
+    w:  { profitability:30, stability:20, growth:20, valuation:20, risk:10 },
+    rr: { epsGrowthBelow:0, fcfMarginBelow:0, debtRatioAbove:200, perAbove:30, penalty:22 },
+  },
+  CYCLICAL: {
+    t:  { roe:{poor:6,ideal:18}, opMargin:{poor:5,ideal:18}, fcfMargin:{poor:0,ideal:12}, debtRatio:{ideal:80,poor:250}, currentRatio:{poor:90,ideal:200}, revGrowth:{poor:-5,ideal:18}, epsGrowth:{poor:-15,ideal:25}, per:{ideal:6,poor:18}, pbr:{ideal:0.5,poor:2.5} },
+    w:  { profitability:22, stability:30, growth:18, valuation:20, risk:10 },
+    rr: { epsGrowthBelow:-10, fcfMarginBelow:-5, debtRatioAbove:250, perAbove:25, penalty:22 },
+  },
+  FINANCIAL: {
+    t:  { roe:{poor:6,ideal:15}, opMargin:{poor:0,ideal:30}, fcfMargin:{poor:-10,ideal:10}, debtRatio:{ideal:500,poor:2000}, currentRatio:{poor:50,ideal:120}, revGrowth:{poor:0,ideal:12}, epsGrowth:{poor:0,ideal:12}, per:{ideal:5,poor:15}, pbr:{ideal:0.5,poor:1.8} },
+    w:  { profitability:25, stability:10, growth:20, valuation:25, risk:20 },
+    mw: { roe:1, opMargin:0, fcfMargin:0, debtRatio:0, currentRatio:0 },
+    rr: { epsGrowthBelow:0, fcfMarginBelow:-20, debtRatioAbove:2000, perAbove:20, penalty:20 },
+  },
+  DEFENSIVE: {
+    t:  { roe:{poor:6,ideal:12}, opMargin:{poor:12,ideal:30}, fcfMargin:{poor:8,ideal:20}, debtRatio:{ideal:100,poor:350}, currentRatio:{poor:80,ideal:180}, revGrowth:{poor:-2,ideal:8}, epsGrowth:{poor:-2,ideal:8}, per:{ideal:8,poor:20}, pbr:{ideal:0.7,poor:2.5} },
+    w:  { profitability:25, stability:35, growth:10, valuation:20, risk:10 },
+    rr: { epsGrowthBelow:-5, fcfMarginBelow:0, debtRatioAbove:350, perAbove:25, penalty:22 },
+  },
+};
+
+function getIndustryCfg(industryGroup) {
+  const cfg = INDUSTRY_CFG[industryGroup];
+  if (!cfg) return { t: DEFAULT_SCORE.t, w: DEFAULT_SCORE.w, mw: DEFAULT_SCORE.mw, rr: DEFAULT_SCORE.rr };
+  return {
+    t:  { ...DEFAULT_SCORE.t,  ...cfg.t  },
+    w:  { ...DEFAULT_SCORE.w,  ...cfg.w  },
+    mw: { ...DEFAULT_SCORE.mw, ...(cfg.mw || {}) },
+    rr: { ...DEFAULT_SCORE.rr, ...cfg.rr },
+  };
+}
+
+function detectIndustry(sector, industry) {
+  const si = (String(sector || '') + ' ' + String(industry || '')).toLowerCase();
+  if (/semiconductor|반도체/.test(si)) return 'SEMI';
+  if (/software|saas|소프트웨어|인터넷 정보서비스|artificial intelligence/.test(si)) return 'SW_AI';
+  if (/internet retail|internet content|e-commerce|플랫폼|이커머스/.test(si)) return 'PLATFORM';
+  if (/(electronic|hardware|robot|전자부품|로봇|display|배터리|battery|photonics|optical)/.test(si)) return 'TECH_HW';
+  if (/biotechnology|생물/.test(si)) return 'BIOTECH';
+  if (/health|pharma|drug|medical|의약품|의료/.test(si)) return 'HEALTHCARE';
+  if (/financial|bank|insurance|금융|은행|보험|증권|asset management/.test(si)) return 'FINANCIAL';
+  if (/utilities|telecom|communication services|reit|real estate|통신|전력|부동산/.test(si)) return 'DEFENSIVE';
+  if (/industrial|material|energy|chemical|steel|mining|산업|소재|화학|철강|에너지|광업/.test(si)) return 'CYCLICAL';
+  if (/consumer|retail|food|beverage|apparel|automobile|auto|소비재|음식료|자동차|의류/.test(si)) return 'CONSUMER';
+  return null;
+}
 
 function scoreHi(v, poor, ideal) {
   if (v >= ideal) return 100;
@@ -370,10 +442,8 @@ function scoreLo(v, ideal, poor) {
   return clamp(100 - ((v - ideal) / (poor - ideal)) * 100);
 }
 
-function computeScores(metrics) {
-  const t = SCORE_CFG.thresholds;
-  const rr = SCORE_CFG.riskRules;
-  const w = SCORE_CFG.weights;
+function computeScores(metrics, industryGroup) {
+  const { t, w, mw, rr } = getIndustryCfg(industryGroup);
 
   const safeHi = (v, poor, ideal) => Number.isFinite(Number(v)) ? scoreHi(Number(v), poor, ideal) : null;
   const safeLo = (v, ideal, poor) => Number.isFinite(Number(v)) ? scoreLo(Number(v), ideal, poor) : null;
@@ -383,7 +453,7 @@ function computeScores(metrics) {
   };
 
   const wavg = (parts) => {
-    const valid = parts.filter(p => p.value !== null && Number.isFinite(p.value));
+    const valid = parts.filter(p => p.value !== null && Number.isFinite(p.value) && p.weight > 0);
     if (!valid.length) return null;
     const tw = valid.reduce((s, p) => s + p.weight, 0);
     if (!tw) return null;
@@ -391,24 +461,24 @@ function computeScores(metrics) {
   };
 
   const profitability = wavg([
-    { value: safeHi(metrics.roe, t.roe.poor, t.roe.ideal), weight: 0.5 },
-    { value: safeHi(metrics.opMargin, t.opMargin.poor, t.opMargin.ideal), weight: 0.3 },
-    { value: safeHi(metrics.fcfMargin, t.fcfMargin.poor, t.fcfMargin.ideal), weight: 0.2 },
+    { value: safeHi(metrics.roe, t.roe.poor, t.roe.ideal),           weight: mw.roe },
+    { value: safeHi(metrics.opMargin, t.opMargin.poor, t.opMargin.ideal), weight: mw.opMargin },
+    { value: safeHi(metrics.fcfMargin, t.fcfMargin.poor, t.fcfMargin.ideal), weight: mw.fcfMargin },
   ]);
 
   const stability = wavg([
-    { value: safeLo(metrics.debtRatio, t.debtRatio.ideal, t.debtRatio.poor), weight: 0.55 },
-    { value: safeHi(metrics.currentRatio, t.currentRatio.poor, t.currentRatio.ideal), weight: 0.45 },
+    { value: safeLo(metrics.debtRatio, t.debtRatio.ideal, t.debtRatio.poor), weight: mw.debtRatio },
+    { value: safeHi(metrics.currentRatio, t.currentRatio.poor, t.currentRatio.ideal), weight: mw.currentRatio },
   ]);
 
   const growth = wavg([
-    { value: safeHi(metrics.revGrowth, t.revGrowth.poor, t.revGrowth.ideal), weight: 0.48 },
-    { value: safeHi(metrics.epsGrowth, t.epsGrowth.poor, t.epsGrowth.ideal), weight: 0.52 },
+    { value: safeHi(metrics.revGrowth, t.revGrowth.poor, t.revGrowth.ideal), weight: mw.revGrowth },
+    { value: safeHi(metrics.epsGrowth, t.epsGrowth.poor, t.epsGrowth.ideal), weight: mw.epsGrowth },
   ]);
 
   const valuation = wavg([
-    { value: safeLoPos(metrics.per, t.per.ideal, t.per.poor), weight: 0.6 },
-    { value: safeLoPos(metrics.pbr, t.pbr.ideal, t.pbr.poor), weight: 0.4 },
+    { value: safeLoPos(metrics.per, t.per.ideal, t.per.poor), weight: mw.per },
+    { value: safeLoPos(metrics.pbr, t.pbr.ideal, t.pbr.poor), weight: mw.pbr },
   ]);
 
   const per = Number(metrics.per);
@@ -435,7 +505,7 @@ function computeScores(metrics) {
     if (tw > 0) overall = Math.round(parts.reduce((s, p) => s + p.value * p.weight, 0) / tw);
   }
 
-  return { overall, profitability, stability, growth, valuation, risk, weights: w };
+  return { overall, profitability, stability, growth, valuation, risk, weights: w, industryGroup: industryGroup || null };
 }
 
 function computeDynamicQuality(stock) {
@@ -638,7 +708,7 @@ async function fetchKrxYahooPrice(stock) {
 }
 
 async function fetchYahooQuote(symbol) {
-  const fields = 'symbol,shortName,longName,currency,regularMarketPrice,regularMarketTime,trailingPE,forwardPE,priceToBook,bookValue,epsTrailingTwelveMonths,epsForward,marketCap';
+  const fields = 'symbol,shortName,longName,currency,regularMarketPrice,regularMarketTime,trailingPE,forwardPE,priceToBook,bookValue,epsTrailingTwelveMonths,epsForward,marketCap,sector,industry';
   const params = new URLSearchParams({ symbols: symbol, fields });
   const res = await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?${params}`);
   if (!res.ok) throw new Error(`Yahoo quote HTTP ${res.status}`);
@@ -808,6 +878,23 @@ async function fetchOpenDartStatements(corpCode, apiSettings) {
   throw new Error(`OpenDART 재무제표 없음 · ${errors.join(' / ')}`);
 }
 
+async function fetchDartStockInfo(corpCode, apiKey) {
+  const params = new URLSearchParams({ crtfc_key: apiKey, corp_code: corpCode });
+  const res = await fetch(buildOpenDartApiUrl('stockInfo', params));
+  if (!res.ok) throw new Error(`stockInfo HTTP ${res.status}`);
+  const data = await res.json();
+  if (data.status !== '000' || !Array.isArray(data.list)) throw new Error(`stockInfo status ${data.status}`);
+  // Sum common shares (보통주) across all rows — field names vary by DART version
+  const commonRows = data.list.filter(r => String(r.stock_knd || r.bsis_se || '').includes('보통'));
+  const rows = commonRows.length ? commonRows : data.list;
+  let shares = 0;
+  for (const r of rows) {
+    const v = toNumber(r.istc_totqy ?? r.vntl_stock_co ?? r.issue_stock_co ?? r.stck_co ?? 0);
+    if (Number.isFinite(v) && v > 0) { shares += v; break; }
+  }
+  return shares > 0 ? shares : null;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Data mapping (outputs opMargin, revGrowth for terminal naming)
 // ═══════════════════════════════════════════════════════════════
@@ -824,6 +911,7 @@ function mapYahooPayload(stock, chart, yahooSym, quote) {
     per: firstFinite(toNumber(quote?.trailingPE), toNumber(quote?.forwardPE)),
     pbr: firstFinite(toNumber(quote?.priceToBook)),
   });
+  const industryGroup = detectIndustry(quote?.sector, quote?.industry);
   return {
     name: quote?.longName || quote?.shortName || result.meta?.longName || stock.name,
     currency: quote?.currency || result.meta?.currency || stock.currency,
@@ -832,6 +920,7 @@ function mapYahooPayload(stock, chart, yahooSym, quote) {
     metrics,
     asOf,
     priceSrc: `Yahoo Finance (${yahooSym})`,
+    ...(industryGroup ? { industryGroup } : {}),
   };
 }
 
@@ -862,6 +951,7 @@ function mapAlphaPayload(stock, raw) {
     currentRatio,
     fcfMargin,
   });
+  const industryGroup = detectIndustry(overview.Sector, overview.Industry);
   return {
     name: overview.Name || stock.name,
     currency: stock.currency,
@@ -870,6 +960,7 @@ function mapAlphaPayload(stock, raw) {
     metrics,
     asOf: latestQuarter || new Date().toISOString().slice(0, 10),
     priceSrc: 'Alpha Vantage',
+    ...(industryGroup ? { industryGroup } : {}),
   };
 }
 
@@ -901,6 +992,7 @@ function mapFmpPayload(stock, raw, fmpSym) {
     revGrowth: decimalToPercent(firstFinite(ratios.revenueGrowthTTM, keyMetrics.revenueGrowthTTM)),
     currentRatio: decimalToPercent(firstFinite(ratios.currentRatioTTM, ratios.currentRatio)),
   });
+  const industryGroup = detectIndustry(profile.sector, profile.industry);
   return {
     name: profile.companyName || quote.name || stock.name,
     currency: quote.currency || profile.currency || stock.currency,
@@ -909,6 +1001,7 @@ function mapFmpPayload(stock, raw, fmpSym) {
     metrics,
     asOf,
     priceSrc: `FMP (${fmpSym})`,
+    ...(industryGroup ? { industryGroup } : {}),
   };
 }
 
@@ -936,7 +1029,7 @@ function findDartRow(rows, ids, names) {
 function getDartAmt(row) { if (!row) return NaN; const a = toNumber(row.thstrm_amount); return Number.isFinite(a) ? a : toNumber(row.thstrm_add_amount); }
 function getPrevDartAmt(row) { if (!row) return NaN; const a = toNumber(row.frmtrm_amount); return Number.isFinite(a) ? a : toNumber(row.frmtrm_add_amount); }
 
-function mapOpenDartPayload(stock, raw, corp, currentPrice) {
+function mapOpenDartPayload(stock, raw, corp, currentPrice, shares) {
   const rows = raw.list ?? [];
   const ctx = raw.context;
   const dartLabels = { 11011: '사업보고서', 11012: '반기보고서', 11013: '1분기보고서', 11014: '3분기보고서' };
@@ -968,12 +1061,15 @@ function mapOpenDartPayload(stock, raw, corp, currentPrice) {
   const capex = Math.abs(getDartAmt(capexRow));
   const fcf = (Number.isFinite(opCF) && Number.isFinite(capex)) ? opCF - capex : NaN;
 
-  // PBR via implied shares: shares = netIncome / eps  →  BPS = totalEquity / shares
+  // PBR: prefer actual issued shares from stockInfo API; fall back to implied shares via EPS
   let pbr = NaN;
-  if (currentPrice && totalEquity > 0 && Number.isFinite(eps) && Math.abs(eps) > 0.01 && Number.isFinite(netIncome) && netIncome !== 0) {
-    const sharesEst = netIncome / eps;
-    if (sharesEst > 0) {
-      const bps = totalEquity / sharesEst;
+  if (currentPrice && totalEquity > 0) {
+    const sharesActual = Number.isFinite(shares) && shares > 0 ? shares : null;
+    const sharesImplied = (Number.isFinite(eps) && Math.abs(eps) > 0.01 && Number.isFinite(netIncome) && netIncome !== 0)
+      ? netIncome / eps : null;
+    const sharesUsed = sharesActual ?? sharesImplied;
+    if (sharesUsed > 0) {
+      const bps = totalEquity / sharesUsed;
       if (bps > 0) pbr = currentPrice / bps;
     }
   }
@@ -1047,9 +1143,15 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
         const corp = getDartCorpEntry(dartCorpMap, stock);
         if (!corp?.corpCode) throw new Error(`${stockCode} corp_code 매핑 없음 — API 설정의 Corp 매핑에서 추가해 주세요.`);
         onStatus('OpenDART 재무제표 조회 중...');
-        const raw = await fetchOpenDartStatements(corp.corpCode, apiSettings);
+        const [rawRes, sharesRes] = await Promise.allSettled([
+          fetchOpenDartStatements(corp.corpCode, apiSettings),
+          fetchDartStockInfo(corp.corpCode, apiSettings.openDartKey),
+        ]);
+        if (rawRes.status === 'rejected') throw rawRes.reason;
+        const raw = rawRes.value;
+        const shares = sharesRes.status === 'fulfilled' ? sharesRes.value : null;
         const currentPrice = results.price?.price ?? Number(stock.price);
-        results.dart = mapOpenDartPayload(stock, raw, corp, currentPrice);
+        results.dart = mapOpenDartPayload(stock, raw, corp, currentPrice, shares);
         results.dartKey = dartKey;
         results.dartCacheEntry = { fetchedAt: new Date().toISOString(), provider: 'openDart', payload: results.dart };
       }

@@ -2490,7 +2490,8 @@ function App() {
         const updated = { ...prev };
         const old = { ...updated[stockId] };
         const newMetrics = { ...old.metrics, ...(payload.metrics || {}) };
-        const newScores = computeScores(newMetrics);
+        const newIndustryGroup = payload.industryGroup || old.industryGroup || null;
+        const newScores = computeScores(newMetrics, newIndustryGroup);
         const now = new Date().toISOString().slice(0, 10);
         const newScoreHistory = [...(old.scoreHistory || []).slice(-11), newScores.overall ?? old.scores?.overall ?? 0];
         updated[stockId] = {
@@ -2502,6 +2503,7 @@ function App() {
           ...(payload.priceHistory !== undefined ? { priceHistory: payload.priceHistory } : {}),
           ...(payload.asOf !== undefined ? { asOf: payload.asOf } : {}),
           ...(payload.priceSrc !== undefined ? { priceSrc: payload.priceSrc } : {}),
+          ...(newIndustryGroup ? { industryGroup: newIndustryGroup } : {}),
           metrics: newMetrics,
           scores: newScores,
           scoreHistory: newScoreHistory,
