@@ -58,7 +58,7 @@ const PANEL_DEFS = [
   { k: 'F8', label: 'CHECKLIST', short: 'CHK' },
   { k: 'F9', label: 'CALENDAR', short: 'CAL' },
   { k: 'F10', label: 'JOURNAL', short: 'JRN' },
-  { k: 'F12', label: 'SETTINGS', short: 'DATA' },
+  { k: 'F11', label: 'SETTINGS', short: 'DATA' },
 ];
 
 const BACKUP_SCHEMA_VERSION = 2;
@@ -1516,7 +1516,7 @@ function AlertsPanel({
                 fontSize: 10, lineHeight: 1.45,
               }}>
                 {!dartCoverage?.hasOpenDartKey
-                  ? 'OpenDART key missing. F12 Settings/Data에 key를 저장하세요.'
+                  ? 'OpenDART key missing. F11 Settings/Data에 key를 저장하세요.'
                   : `KRX mapping ${dartCoverage.mappedKrxCount}/${dartCoverage.krxCount}`}
                 {dartCoverage?.missingKrx?.length > 0 && (
                   <div style={{ color: T.yellow, marginTop: 3 }}>
@@ -2754,7 +2754,7 @@ function App() {
   // ── Save API settings ──────────────────────────────────────────────────────
   const handleSummarizeAlert = useCallback(async (alert) => {
     if (!apiSettings.anthropicKey) {
-      toast('F12 Settings/Data에 Anthropic API key를 먼저 입력하세요.', 'info', 6000);
+      toast('F11 Settings/Data에 Anthropic API key를 먼저 입력하세요.', 'info', 6000);
       return;
     }
     const oldSummary = alert.summary;
@@ -2951,7 +2951,7 @@ function App() {
     F10: (
       <JournalPanel stock={stock} onCapture={handleCaptureJournal} onUpdate={handleUpdateJournal}/>
     ),
-    F12: (
+    F11: (
       <SettingsDataPanel
         apiSettings={apiSettings}
         dartCorpMap={dartCorpMap}
@@ -2983,7 +2983,7 @@ function App() {
         symbol={stock.symbol}
         onSymbol={handleSymbolNav}
         onSearch={() => setSearchOpen(true)}
-        onSettings={() => setActivePanel('F12')}
+        onSettings={() => setActivePanel('F11')}
         refreshing={refreshing}
         providerStatus={providerStatus}
         alertCount={alerts.filter(a => a.status === 'new').length}
