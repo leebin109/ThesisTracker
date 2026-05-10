@@ -123,6 +123,8 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
   const ref = useRef(null);
   const [w, setW] = useState(0);
   const [h, setH] = useState(0);
+  const [hoverIdx, setHoverIdx] = useState(null);
+
   useEffect(() => {
     if (!ref.current) return;
     const ro = new ResizeObserver(entries => {
@@ -140,27 +142,33 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
   const ch = Math.max(1, height - pad.t - pad.b);
 
   const isCandle = chartType === 'candle' && ohlcData.length > 0;
+  const valid = useMemo(
+    () => ohlcData.filter(c => Number.isFinite(c.low) && Number.isFinite(c.high) && c.low > 0),
+    [ohlcData]
+  );
 
-  if (!data.length && !ohlcData.length) {
+  if (!data.length && !valid.length) {
     return <div ref={ref} style={{ width: '100%', height: '100%' }} />;
   }
 
   const yLabel = v => v >= 10000 ? (v / 1000).toFixed(0) + 'k' : v >= 1000 ? v.toFixed(0) : v.toFixed(1);
-  const fmtXDate = d => {
-    if (!d) return '';
-    const m = parseInt(d.slice(5, 7), 10);
-    const day = parseInt(d.slice(8, 10), 10);
-    return `${m}/${day}`;
-  };
-  const xTickIndices = len => {
+  const fmtDate = d => { if (!d) return ''; const m = parseInt(d.slice(5,7),10), day = parseInt(d.slice(8,10),10); return `${m}/${day}`; };
+  const xTickIdxs = len => {
     if (len <= 1) return [0];
     const n = Math.min(6, len);
     const step = (len - 1) / (n - 1);
     return Array.from({ length: n }, (_, i) => Math.round(i * step));
   };
 
+  const tipStyle = {
+    position: 'absolute', top: 8, background: T.surface,
+    border: `1px solid ${T.border}`, padding: '5px 9px',
+    fontSize: 9.5, fontFamily: T.font, lineHeight: 1.65,
+    pointerEvents: 'none', zIndex: 10, whiteSpace: 'nowrap',
+  };
+
+  /* ── CANDLE ── */
   if (isCandle) {
-    const valid = ohlcData.filter(c => Number.isFinite(c.low) && Number.isFinite(c.high) && c.low > 0);
     if (!valid.length) return <div ref={ref} style={{ width: '100%', height: '100%' }} />;
     const allLo = valid.map(c => c.low), allHi = valid.map(c => c.high);
     const mn = Math.min(...allLo), mx = Math.max(...allHi);
@@ -171,9 +179,21 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
     const cWid = Math.max(2, Math.floor(cw / n) - 1);
     const xp = i => pad.l + ((i + 0.5) / n) * cw;
     const ticks = Array.from({ length: 5 }, (_, i) => top - ((top - bot) * i) / 4);
-    const xTicks = xTickIndices(valid.length);
+
+    const onMove = e => {
+      if (!ref.current) return;
+      const rect = ref.current.getBoundingClientRect();
+      const svgX = e.clientX - rect.left - pad.l;
+      setHoverIdx(Math.max(0, Math.min(n - 1, Math.floor((svgX / cw) * n))));
+    };
+
+    const hc = hoverIdx !== null ? valid[hoverIdx] : null;
+    const hx = hc ? xp(hoverIdx) : 0;
+    const tipLeft = hx < w * 0.6 ? hx + 10 : hx - 102;
+
     return (
-      <div ref={ref} style={{ width: '100%', height: '100%', position: 'relative' }}>
+      <div ref={ref} style={{ width: '100%', height: '100%', position: 'relative' }}
+        onMouseMove={onMove} onMouseLeave={() => setHoverIdx(null)}>
         {w > 0 && h > 0 && (
           <svg width={w} height={height} style={{ display: 'block' }}>
             {ticks.map((v, i) => {
@@ -200,20 +220,32 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
                 </g>
               );
             })}
-            {xTicks.map(i => (
+            {xTickIdxs(valid.length).map(i => (
               <text key={i} x={xp(i)} y={pad.t + ch + 16} textAnchor="middle" fontSize="8.5" fill={T.inkFaint} fontFamily={T.font}>
-                {fmtXDate(valid[i]?.date)}
+                {fmtDate(valid[i]?.date)}
               </text>
             ))}
+            {hc && (
+              <g>
+                <line x1={hx} x2={hx} y1={pad.t} y2={pad.t + ch} stroke={T.inkFaint} strokeWidth="0.8" strokeDasharray="2 2" opacity="0.5"/>
+                <circle cx={hx} cy={yp(hc.close)} r="3" fill={hc.close >= hc.open ? T.green : T.red}/>
+              </g>
+            )}
           </svg>
+        )}
+        {hc && (
+          <div style={{ ...tipStyle, left: tipLeft }}>
+            <div style={{ color: T.inkFaint, marginBottom: 2 }}>{hc.date}</div>
+            <div>O <span style={{ color: T.ink }}>{yLabel(hc.open)}</span>&nbsp;&nbsp;H <span style={{ color: T.green }}>{yLabel(hc.high)}</span></div>
+            <div>L <span style={{ color: T.red }}>{yLabel(hc.low)}</span>&nbsp;&nbsp;C <span style={{ color: T.ink, fontWeight: 700 }}>{yLabel(hc.close)}</span></div>
+          </div>
         )}
       </div>
     );
   }
 
-  // Line chart
-  const hasData = data.length > 0;
-  if (!hasData) return <div ref={ref} style={{ width: '100%', height: '100%' }} />;
+  /* ── LINE ── */
+  if (!data.length) return <div ref={ref} style={{ width: '100%', height: '100%' }} />;
   const mn = Math.min(...data), mx = Math.max(...data);
   const rng = mx - mn || 1;
   const top = mx + rng * 0.1, bot = mn - rng * 0.1;
@@ -225,9 +257,24 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
   const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(' ');
   const area = pts.length ? `${path} L ${pad.l + cw} ${pad.t + ch} L ${pad.l} ${pad.t + ch} Z` : '';
   const [lx, ly] = pts[pts.length - 1] || [0, 0];
-  const xTicks = ohlcData.length > 0 ? xTickIndices(ohlcData.length) : [];
+  const dateSrc = ohlcData.length > 0 ? ohlcData : [];
+
+  const onMove = e => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const svgX = e.clientX - rect.left - pad.l;
+    setHoverIdx(Math.max(0, Math.min(data.length - 1, Math.round((svgX / cw) * (data.length - 1)))));
+  };
+
+  const hi = hoverIdx !== null ? hoverIdx : null;
+  const hPt = hi !== null ? pts[hi] : null;
+  const hDate = hi !== null ? dateSrc[hi]?.date : null;
+  const hPrice = hi !== null ? data[hi] : null;
+  const tipLeft = hPt ? (hPt[0] < w * 0.6 ? hPt[0] + 10 : hPt[0] - 88) : 0;
+
   return (
-    <div ref={ref} style={{ width: '100%', height: '100%', position: 'relative' }}>
+    <div ref={ref} style={{ width: '100%', height: '100%', position: 'relative' }}
+      onMouseMove={onMove} onMouseLeave={() => setHoverIdx(null)}>
       {w > 0 && h > 0 && (
         <svg width={w} height={height} style={{ display: 'block' }}>
           <defs>
@@ -248,21 +295,33 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
           <path d={area} fill="url(#chartFill)"/>
           <path d={path} fill="none" stroke={accent} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round"
             style={{ filter: `drop-shadow(0 0 3px ${accent}aa)` }}/>
-          {pts.length > 0 && (
+          {!hPt && pts.length > 0 && (
             <g>
               <circle cx={lx} cy={ly} r="3" fill={accent}/>
               <line x1={pad.l} x2={pad.l + cw} y1={ly} y2={ly} stroke={accent} strokeWidth="0.6" strokeDasharray="3 3" opacity="0.5"/>
             </g>
           )}
-          {xTicks.map(i => {
-            const x = pad.l + (i / Math.max(1, ohlcData.length - 1)) * cw;
+          {xTickIdxs(dateSrc.length > 0 ? dateSrc.length : data.length).map(i => {
+            const x = pad.l + (i / Math.max(1, (dateSrc.length > 0 ? dateSrc.length : data.length) - 1)) * cw;
             return (
               <text key={i} x={x} y={pad.t + ch + 16} textAnchor="middle" fontSize="8.5" fill={T.inkFaint} fontFamily={T.font}>
-                {fmtXDate(ohlcData[i]?.date)}
+                {dateSrc[i] ? fmtDate(dateSrc[i].date) : String(i)}
               </text>
             );
           })}
+          {hPt && (
+            <g>
+              <line x1={hPt[0]} x2={hPt[0]} y1={pad.t} y2={pad.t + ch} stroke={T.inkFaint} strokeWidth="0.8" strokeDasharray="2 2" opacity="0.5"/>
+              <circle cx={hPt[0]} cy={hPt[1]} r="3.5" fill={accent} style={{ filter: `drop-shadow(0 0 4px ${accent})` }}/>
+            </g>
+          )}
         </svg>
+      )}
+      {hPt && (
+        <div style={{ ...tipStyle, left: tipLeft }}>
+          {hDate && <div style={{ color: T.inkFaint, marginBottom: 2 }}>{hDate}</div>}
+          <div style={{ fontWeight: 700, color: T.ink }}>{yLabel(hPrice)}</div>
+        </div>
       )}
     </div>
   );

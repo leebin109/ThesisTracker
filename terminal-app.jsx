@@ -492,7 +492,7 @@ function ChartPanel({ stock, onRefresh, refreshing, fetchStatus }) {
       <div style={{ flex: 1, minHeight: 0 }}>
         <PriceChart
           data={chartType === 'candle' ? [] : lineData}
-          ohlcData={chartType === 'candle' ? (ohlcData || []) : []}
+          ohlcData={ohlcData || []}
           chartType={chartType}
           accent={T.amber}
         />
@@ -2824,12 +2824,9 @@ function App() {
   // ── Panel content ──────────────────────────────────────────────────────────
   const panelContent = {
     F1: (
-      <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gridTemplateRows: 'auto 1fr', gap: 8, height: '100%' }}>
-        <div style={{ gridRow: '1 / 3' }}>
-          <ScoreBreakdown scores={stock.scores}/>
-        </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 8, height: '100%' }}>
+        <ScoreBreakdown scores={stock.scores}/>
         <MetricsGrid metrics={stock.metrics} currency={stock.currency}/>
-        <ChartPanel stock={stock} onRefresh={handleRefresh} refreshing={refreshing} fetchStatus={fetchStatus}/>
       </div>
     ),
     F2: (
