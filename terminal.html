@@ -4596,8 +4596,8 @@ function App() {
     getSb().from('user_data').select('payload').eq('user_id', session.user.id).single()
       .then(({ data, error }) => {
         if (error || !data?.payload) {
-          // First login — push local state to Supabase
-          const snap = { stocks, watchlistIds, activeId, apiSettings, dataCache, dartCorpMap, alerts, alertSettings, portfolio };
+          // First login — push local state to Supabase (apiSettings/dataCache excluded: device-local only)
+          const snap = { stocks, watchlistIds, activeId, dartCorpMap, alerts, alertSettings, portfolio };
           getSb().from('user_data').upsert({ user_id: session.user.id, payload: snap }, { onConflict: 'user_id' });
           return;
         }
@@ -4605,8 +4605,8 @@ function App() {
         if (p.stocks && typeof p.stocks === 'object') setStocks(s => ({ ...normalizeStocksMap(p.stocks), ...s }));
         if (Array.isArray(p.watchlistIds)) setWatchlistIds(p.watchlistIds);
         if (p.activeId) setActiveId(p.activeId);
-        if (p.apiSettings && typeof p.apiSettings === 'object') setApiSettings(s => ({ ...s, ...p.apiSettings }));
-        if (p.dataCache && typeof p.dataCache === 'object') setDataCache(p.dataCache);
+        // apiSettings: NOT synced — API keys stay device-local (localStorage only)
+        // dataCache:   NOT synced — financial data cache stays device-local
         if (p.dartCorpMap && typeof p.dartCorpMap === 'object') setDartCorpMap(p.dartCorpMap);
         if (Array.isArray(p.alerts)) setAlerts(p.alerts);
         if (p.alertSettings && typeof p.alertSettings === 'object') setAlertSettings(s => ({ ...s, ...p.alertSettings }));
@@ -4620,7 +4620,9 @@ function App() {
     clearTimeout(sbSaveTimerRef.current);
     sbSaveTimerRef.current = setTimeout(async () => {
       setSbSyncStatus('saving');
-      const snap = { stocks, watchlistIds, activeId, apiSettings, dataCache, dartCorpMap, alerts, alertSettings, portfolio };
+      // apiSettings excluded: API keys stay device-local (localStorage only)
+      // dataCache excluded: financial data cache is large and transient
+      const snap = { stocks, watchlistIds, activeId, dartCorpMap, alerts, alertSettings, portfolio };
       const { error } = await getSb().from('user_data').upsert(
         { user_id: session.user.id, payload: snap },
         { onConflict: 'user_id' }
@@ -4628,7 +4630,7 @@ function App() {
       setSbSyncStatus(error ? 'error' : 'idle');
     }, 2000);
     return () => clearTimeout(sbSaveTimerRef.current);
-  }, [session, stocks, watchlistIds, activeId, apiSettings, dataCache, dartCorpMap, alerts, alertSettings, portfolio]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [session, stocks, watchlistIds, activeId, dartCorpMap, alerts, alertSettings, portfolio]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Toast helpers ──────────────────────────────────────────────────────────
   const toast = useCallback((msg, kind = 'info', ms = 4000) => {
