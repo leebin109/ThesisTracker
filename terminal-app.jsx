@@ -2922,11 +2922,9 @@ function App() {
       <CommandBar
         symbol={stock.symbol}
         onSymbol={handleSymbolNav}
-        activePanel={activePanel}
         onSearch={() => setSearchOpen(true)}
         onSettings={() => setActivePanel('F12')}
         refreshing={refreshing}
-        panelDefs={PANEL_DEFS}
         providerStatus={providerStatus}
         alertCount={alerts.filter(a => a.status === 'new').length}
         onAlerts={() => setActivePanel('F6')}

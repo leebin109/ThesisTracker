@@ -269,55 +269,53 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
 };
 
 // ── Top bar components ────────────────────────────────────────────────────────
-const CommandBar = ({ symbol, onSymbol, activePanel = 'F1', onSearch, onSettings, refreshing, panelDefs, providerStatus, alertCount = 0, onAlerts }) => {
+const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, providerStatus, alertCount = 0, onAlerts }) => {
   const [val, setVal] = useState(symbol);
   useEffect(() => { setVal(symbol); }, [symbol]);
-  const fkeys = panelDefs || [
-    { k: 'F1', label: 'OVR' },
-    { k: 'F2', label: 'PITCH' },
-    { k: 'F3', label: 'VAL' },
-    { k: 'F4', label: 'HX' },
-    { k: 'F5', label: 'CHART' },
-  ];
   const statusColor = providerStatus?.kind === 'ok' ? T.green : providerStatus?.kind === 'warn' ? T.yellow : providerStatus?.kind === 'error' ? T.red : T.inkFaint;
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 14, height: 34, padding: '0 12px 0 18px',
+      display: 'flex', alignItems: 'center', gap: 12, height: 34, padding: '0 12px 0 18px',
       background: T.surface, borderBottom: `1px solid ${T.border}`,
       whiteSpace: 'nowrap', overflow: 'hidden',
     }}>
+      {/* Logo */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 auto' }}>
         <div style={{ width: 18, height: 18, background: T.amber, display: 'grid', placeItems: 'center',
           fontSize: 11, fontWeight: 800, color: '#000', boxShadow: `0 0 10px ${T.amber}88` }}>T</div>
         <span style={{ fontWeight: 700, color: T.amber, fontSize: 12, letterSpacing: '0.14em' }}>THESIS//TRACK</span>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 1 auto', minWidth: 0 }}>
-        <span style={{ color: T.amber, fontWeight: 700, flex: '0 0 auto' }}>&gt;</span>
+
+      {/* Symbol input */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '0 0 auto' }}>
+        <span style={{ color: T.amber, fontWeight: 700 }}>&gt;</span>
         <input
           value={val}
           onChange={(e) => setVal(e.target.value.toUpperCase())}
           onKeyDown={(e) => { if (e.key === 'Enter') onSymbol?.(val); }}
           style={{ background: 'transparent', border: 0, outline: 0, color: T.amber,
-            fontFamily: T.font, fontSize: 13, fontWeight: 600, width: 110, padding: 0, letterSpacing: '0.05em' }} />
+            fontFamily: T.font, fontSize: 13, fontWeight: 600, width: 100, padding: 0, letterSpacing: '0.05em' }} />
       </div>
-      <div className="cmd-hints" style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 10.5, color: T.inkFaint, flex: '0 0 auto' }}>
-        <span><kbd style={kbdStyle}>:</kbd>cmd</span>
-        <button onClick={onSearch} style={{ background: 'transparent', border: 0, color: T.inkFaint,
-          fontFamily: T.font, fontSize: 10.5, cursor: 'pointer', padding: 0 }}>
-          <kbd style={kbdStyle}>/</kbd>search
-        </button>
-      </div>
-      <div className="cmd-fkeys" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, flex: '0 0 auto', minWidth: 0, overflow: 'hidden' }}>
-        {fkeys.map(f => {
-          const on = activePanel === f.k;
-          return (
-            <span key={f.k} style={{ color: on ? T.amber : T.inkDim, fontWeight: on ? 700 : 500 }}>
-              <kbd style={kbdStyle}>{f.k}</kbd>{f.short || f.label}
-            </span>
-          );
-        })}
-      </div>
-      <div style={{ flex: '1 1 auto' }}/>
+
+      {/* Search box */}
+      <button
+        onClick={onSearch}
+        style={{
+          flex: '1 1 auto', minWidth: 100, maxWidth: 340,
+          height: 22, background: T.bg, border: `1px solid ${T.border}`,
+          display: 'flex', alignItems: 'center', gap: 8, padding: '0 10px',
+          cursor: 'pointer', textAlign: 'left',
+        }}>
+        <span style={{ fontSize: 12, color: T.inkFaint, lineHeight: 1 }}>⌕</span>
+        <span style={{ fontSize: 10.5, color: T.inkFaint, letterSpacing: '0.03em', fontFamily: T.font }}>
+          종목 검색 &nbsp;
+          <span style={{ opacity: 0.55 }}>— <kbd style={{ ...kbdStyle, fontSize: 9 }}>/</kbd> 를 누르면 바로 활성화</span>
+        </span>
+      </button>
+
+      <div style={{ flex: '0 0 auto' }}/>
+
+      {/* Right side status */}
       {providerStatus && (
         <span title={providerStatus.text} style={{ color: statusColor, fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', flex: '0 0 auto' }}>
           ● {providerStatus.label || 'DATA'}
@@ -359,8 +357,6 @@ const CommandBar = ({ symbol, onSymbol, activePanel = 'F1', onSearch, onSettings
       </div>
       <style>{`
         @keyframes tt-pulse { 0% { transform: scale(1); opacity: 0.7; } 100% { transform: scale(2.5); opacity: 0; } }
-        @media (max-width: 1320px) { .cmd-fkeys { display: none !important; } }
-        @media (max-width: 980px)  { .cmd-hints { display: none !important; } }
       `}</style>
     </div>
   );
