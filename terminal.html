@@ -4875,7 +4875,7 @@ function App() {
   }, [session, stocks, watchlistIds, activeId, dartCorpMap, alerts, alertSettings, portfolio]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Toast helpers ──────────────────────────────────────────────────────────
-  const toast = useCallback((msg, kind = 'info', ms = 4000) => {
+  const toast = useCallback((msg, kind = 'info', ms = 1500) => {
     const id = Date.now() + Math.random();
     setToasts(ts => [...ts, { id, msg, kind }]);
     setTimeout(() => setToasts(ts => ts.filter(t => t.id !== id)), ms);
