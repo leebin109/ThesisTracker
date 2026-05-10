@@ -3353,13 +3353,22 @@ function ValuationPanel({ stock, onEdit }) {
 }
 
 // ─── History / notes panel ────────────────────────────────────────────────────
-function HistoryPanel({ stock, onAddNote }) {
+function HistoryPanel({ stock, onAddNote, onSaveReview }) {
   const [draft, setDraft] = useState({
     date: new Date().toISOString().slice(0, 10),
     kind: '뉴스',
     text: '',
     source: '',
   });
+  const [reviewForm, setReviewForm] = useState({
+    next: stock.review?.next || '',
+    cadence: stock.review?.cadence ?? 30,
+  });
+  // sync when stock switches
+  React.useEffect(() => {
+    setReviewForm({ next: stock.review?.next || '', cadence: stock.review?.cadence ?? 30 });
+  }, [stock.id]);
+
   const notes = [...(stock.notes || [])].sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const kindColor = { 실적: T.amber, 공시: T.cyan, 뉴스: T.green, 기타: T.inkDim };
   const set = (k) => (e) => setDraft(d => ({ ...d, [k]: e.target.value }));
@@ -3369,8 +3378,26 @@ function HistoryPanel({ stock, onAddNote }) {
     setDraft(d => ({ ...d, text: '', source: '' }));
   };
 
+  const days = getDaysLeft(reviewForm.next);
+  const daysColor = days === null ? T.inkFaint : days < 0 ? T.red : days <= 7 ? T.yellow : T.cyan;
+  const daysLabel = days === null ? '미설정' : days < 0 ? `D+${Math.abs(days)} 지연` : days === 0 ? '오늘' : `D-${days}`;
+
   return (
     <Cell label="RESEARCH LOG" accent={T.cyan} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* Review schedule strip */}
+      <div style={{ padding: '8px 14px', borderBottom: `1px solid ${T.borderSoft}`, display: 'flex', alignItems: 'center', gap: 8, background: T.surface2 }}>
+        <span style={{ fontSize: 10, color: T.inkFaint, whiteSpace: 'nowrap' }}>NEXT REVIEW</span>
+        <input type="date" value={reviewForm.next} onChange={e => setReviewForm(f => ({ ...f, next: e.target.value }))}
+          style={{ ...inputSt, width: 130 }}/>
+        <select value={reviewForm.cadence} onChange={e => setReviewForm(f => ({ ...f, cadence: Number(e.target.value) }))}
+          style={{ ...inputSt, width: 80 }}>
+          {[7, 14, 30, 60, 90].map(d => <option key={d} value={d}>{d}일</option>)}
+        </select>
+        <button onClick={() => onSaveReview?.(stock.id, reviewForm)}
+          style={{ ...btnSt, border: `1px solid ${T.cyan}`, color: T.cyan, padding: '4px 10px' }}>SAVE</button>
+        <span style={{ fontSize: 10, color: daysColor, marginLeft: 4, fontVariantNumeric: 'tabular-nums' }}>{daysLabel}</span>
+      </div>
+      {/* Note input */}
       <div style={{ padding: '10px 14px', borderBottom: `1px solid ${T.borderSoft}`, display: 'grid', gridTemplateColumns: '112px 86px 1fr auto', gap: 8 }}>
         <input type="date" value={draft.date} onChange={set('date')} style={{ ...inputSt, minWidth: 0 }}/>
         <select value={draft.kind} onChange={set('kind')} style={{ ...inputSt, minWidth: 0 }}>
@@ -3576,36 +3603,6 @@ function SliderRow({ label, value, min, max, step, onChange }) {
   );
 }
 
-// ─── Review queue ─────────────────────────────────────────────────────────────
-function ReviewQueue({ stocks, watchlistIds, onSelect }) {
-  const items = useMemo(() => {
-    return watchlistIds
-      .map(id => stocks[id])
-      .filter(Boolean)
-      .map(s => ({ s, days: getDaysLeft(s.review?.next) }))
-      .sort((a, b) => (a.days ?? Infinity) - (b.days ?? Infinity));
-  }, [stocks, watchlistIds]);
-
-  return (
-    <Cell label="REVIEW QUEUE" accent={T.cyan} style={{ height: '100%' }}>
-      <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {items.map(({ s, days }) => {
-          const c = days === null ? T.inkFaint : days < 0 ? T.red : days <= 7 ? T.yellow : T.cyan;
-          return (
-            <div key={s.id} onClick={() => onSelect(s.id)}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                padding: '7px 10px', background: T.surface2, cursor: 'pointer', border: `1px solid ${T.borderSoft}` }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: T.ink }}>{s.symbol}</span>
-              <span style={{ fontSize: 10.5, color: c, fontVariantNumeric: 'tabular-nums' }}>
-                {days === null ? '미설정' : days < 0 ? `D+${Math.abs(days)} 지연` : days === 0 ? '오늘' : `D-${days}`}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </Cell>
-  );
-}
 
 // ─── Peer comparison ─────────────────────────────────────────────────────────
 function PeersPanel({ stock, stocks, watchlistIds, onSelect, onSavePeers }) {
@@ -5267,6 +5264,11 @@ function App() {
     toast('리서치 로그 추가 완료', 'ok');
   }, [toast]);
 
+  const handleSaveReview = useCallback((stockId, review) => {
+    setStocks(prev => ({ ...prev, [stockId]: { ...prev[stockId], review } }));
+    toast('리뷰 일정 저장 완료', 'ok');
+  }, [toast]);
+
   const handleSavePreMortem = useCallback((stockId, preMortem) => {
     setStocks(prev => ({ ...prev, [stockId]: { ...prev[stockId], preMortem } }));
     toast('프리모템 지표 저장 완료', 'ok');
@@ -5572,9 +5574,8 @@ function App() {
       </div>
     ),
     F4: (
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, height: '100%' }}>
-        <HistoryPanel stock={stock} onAddNote={handleAddResearchNote}/>
-        <ReviewQueue stocks={stocks} watchlistIds={watchlistIds} onSelect={setActiveId}/>
+      <div style={{ height: '100%' }}>
+        <HistoryPanel stock={stock} onAddNote={handleAddResearchNote} onSaveReview={handleSaveReview}/>
       </div>
     ),
     F5: (
