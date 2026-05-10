@@ -1653,7 +1653,7 @@ Object.assign(window, {
   getDaysLeft, fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp,
   normalizeKrxStockCode, getDartCorpEntry, fetchLocalDartCorpMap,
   inferMarketFromExchange, normalizeSymbolForMarket, getMarketProfile, buildYahooChartUrl, buildYahooSearchUrl,
-  SCORE_CFG,
+  DEFAULT_SCORE, INDUSTRY_CFG,
   fetchOpenDartDisclosures, fetchSecFilings, fetchYahooNewsExperimental, fetchGoogleNewsRss,
   fetchAlertsForStock, makeAlertId, pruneAlerts, summarizeWithClaude,
   fetchYahooChartOhlc, toYahooSymbol,
