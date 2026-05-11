@@ -1943,17 +1943,35 @@ async function fetchYahooQuoteSummary(symbol) {
 }
 
 async function fetchYahooStatements(symbol) {
-  const modules = 'incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory';
-  const params = new URLSearchParams({ modules });
+  // Progressive fallback: try all 3 modules, then 2, then income-only
+  const combos = [
+    'incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory',
+    'incomeStatementHistory,balanceSheetHistory',
+    'incomeStatementHistory',
+  ];
+  for (const modules of combos) {
+    const params = new URLSearchParams({ modules });
+    const url = isProxiedOrigin()
+      ? `/api/yahoo/quoteSummary/${encodeURIComponent(symbol)}?${params}`
+      : `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?${params}`;
+    const res = await fetch(url);
+    if (!res.ok) continue;
+    const data = await res.json();
+    const result = data?.quoteSummary?.result?.[0];
+    if (result) return result;
+  }
+  throw new Error('Yahoo statements 모두 실패');
+}
+
+async function fetchYahooEarnings(symbol) {
+  const params = new URLSearchParams({ modules: 'earnings' });
   const url = isProxiedOrigin()
     ? `/api/yahoo/quoteSummary/${encodeURIComponent(symbol)}?${params}`
     : `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?${params}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Yahoo statements HTTP ${res.status}`);
+  if (!res.ok) return null;
   const data = await res.json();
-  const result = data?.quoteSummary?.result?.[0];
-  if (!result) throw new Error('Yahoo statements result 없음');
-  return result;
+  return data?.quoteSummary?.result?.[0] || null;
 }
 
 async function fetchLivePriceForSymbol(stock, yahooSym) {
@@ -2193,12 +2211,24 @@ function mapYahooPayload(stock, chart, yahooSym, quote, summary) {
   const fbCurRatio   = valid(hCL) ? (hCA   / hCL)  * 100 : NaN;
   const fbRevGrowth  = valid(hPrevRev) ? ((hRev - hPrevRev) / hPrevRev) * 100 : NaN;
 
+  // earnings module fallback (revenue/earnings yearly chart — available for non-US when statements fail)
+  const earningsYearly = summary?.earnings?.financialsChart?.yearly || [];
+  const ey0 = earningsYearly[earningsYearly.length - 1] || {};
+  const ey1 = earningsYearly[earningsYearly.length - 2] || {};
+  const eyRev0 = hr(ey0, 'revenue');
+  const eyRev1 = hr(ey1, 'revenue');
+  const eyEar0 = hr(ey0, 'earnings');
+  const eyEar1 = hr(ey1, 'earnings');
+  const fbRevGrowthEy = valid(eyRev1) ? ((eyRev0 - eyRev1) / eyRev1) * 100 : NaN;
+  const fbEpsGrowthEy = valid(eyEar1) ? ((eyEar0 - eyEar1) / eyEar1) * 100 : NaN;
+  const fbOpMarginEy  = valid(eyRev0) ? (eyEar0 / eyRev0) * 100 : NaN;
+
   const finCr = raw(fin, 'currentRatio');
   const metrics = compactMetrics({
     per:          firstFinite(raw(det,'trailingPE'), toNumber(quote?.trailingPE), raw(det,'forwardPE'), toNumber(quote?.forwardPE)),
     pbr:          firstFinite(raw(kst,'priceToBook'), toNumber(quote?.priceToBook)),
     roe:          fb(pct(fin, 'returnOnEquity'), fbRoe),
-    opMargin:     fb(pct(fin, 'operatingMargins'), fbOpMargin),
+    opMargin:     fb(pct(fin, 'operatingMargins'), fb(fbOpMargin, fbOpMarginEy)),
     fcfMargin:    fb((() => {
       const fcf = raw(fin, 'freeCashflow');
       const rev = raw(fin, 'totalRevenue');
@@ -2206,8 +2236,8 @@ function mapYahooPayload(stock, chart, yahooSym, quote, summary) {
     })(), fbFcfMargin),
     debtRatio:    fb(raw(fin, 'debtToEquity'), fbDebtRatio),
     currentRatio: fb(Number.isFinite(finCr) ? finCr * 100 : NaN, fbCurRatio),
-    revGrowth:    fb(pct(fin, 'revenueGrowth'), fbRevGrowth),
-    epsGrowth:    pct(fin, 'earningsGrowth'),
+    revGrowth:    fb(pct(fin, 'revenueGrowth'), fb(fbRevGrowth, fbRevGrowthEy)),
+    epsGrowth:    fb(pct(fin, 'earningsGrowth'), fbEpsGrowthEy),
   });
 
   const industryGroup = detectIndustry(quote?.sector, quote?.industry);
@@ -2501,17 +2531,19 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
     onStatus('Yahoo Finance 가격/재무 조회 중...');
     const yahooSym = toYahooSymbol(stock);
     try {
-      const [chartRes, quoteRes, summaryRes, stmtRes] = await Promise.allSettled([
+      const [chartRes, quoteRes, summaryRes, stmtRes, earningsRes] = await Promise.allSettled([
         fetchYahooChart(yahooSym),
         fetchYahooQuote(yahooSym),
         fetchYahooQuoteSummary(yahooSym),
         fetchYahooStatements(yahooSym),
+        fetchYahooEarnings(yahooSym),
       ]);
       if (chartRes.status === 'rejected') throw new Error(`Yahoo chart 실패: ${chartRes.reason?.message}`);
       const quote    = quoteRes.status   === 'fulfilled' ? quoteRes.value   : null;
       const coreSumm = summaryRes.status === 'fulfilled' ? summaryRes.value : null;
       const stmts    = stmtRes.status    === 'fulfilled' ? stmtRes.value    : null;
-      const summary  = (coreSumm || stmts) ? { ...coreSumm, ...stmts } : null;
+      const earnData = earningsRes.status === 'fulfilled' ? earningsRes.value : null;
+      const summary  = (coreSumm || stmts) ? { ...coreSumm, ...stmts, ...(earnData || {}) } : null;
       const payload = mapYahooPayload(stock, chartRes.value, yahooSym, quote, summary);
       const entry = { fetchedAt: new Date().toISOString(), provider: 'yahooExperimental', payload };
       return { ...payload, cacheUpdates: { [cacheKey]: entry } };
