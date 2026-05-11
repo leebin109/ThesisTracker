@@ -65,14 +65,14 @@ const ALERT_RETENTION_DAYS = 30;
 // Default market tickers (static headline display)
 // ═══════════════════════════════════════════════════════════════
 const DEFAULT_MARKET_TICKERS = [
-  { symbol: 'KOSPI',  val: '2,712.40', change: 0.52 },
-  { symbol: 'S&P',    val: '5,182.45', change: 0.21 },
-  { symbol: 'NDX',    val: '17,890.20',change: 0.84 },
-  { symbol: 'N225',   val: '38,442.10',change: -0.31 },
-  { symbol: 'USDKRW', val: '1,376.20', change: -0.12 },
-  { symbol: 'WTI',    val: '78.42',    change: 1.12 },
-  { symbol: 'BTC',    val: '94,210',   change: 2.41 },
-  { symbol: 'US10Y',  val: '4.382%',   change: -0.04 },
+  { symbol: 'KOSPI',  val: '–', change: null },
+  { symbol: 'S&P',    val: '–', change: null },
+  { symbol: 'NDX',    val: '–', change: null },
+  { symbol: 'N225',   val: '–', change: null },
+  { symbol: 'USDKRW', val: '–', change: null },
+  { symbol: 'WTI',    val: '–', change: null },
+  { symbol: 'BTC',    val: '–', change: null },
+  { symbol: 'US10Y',  val: '–', change: null },
 ];
 
 // ═══════════════════════════════════════════════════════════════

@@ -50,10 +50,10 @@ Bloomberg Terminal 스타일의 주식 투자 관리 웹 애플리케이션입�
 ### 가중 체계 (Phase 5 수정 이후 확정)
 ```
 zComp = 0.30 × valueNeut + 0.30 × qualityNeut + 0.20 × safetyNeut + 0.20 × growthNeut
-      − (riskFlagCount × 0.5)   ← Risk Guard penalty (각 플래그당 z-score −0.5)
+      − (riskFlagCount × 0.4)   ← Risk Guard penalty (각 플래그당 z-score −0.4)
 overall = zToScore(zComp)       ← 0~100 백분위
 ```
-- **Risk Guard 플래그**: EPS성장 <−15%, FCF마진 <−5%, 부채비율 >250%, PER >60, PER≤0 & ROE<0
+- **Risk Guard 플래그 (8개)**: EPS성장 <−15%, FCF마진 <−5%, 부채비율 >250%, PER >60, PER≤0 & ROE<0, 유동성위기(CR<1 & D/E>150%), 매출급감(<−15%), 영업손실(OP<0)
 - **Alpha Vantage ROIC**: Alpha Vantage OVERVIEW API는 ROIC를 제공하지 않으므로 `roa` 키로 저장하고 ROIC는 채우지 않음. ROIC 누락 시 자동으로 Quality 평균 산출에서 제외됨.
 
 ## 5. 변경 이력 (Recent Change Log)

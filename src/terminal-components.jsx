@@ -511,9 +511,11 @@ const TickerRail = ({ tickers }) => (
         fontSize: 10.5, fontVariantNumeric: 'tabular-nums' }}>
         <span style={{ color: T.inkDim, fontWeight: 600 }}>{t.symbol}</span>
         <span style={{ color: T.ink }}>{t.val}</span>
-        <span style={{ color: colorForChange(t.change), fontWeight: 600 }}>
-          {sign(t.change)}{Number(t.change).toFixed(2)}%
-        </span>
+        {t.change != null && (
+          <span style={{ color: colorForChange(t.change), fontWeight: 600 }}>
+            {sign(t.change)}{Number(t.change).toFixed(2)}%
+          </span>
+        )}
       </div>
     ))}
   </div>
