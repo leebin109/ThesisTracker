@@ -1822,9 +1822,10 @@ async function fetchSecFilings(stock, sinceISO) {
   return rows;
 }
 
-async function fetchYahooNewsExperimental(symbol) {
+async function fetchYahooNewsExperimental(symbol, nameQuery) {
   if (!symbol) return [];
-  const params = new URLSearchParams({ q: symbol, newsCount: '20', quotesCount: '0' });
+  const q = nameQuery || symbol;
+  const params = new URLSearchParams({ q, newsCount: '20', quotesCount: '0' });
   const res = await fetch(buildYahooSearchUrl(params));
   if (!res.ok) throw new Error(`Yahoo news HTTP ${res.status}`);
   const data = await res.json();
@@ -1840,6 +1841,18 @@ async function fetchYahooNewsExperimental(symbol) {
     nativeId: String(n.uuid ?? n.link ?? ''),
     raw: { publisher: n.publisher },
   }));
+}
+
+function isNewsRelevant(title, stock) {
+  if (!title) return true;
+  const t = title.toLowerCase();
+  const name = (stock.name || '').toLowerCase();
+  if (!name) return true;
+  const symBase = (stock.symbol || '').replace(/\.[A-Z]+$/i, '').toLowerCase();
+  const stopWords = new Set(['co', 'ltd', 'inc', 'corp', 'group', 'holdings', 'the', 'and', 'of']);
+  const keywords = name.split(/\s+/).filter(w => w.length >= 3 && !stopWords.has(w));
+  if (keywords.length === 0) return true;
+  return keywords.some(w => t.includes(w)) || (symBase.length >= 3 && t.includes(symBase));
 }
 
 async function fetchGoogleNewsRss(query, proxyPrefix = '') {
@@ -1898,7 +1911,14 @@ async function fetchAlertsForStock(stock, dartCorpMap, apiSettings, alertSetting
   }
   if (sources.yahooNews) {
     const sym = toYahooSymbol(stock);
-    tasks.push({ label: 'Yahoo', run: () => fetchYahooNewsExperimental(sym) });
+    const nameQuery = stock.name || sym;
+    tasks.push({
+      label: 'Yahoo',
+      run: async () => {
+        const rows = await fetchYahooNewsExperimental(sym, nameQuery);
+        return rows.filter(r => isNewsRelevant(r.title, stock));
+      },
+    });
   }
   if (sources.googleNews) {
     const q = stock.name || stock.symbol;

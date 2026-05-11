@@ -3217,13 +3217,18 @@ function App({ initialData }) {
     setAlertStatus({ kind: 'info', text: `${watchlistIds.length}개 종목에서 알림을 가져오는 중...` });
     const allErrors = [];
     const incomingMap = new Map();
+    const seenNativeIds = new Set();
     for (const id of watchlistIds) {
       const s = stocks[id];
       if (!s) continue;
       try {
         const { items, errors } = await fetchAlertsForStock(s, dartCorpMap, apiSettings, alertSettings);
         for (const it of items) {
-          if (!incomingMap.has(it.id)) incomingMap.set(it.id, it);
+          const nk = `${it.source}:${it.nativeId}`;
+          if (!incomingMap.has(it.id) && !seenNativeIds.has(nk)) {
+            incomingMap.set(it.id, it);
+            seenNativeIds.add(nk);
+          }
         }
         for (const err of errors) allErrors.push({ ...err, stockId: id });
       } catch (e) {
