@@ -887,7 +887,7 @@ async function fetchYahooTimeSeries(symbol) {
     'annualTotalRevenue', 'annualOperatingIncome', 'annualNetIncome', 'annualDilutedEPS',
     'annualStockholdersEquity', 'annualCurrentAssets', 'annualCurrentLiabilities',
     'annualLongTermDebt', 'annualTotalDebt',
-    'annualOperatingCashFlow', 'annualCapitalExpenditure',
+    'annualOperatingCashFlow', 'annualCapitalExpenditure', 'annualFreeCashFlow',
   ].join(',');
   const period2 = Math.floor(Date.now() / 1000);
   // Use manual query string to keep commas literal (not %2C) for Yahoo compatibility
@@ -918,6 +918,7 @@ function parseTimeSeriesStatements(results) {
     annualTotalDebt:          'shortLongTermDebt',
     annualOperatingCashFlow:  'totalCashFromOperatingActivities',
     annualCapitalExpenditure: 'capitalExpenditures',
+    annualFreeCashFlow:       'freeCashFlow',
   };
 
   // Build map: asOfDate → { field: rawValue, ... }
@@ -951,7 +952,7 @@ function parseTimeSeriesStatements(results) {
 
   const incF = ['totalRevenue', 'operatingIncome', 'netIncome', 'dilutedEps'];
   const balF = ['totalShareholderEquity', 'totalCurrentAssets', 'totalCurrentLiabilities', 'longTermDebt', 'shortLongTermDebt'];
-  const cfF  = ['totalCashFromOperatingActivities', 'capitalExpenditures'];
+  const cfF  = ['totalCashFromOperatingActivities', 'capitalExpenditures', 'freeCashFlow'];
 
   return {
     incomeStatementHistory:   { incomeStatementHistory: dates.map(d => makeStmt(d, incF)) },
@@ -1223,8 +1224,11 @@ function mapYahooPayload(stock, chart, yahooSym, quote, summary) {
   const hRev   = hr(inc0, 'totalRevenue');
   const hOp    = hr(inc0, 'operatingIncome') || hr(inc0, 'ebit');
   const hNet   = hr(inc0, 'netIncome');
+  const hEps0  = hr(inc0, 'dilutedEps');
+  const hEps1  = hr(inc1, 'dilutedEps');
   const hOCF   = hr(cf0,  'totalCashFromOperatingActivities');
   const hCapex = Math.abs(hr(cf0, 'capitalExpenditures') || 0);
+  const hFCF   = hr(cf0,  'freeCashFlow');
   const hEq    = hr(bal0, 'totalShareholderEquity');
   const hCA    = hr(bal0, 'totalCurrentAssets');
   const hCL    = hr(bal0, 'totalCurrentLiabilities');
@@ -1233,12 +1237,17 @@ function mapYahooPayload(stock, chart, yahooSym, quote, summary) {
   const valid = v => Number.isFinite(v) && v !== 0;
   const fb = (primary, fallback) => Number.isFinite(primary) ? primary : fallback;
 
-  const fbRoe        = valid(hEq) ? (hNet   / hEq)  * 100 : NaN;
-  const fbOpMargin   = valid(hRev) ? (hOp   / hRev) * 100 : NaN;
-  const fbFcfMargin  = valid(hRev) ? ((hOCF - hCapex) / hRev) * 100 : NaN;
-  const fbDebtRatio  = valid(hEq) ? (hDebt / hEq)  * 100 : NaN;
-  const fbCurRatio   = valid(hCL) ? (hCA   / hCL)  * 100 : NaN;
+  const fbRoe        = valid(hEq) ? (hNet / hEq) * 100 : NaN;
+  const fbOpMargin   = valid(hRev) ? (hOp  / hRev) * 100 : NaN;
+  // FCF Margin: prefer pre-computed freeCashFlow, else OCF − CapEx
+  const fbFcfMargin  = valid(hRev)
+    ? (Number.isFinite(hFCF) ? (hFCF / hRev) * 100 : (Number.isFinite(hOCF) ? ((hOCF - hCapex) / hRev) * 100 : NaN))
+    : NaN;
+  const fbDebtRatio  = valid(hEq) ? (hDebt / hEq) * 100 : NaN;
+  const fbCurRatio   = valid(hCL) ? (hCA   / hCL) * 100 : NaN;
   const fbRevGrowth  = valid(hPrevRev) ? ((hRev - hPrevRev) / hPrevRev) * 100 : NaN;
+  // EPS Growth from timeseries dilutedEps (two most recent years)
+  const fbEpsGrowth  = valid(hEps1) ? ((hEps0 - hEps1) / Math.abs(hEps1)) * 100 : NaN;
 
   // earnings module fallback (revenue/earnings yearly chart — available for non-US when statements fail)
   const earningsYearly = summary?.earnings?.financialsChart?.yearly || [];
@@ -1266,7 +1275,7 @@ function mapYahooPayload(stock, chart, yahooSym, quote, summary) {
     debtRatio:    fb(raw(fin, 'debtToEquity'), fbDebtRatio),
     currentRatio: fb(Number.isFinite(finCr) ? finCr * 100 : NaN, fbCurRatio),
     revGrowth:    fb(pct(fin, 'revenueGrowth'), fb(fbRevGrowth, fbRevGrowthEy)),
-    epsGrowth:    fb(pct(fin, 'earningsGrowth'), fbEpsGrowthEy),
+    epsGrowth:    fb(pct(fin, 'earningsGrowth'), fb(fbEpsGrowth, fbEpsGrowthEy)),
   });
 
   const industryGroup = detectIndustry(quote?.sector, quote?.industry);
