@@ -921,11 +921,15 @@ function parseTimeSeriesStatements(results) {
   };
 
   // Build map: asOfDate → { field: rawValue, ... }
+  // Yahoo timeseries items may use item.type OR item.meta.type[0] for the type name
   const byDate = {};
   for (const item of results) {
-    const fieldName = typeMap[item.type];
-    if (!fieldName) continue;
-    for (const entry of (item[item.type] ?? [])) {
+    const typeName = item.type ?? item.meta?.type?.[0];
+    const fieldName = typeMap[typeName];
+    if (!typeName || !fieldName) continue;
+    const entries = item[typeName];
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
       const dateKey = entry.asOfDate;
       const val = entry.reportedValue?.raw ?? entry.reportedValue;
       if (!dateKey || val == null) continue;
