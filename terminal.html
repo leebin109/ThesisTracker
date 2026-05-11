@@ -1567,11 +1567,12 @@ function computeScores(metrics, industryGroup) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Quant Scoring Engine (Cross-Sectional Z-Scores)
+// Quant Scoring Engine (Market Baseline-Anchored Z-Scores)
 // ═══════════════════════════════════════════════════════════════
 const statMean = a => a.length ? a.reduce((s,x)=>s+x,0) / a.length : 0;
 const statStdev = a => { const m=statMean(a); return Math.sqrt(statMean(a.map(x=>(x-m)**2))); };
 
+// Static sector baselines — S&P 500 / KOSPI long-run averages (source: Capital IQ / FactSet, as of 2024-Q4)
 const MARKET_BASELINES = {
   ALL:        { per: { m: 18, s: 8 }, pbr: { m: 2.5, s: 1.5 }, evEbitda: { m: 12, s: 6 }, roe: { m: 12, s: 10 }, roic: { m: 10, s: 8 }, opMargin: { m: 12, s: 10 }, gpa: { m: 25, s: 15 }, debtRatio: { m: 100, s: 60 }, currentRatio: { m: 150, s: 80 }, revGrowth: { m: 8, s: 10 }, epsGrowth: { m: 10, s: 15 } },
   SEMI:       { per: { m: 22, s: 10 }, pbr: { m: 4.0, s: 2.0 }, evEbitda: { m: 15, s: 8 }, roe: { m: 18, s: 15 }, roic: { m: 15, s: 12 }, opMargin: { m: 22, s: 15 }, gpa: { m: 35, s: 20 }, debtRatio: { m: 50, s: 40 }, currentRatio: { m: 200, s: 100 }, revGrowth: { m: 12, s: 20 }, epsGrowth: { m: 15, s: 25 } },
@@ -1587,10 +1588,10 @@ const MARKET_BASELINES = {
 };
 
 function zScoreMarket(value, metricKey, industryGroup, higherIsBetter = true) {
-  if (value == null || !Number.isFinite(value)) return 0;
+  if (value == null || !Number.isFinite(value)) return null;
   const cfg = MARKET_BASELINES[industryGroup] || MARKET_BASELINES.ALL;
   const stat = cfg[metricKey] || MARKET_BASELINES.ALL[metricKey];
-  if (!stat || !stat.s) return 0;
+  if (!stat || !stat.s) return null;
   
   let z = (value - stat.m) / stat.s;
   const clipped = Math.max(-3, Math.min(3, z));
@@ -1611,7 +1612,7 @@ function zToScore(z) {
 function computeQuantScores(universe) {
   const N = universe.length;
   const getMetric = (s, key) => toNumber(s.metrics?.[key]);
-  const nonZeroArray = a => a.filter(v => v !== 0);
+  const nonNullArray = a => a.filter(v => v != null);
 
   const updates = {};
   for (let i = 0; i < N; i++) {
@@ -1621,28 +1622,30 @@ function computeQuantScores(universe) {
     const rawPer = getMetric(stock, 'per');
     const rawPbr = getMetric(stock, 'pbr');
     const rawEvEbitda = getMetric(stock, 'evEbitda');
-    
-    const zPer = zScoreMarket(rawPer > 0 ? rawPer : 999, 'per', ind, false);
-    const zPbr = zScoreMarket(rawPbr > 0 ? rawPbr : 999, 'pbr', ind, false);
-    const zEv = zScoreMarket(rawEvEbitda > 0 ? rawEvEbitda : 999, 'evEbitda', ind, false);
-    const valueNeut = statMean(nonZeroArray([zPer, zPbr, zEv]) || [0]);
+
+    const zPer = zScoreMarket(rawPer > 0 ? rawPer : null, 'per', ind, false);
+    const zPbr = zScoreMarket(rawPbr > 0 ? rawPbr : null, 'pbr', ind, false);
+    const zEv = zScoreMarket(rawEvEbitda > 0 ? rawEvEbitda : null, 'evEbitda', ind, false);
+    const valueParts = nonNullArray([zPer, zPbr, zEv]);
+    const valueNeut = valueParts.length ? statMean(valueParts) : 0;
 
     const zRoe = zScoreMarket(getMetric(stock, 'roe'), 'roe', ind, true);
     const zRoic = zScoreMarket(getMetric(stock, 'roic'), 'roic', ind, true);
     const zOpM = zScoreMarket(getMetric(stock, 'opMargin'), 'opMargin', ind, true);
     const zGpa = zScoreMarket(getMetric(stock, 'gpa'), 'gpa', ind, true);
-    const qualityNeut = statMean(nonZeroArray([zRoe, zRoic, zOpM, zGpa]) || [0]);
+    const qualityParts = nonNullArray([zRoe, zRoic, zOpM, zGpa]);
+    const qualityNeut = qualityParts.length ? statMean(qualityParts) : 0;
 
     const zDebt = zScoreMarket(getMetric(stock, 'debtRatio'), 'debtRatio', ind, false);
     const zCur = zScoreMarket(getMetric(stock, 'currentRatio'), 'currentRatio', ind, true);
-    const safetyNeut = statMean(nonZeroArray([zDebt, zCur]) || [0]);
+    const safetyParts = nonNullArray([zDebt, zCur]);
+    const safetyNeut = safetyParts.length ? statMean(safetyParts) : 0;
 
     const zRevG = zScoreMarket(getMetric(stock, 'revGrowth'), 'revGrowth', ind, true);
     const zEpsG = zScoreMarket(getMetric(stock, 'epsGrowth'), 'epsGrowth', ind, true);
-    const growthNeut = statMean(nonZeroArray([zRevG, zEpsG]) || [0]);
+    const growthParts = nonNullArray([zRevG, zEpsG]);
+    const growthNeut = growthParts.length ? statMean(growthParts) : 0;
 
-    const zComp = 0.3 * valueNeut + 0.3 * qualityNeut + 0.2 * safetyNeut + 0.2 * growthNeut;
-    
     const riskFlags = [
       getMetric(stock, 'epsGrowth') < -15,
       getMetric(stock, 'fcfMargin') < -5,
@@ -1650,6 +1653,8 @@ function computeQuantScores(universe) {
       rawPer > 60,
       rawPer <= 0 && getMetric(stock, 'roe') < 0,
     ].filter(Boolean).length;
+    const riskPenalty = riskFlags * 0.5;
+    const zComp = 0.3 * valueNeut + 0.3 * qualityNeut + 0.2 * safetyNeut + 0.2 * growthNeut - riskPenalty;
 
     updates[stock.id] = {
       overall: zToScore(zComp),
@@ -1659,7 +1664,7 @@ function computeQuantScores(universe) {
       valuation: zToScore(valueNeut),
       risk: clamp(100 - riskFlags * 20),
       riskFlagCount: riskFlags,
-      weights: { profitability: 30, stability: 20, growth: 20, valuation: 30, risk: 0 },
+      weights: { profitability: 30, stability: 20, growth: 20, valuation: 30, risk: 10 },
       industryGroup: stock.industryGroup || null,
       isRelative: true
     };
@@ -2117,7 +2122,7 @@ function mapAlphaPayload(stock, raw) {
   const grossProfit = toNumber(overview.GrossProfitTTM) || toNumber(incomeReport.grossProfit);
   const gpa = (grossProfit && totalAssets) ? (grossProfit / totalAssets) * 100 : NaN;
   const evEbitda = toNumber(overview.EVToEBITDA);
-  const roa = decimalToPercent(overview.ReturnOnAssetsTTM); // Proxy for ROIC
+  const roa = decimalToPercent(overview.ReturnOnAssetsTTM); // Alpha Vantage OVERVIEW has no ROIC field
 
   const latestQuarter = overview.LatestQuarter || '';
   const metrics = compactMetrics({
@@ -2132,7 +2137,7 @@ function mapAlphaPayload(stock, raw) {
     fcfMargin,
     evEbitda,
     gpa,
-    roic: roa, // fallback to ROA
+    roa, // stored for display; ROIC omitted — AV OVERVIEW lacks invested-capital data
   });
   const industryGroup = detectIndustry(overview.Sector, overview.Industry);
   return {

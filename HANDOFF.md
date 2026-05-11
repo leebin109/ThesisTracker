@@ -35,10 +35,34 @@ Bloomberg Terminal 스타일의 주식 투자 관리 웹 애플리케이션입�
 
 ## 4. 퀀트 스코어링 엔진 (Quant Engine)
 - 기존의 단순 절대평가(Absolute Threshold) 방식에서 **시장 기준점 기반 상대평가(Market Baseline-Anchored Z-Score)** 방식으로 개편 (Phase 5).
-- 소규모 워치리스트에서의 '표본 오염'을 막기 위해 11개 산업군별 S&P500 장기 평균치를 하드코딩(`MARKET_BASELINES`).
+- 소규모 워치리스트에서의 '표본 오염'을 막기 위해 11개 산업군별 S&P500/KOSPI 장기 평균치를 하드코딩(`MARKET_BASELINES`, Capital IQ/FactSet 기준 2024-Q4).
 - 자세한 공식과 팩터 산출 방식은 `SCORING_METHODOLOGY.md` 참조.
 
+### 스코어링 핵심 구조 (terminal-data.jsx)
+| 함수 | 역할 |
+|---|---|
+| `MARKET_BASELINES` | 11개 산업군 × 11개 지표의 시장 평균(m)·표준편차(s) 딕셔너리 |
+| `zScoreMarket(value, metric, ind, higherIsBetter)` | Z-Score 계산 → ±3 클리핑 → 방향 보정. **누락 데이터는 `null` 반환** (0 반환 시 평균값으로 오염되던 버그 수정) |
+| `zToScore(z)` | Abramowitz-Stegun 5항 erf 근사 → 0~100 백분위 변환 |
+| `computeQuantScores(universe)` | 4-Factor 가중합 + **Risk Penalty** → overall 산출 |
+| `applyQuantScores(stocksMap, watchlistIds)` | 종목 추가/제거/새로고침 시 전체 재산출 후 `stock.scores` 갱신 |
+
+### 가중 체계 (Phase 5 수정 이후 확정)
+```
+zComp = 0.30 × valueNeut + 0.30 × qualityNeut + 0.20 × safetyNeut + 0.20 × growthNeut
+      − (riskFlagCount × 0.5)   ← Risk Guard penalty (각 플래그당 z-score −0.5)
+overall = zToScore(zComp)       ← 0~100 백분위
+```
+- **Risk Guard 플래그**: EPS성장 <−15%, FCF마진 <−5%, 부채비율 >250%, PER >60, PER≤0 & ROE<0
+- **Alpha Vantage ROIC**: Alpha Vantage OVERVIEW API는 ROIC를 제공하지 않으므로 `roa` 키로 저장하고 ROIC는 채우지 않음. ROIC 누락 시 자동으로 Quality 평균 산출에서 제외됨.
+
 ## 5. 변경 이력 (Recent Change Log)
+- **2026-05-11 (Phase 5 버그픽스 — 스코어링 정합성 수정)**:
+  - **Risk Guard 미반영 버그 수정**: `computeQuantScores`가 `riskFlags`를 계산은 했으나 `zComp`에 반영하지 않고 있었음 (`weights.risk: 0`). 이제 플래그당 −0.5 z-score 패널티를 적용하여 Overall 점수를 직접 낮춤. `SCORING_METHODOLOGY.md`에서 약속한 Risk Guard 감점 로직이 실제로 구현됨.
+  - **누락 데이터 → 평균값 오염 버그 수정**: `zScoreMarket`이 `null`/`NaN` 입력 시 `0`(= 시장 평균과 동일)을 반환하여 미입력 지표가 '평균 기업'처럼 처리되던 문제를 수정. 이제 `null` 반환 후 `nonNullArray` 필터로 제외하므로 보유한 지표만으로 정확히 평균을 냄.
+  - **음수 P/E 처리 개선**: 음수/미입력 P/E에 대해 `999` 대신 `null`을 전달하도록 수정. PER 제외 후 PBR + EV/EBITDA로만 Value Factor를 산출하며, 적자 기업 패널티는 Risk Guard가 담당.
+  - **Alpha Vantage ROIC 오라벨 수정**: `ReturnOnAssetsTTM`을 `roic`로 잘못 매핑하던 코드를 `roa`로 정정. ROIC 미입력 시 Quality Factor 평균 산출에서 자동 제외됨.
+  - **`weights.risk: 0 → 10`**: UI 표시 가중치를 실제 작동 방식(리스크 패널티 적용)과 일치하도록 수정.
 - **2024-05-10 (Phase 5 수정)**: 퀀트 엔진에 `MARKET_BASELINES` 하드코딩 도입. 크로스섹셔널 연산을 제거하고 정적 시장 평균/표준편차 잣대에 대조하는 `zScoreMarket` 함수 도입 (표본 오염 문제 해결).
 - **2024-05-10 (Phase 5)**: Alpha Vantage, FMP, OpenDART 연동을 확장하여 EV/EBITDA, GP/A, ROIC 등 신규 퀀트 팩터 수집. `computeQuantScores` 추가.
 - **2024-05-08 (Phase 2)**: F6 Alerts 기능 완료. `build-terminal-html.ps1` 빌드 파이프라인 도입.
