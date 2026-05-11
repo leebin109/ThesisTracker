@@ -110,6 +110,13 @@ overall = zToScore(zComp)       ← 0~100 백분위
 - `handleSaveHistory(stockId, metricsHistory)` 콜백으로 App state 저장
 
 ## 6. 변경 이력 (Recent Change Log)
+- **2026-05-11 (비US 종목 재무제표 fundamentals-timeseries 폴백)**:
+  - **원인**: Yahoo Finance v10 `quoteSummary` API가 TSE/LSE 등 비US 종목에서 `incomeStatementHistory`, `balanceSheetHistory`, `cashflowStatementHistory` 모듈을 전혀 지원하지 않아 진입 가능한 모든 module 조합(3개→2개→1개)에서 HTTP 400 반환. 결과: 5Y Financial History "Yahoo statements 모두 실패" + 재무지표(ROE/OP Margin 등) 전부 "–".
+  - **수정 — api/proxy.js**: `timeseries/` 경로 추가. `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{sym}` 라우트를 Yahoo 블록에 신규 등록 (crumb 포함 forwarding).
+  - **수정 — terminal-data.jsx**: `fetchYahooTimeSeries(symbol)` 신규 함수 추가. 11개 annual 타입(`annualTotalRevenue`, `annualOperatingIncome`, `annualNetIncome`, `annualDilutedEPS`, `annualStockholdersEquity`, `annualCurrentAssets`, `annualCurrentLiabilities`, `annualLongTermDebt`, `annualCurrentDebt`, `annualOperatingCashFlow`, `annualCapitalExpenditure`)을 한 번에 요청, 실패 시 `null` 반환.
+  - **`parseTimeSeriesStatements(results)`**: timeseries 응답(`type`+`asOfDate`+`reportedValue` 구조)을 `quoteSummary`와 동일한 `incomeStatementHistory / balanceSheetHistory / cashflowStatementHistory` 구조로 변환. asOfDate(YYYY-MM-DD)를 unix timestamp endDate로 변환하여 TSE(3월 결산) 등 비12월 결산 종목도 올바른 FY 추출 가능.
+  - **`fetchYahooStatements` 폴백 연결**: 기존 quoteSummary 3-combo 재시도 모두 실패 시 자동으로 `fetchYahooTimeSeries` → `parseTimeSeriesStatements` 경로 진입. 성공 시 기존과 동일한 구조 반환 → `mapYahooPayload` 지표 fallback 계산 및 `fetchYahooFinancialHistory` 모두 **코드 변경 없이** 정상 동작.
+  - **영향 범위**: TSE/LSE/XETRA/Euronext 등 모든 비US·비KRX 종목의 재무지표(ROE, OP Margin, FCF Margin, Debt/Eq, CR, Rev Growth) 및 5Y Financial History 정상화. 캐시가 남아 있으면 Settings → Clear Cache 후 Fetch 필요.
 - **2026-05-11 (UI/UX 개선 2종)**:
   - **F9/F10 순서 교체**: F9=SCREEN, F10=SETTINGS (기존 반대).
   - **Alerts 읽음 처리**: 각 카드에 READ 버튼(new→read), 필터 바 우측 ALL READ(N) 버튼, 필터 드롭다운에 READ 탭 추가. 상태 색상: NEW=amber, READ=cyan, LOGGED=green, DISMISSED=회색.

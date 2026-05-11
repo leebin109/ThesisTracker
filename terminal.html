@@ -1942,6 +1942,79 @@ async function fetchYahooQuoteSummary(symbol) {
   return result;
 }
 
+async function fetchYahooTimeSeries(symbol) {
+  const types = [
+    'annualTotalRevenue', 'annualOperatingIncome', 'annualNetIncome', 'annualDilutedEPS',
+    'annualStockholdersEquity', 'annualCurrentAssets', 'annualCurrentLiabilities',
+    'annualLongTermDebt', 'annualCurrentDebt',
+    'annualOperatingCashFlow', 'annualCapitalExpenditure',
+  ].join(',');
+  const period2 = Math.floor(Date.now() / 1000);
+  const params = new URLSearchParams({ type: types, period1: '0', period2: String(period2) });
+  const url = isProxiedOrigin()
+    ? `/api/yahoo/timeseries/${encodeURIComponent(symbol)}?${params}`
+    : `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(symbol)}?${params}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.timeseries?.result ?? null;
+  } catch { return null; }
+}
+
+function parseTimeSeriesStatements(results) {
+  if (!results?.length) return null;
+
+  const typeMap = {
+    annualTotalRevenue:       'totalRevenue',
+    annualOperatingIncome:    'operatingIncome',
+    annualNetIncome:          'netIncome',
+    annualDilutedEPS:         'dilutedEps',
+    annualStockholdersEquity: 'totalShareholderEquity',
+    annualCurrentAssets:      'totalCurrentAssets',
+    annualCurrentLiabilities: 'totalCurrentLiabilities',
+    annualLongTermDebt:       'longTermDebt',
+    annualCurrentDebt:        'shortLongTermDebt',
+    annualOperatingCashFlow:  'totalCashFromOperatingActivities',
+    annualCapitalExpenditure: 'capitalExpenditures',
+  };
+
+  // Build map: asOfDate → { field: rawValue, ... }
+  const byDate = {};
+  for (const item of results) {
+    const fieldName = typeMap[item.type];
+    if (!fieldName) continue;
+    for (const entry of (item[item.type] ?? [])) {
+      const dateKey = entry.asOfDate;
+      const val = entry.reportedValue?.raw ?? entry.reportedValue;
+      if (!dateKey || val == null) continue;
+      if (!byDate[dateKey]) byDate[dateKey] = {};
+      byDate[dateKey][fieldName] = val;
+    }
+  }
+
+  const dates = Object.keys(byDate).sort((a, b) => b.localeCompare(a));
+  if (!dates.length) return null;
+
+  const makeStmt = (dateKey, fields) => {
+    const d = byDate[dateKey];
+    const endDate = Math.floor(new Date(dateKey).getTime() / 1000);
+    const stmt = { endDate };
+    for (const f of fields) { if (d[f] != null) stmt[f] = { raw: d[f] }; }
+    return stmt;
+  };
+
+  const incF = ['totalRevenue', 'operatingIncome', 'netIncome', 'dilutedEps'];
+  const balF = ['totalShareholderEquity', 'totalCurrentAssets', 'totalCurrentLiabilities', 'longTermDebt', 'shortLongTermDebt'];
+  const cfF  = ['totalCashFromOperatingActivities', 'capitalExpenditures'];
+
+  return {
+    incomeStatementHistory:   { incomeStatementHistory: dates.map(d => makeStmt(d, incF)) },
+    balanceSheetHistory:      { balanceSheetStatements: dates.map(d => makeStmt(d, balF)) },
+    cashflowStatementHistory: { cashflowStatements:     dates.map(d => makeStmt(d, cfF)) },
+  };
+}
+
 async function fetchYahooStatements(symbol) {
   // Progressive fallback: try all 3 modules, then 2, then income-only
   const combos = [
@@ -1960,6 +2033,11 @@ async function fetchYahooStatements(symbol) {
     const result = data?.quoteSummary?.result?.[0];
     if (result) return result;
   }
+  // quoteSummary v10 does not support statement modules for non-US markets (TSE, LSE, etc.)
+  // Fall back to the fundamentals-timeseries endpoint which Yahoo Finance website uses internally
+  const tsResults = await fetchYahooTimeSeries(symbol);
+  const parsed = parseTimeSeriesStatements(tsResults);
+  if (parsed) return parsed;
   throw new Error('Yahoo statements 모두 실패');
 }
 
