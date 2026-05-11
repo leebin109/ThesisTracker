@@ -5633,7 +5633,10 @@ function App({ initialData }) {
         const result = data?.chart?.result?.[0];
         const quote = (result?.indicators?.quote?.[0]?.close || []).map(Number).filter(Number.isFinite);
         const price = Number(result?.meta?.regularMarketPrice) || quote.at(-1);
-        const prev = Number(result?.meta?.chartPreviousClose) || quote.at(-2) || price;
+        const prev = Number(result?.meta?.regularMarketPreviousClose)
+                  || Number(result?.meta?.previousClose)
+                  || quote.at(-2)
+                  || price;
         if (!Number.isFinite(price)) return ticker;
         const change = prev ? ((price - prev) / prev) * 100 : 0;
         const val = ticker.symbol === 'US10Y'
