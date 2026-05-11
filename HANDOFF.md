@@ -65,25 +65,35 @@ overall = zToScore(zComp)       ← 0~100 백분위
 // 한 연도(FY)의 레코드
 {
   fy:        2024,      // 회계연도
-  source:    'SEC',     // 'SEC' | 'DART'
-  revenue:   391035,    // 매출 (USD: Millions, KRW: 억원)
+  source:    'SEC',     // 'SEC' | 'DART' | 'Yahoo'
+  revenue:   391035,    // 매출 (USD: Millions, KRW: 억원, JPY: M JPY)
   opIncome:  123216,    // 영업이익
   netIncome:  93736,    // 당기순이익
   ocf:       118254,    // 영업활동현금흐름
   capex:      10959,    // 설비투자 (절대값)
   fcf:       107295,    // OCF − CapEx
-  eps:          6.43,   // 주당순이익
+  eps:          6.43,   // 주당순이익 (Yahoo timeseries는 dilutedEPS)
   opMargin:    31.5,    // 영업이익률 %
-  unit:       'M',      // 'M' (USD) | '억원' (KRW)
+  unit:       'M',      // 'M' (USD/GBP/EUR 등) | '억원' (KRW) | 'M JPY' (JPY)
   currency:   'USD',
 }
 ```
 
-### 수집 함수 (terminal-data.jsx)
-| 함수 | 소스 | 대상 종목 | 방식 |
+### 수집 함수 라우팅 (terminal-data.jsx)
+
+**`fetchYahooFinancialHistory` 내 라우팅 분기**:
+```
+stock.market === 'KRX'                     → fetchDartFinancialHistory
+stock.market ∈ {NASDAQ, NYSE, AMEX}        → fetchSecFinancialHistory
+                                               실패 시 → fetchYahooFinancialHistory 폴백
+그 외 (TSE, LSE, XETRA, Euronext 등)       → fetchYahooFinancialHistory
+```
+
+| 함수 | 소스 | 대상 종목 | 최대 연도 |
 |---|---|---|---|
-| `fetchSecFinancialHistory(stock)` | SEC EDGAR | 미국 (NASDAQ/NYSE) | `/companyfacts/CIK{}.json` XBRL → 10-K/20-F FY 필터, 최대 5개년 |
-| `fetchDartFinancialHistory(stock, apiSettings, dartCorpMap)` | OpenDART | 한국 (KRX) | `fnlttSinglAcntAll` 2회 병렬 호출 (year−1, year−3) → thstrm/frmtrm/bfefrmtrm 3개 컬럼 → 5개년 |
+| `fetchSecFinancialHistory(stock)` | SEC EDGAR | 미국 (NASDAQ/NYSE/AMEX) | 5개년 |
+| `fetchDartFinancialHistory(stock, apiSettings, dartCorpMap)` | OpenDART | 한국 (KRX) | 5개년 |
+| `fetchYahooFinancialHistory(stock)` | Yahoo Finance | 비US·비KRX / US SEC 실패 폴백 | 4개년 |
 
 **SEC XBRL 개념명 우선순위 (`SEC_CONCEPTS`)**
 - Revenue: `Revenues` → `RevenueFromContractWithCustomerExcludingAssessedTax` → `SalesRevenueNet`
@@ -93,14 +103,22 @@ overall = zToScore(zComp)       ← 0~100 백분위
 - CapEx: `PaymentsToAcquirePropertyPlantAndEquipment` → `CapitalExpenditures`
 - EPS: `EarningsPerShareDiluted` → `EarningsPerShareBasic`
 
-**DART 계정명**: 기존 `findDartRow` 함수 재사용. KRW는 원 단위 → `÷1e8` 억원 변환.
+**DART 계정명**: `findDartRow` 재사용. KRW 원 단위 → `÷1e8` 억원 변환.
 
-### F1 레이아웃 변경
+**`fetchYahooFinancialHistory` 처리 흐름**:
+1. `fetchYahooStatements(yahooSym)` 호출 (아래 §Yahoo 재무제표 수집 흐름 참조)
+2. 반환된 `summary.incomeStatementHistory.incomeStatementHistory[]` 배열을 순회
+3. `endDate`(unix) → `new Date(endDate * 1000).getFullYear()` → `fy`
+4. `divisor` 결정: JPY → `1e6` (M JPY), KRW → `1e8` (억원), 기타 → `1e6` (M)
+5. `capex = Math.abs(capitalExpenditures)` (부호 무관), `fcf = ocf − capex`
+6. 결과 내림차순 정렬 후 반환
+
+### F1 레이아웃
 ```
 ┌──────────────────────────────────────────────┐
 │  ScoreBreakdown (260px)  │  KEY METRICS (1fr) │  ← flex: 0 0 auto
 ├──────────────────────────────────────────────┤
-│  5Y FINANCIAL HISTORY  (flex: 1, 스크롤)      │  ← 신규
+│  5Y FINANCIAL HISTORY  (flex: 1, 스크롤)      │
 │  [↻ FETCH HISTORY]  SEC · 5개 연도 FY20–FY24  │
 │  표: FY컬럼 × 지표행 + YoY% 색상코딩 + 미니바 │
 └──────────────────────────────────────────────┘
@@ -109,14 +127,131 @@ overall = zToScore(zComp)       ← 0~100 백분위
 - 최신 FY 컬럼에 amber 하이라이트, YoY 양수=green/음수=red
 - `handleSaveHistory(stockId, metricsHistory)` 콜백으로 App state 저장
 
+---
+
+## 5-A. Yahoo Finance 데이터 아키텍처
+
+### Vercel Proxy 라우트 (api/proxy.js)
+
+모든 Yahoo 호출은 `/api/yahoo/<path>` → `api/proxy.js`의 `service=yahoo` 블록 경유. crumb은 Lambda 인스턴스 내 모듈 변수로 55분 캐시.
+
+| 프록시 경로 | 업스트림 URL | 용도 |
+|---|---|---|
+| `/api/yahoo/chart/{sym}?…` | `query1.../v8/finance/chart/{sym}` | OHLC 캔들 / 가격 히스토리 |
+| `/api/yahoo/quote?symbols={sym}` | `query1.../v7/finance/quote` | 실시간 호가 · PER · PBR · sector |
+| `/api/yahoo/quoteSummary/{sym}?modules=…` | `query2.../v10/finance/quoteSummary/{sym}` | 재무비율(financialData) · 통계 · 재무제표 모듈 |
+| `/api/yahoo/timeseries/{sym}?type=…` | `query1.../ws/fundamentals-timeseries/v1/finance/timeseries/{sym}` | 연간 재무 시계열 (비US 종목 전용 폴백) |
+| `/api/yahoo/search?…` | `query1.../v1/finance/search` | 종목 검색 자동완성 |
+
+crumb 획득 실패 또는 401/403 응답 시 `fetchYahoo()` 내부에서 crumb 무효화 후 1회 재시도.
+
+### fetchStockData — Yahoo 병렬 호출 구조
+
+`apiSettings.globalProvider === 'yahooExperimental'` 경로에서 5개 함수를 **Promise.allSettled**로 동시 실행:
+
+```
+fetchYahooChart(sym)        → chart (OHLC, priceHistory, prevClose)  ← 실패 시 전체 throw
+fetchYahooQuote(sym)        → quote (realtime price, PER, PBR, sector, currency)
+fetchYahooQuoteSummary(sym) → coreSumm (financialData, defaultKeyStatistics, summaryDetail)
+fetchYahooStatements(sym)   → stmts (incomeStatementHistory, balanceSheetHistory, cashflowStatementHistory)
+fetchYahooEarnings(sym)     → earnData (earnings.financialsChart.yearly — 실패 시 null)
+```
+
+merge: `summary = { ...coreSumm, ...stmts, ...(earnData || {}) }` → `mapYahooPayload(stock, chart, sym, quote, summary)`
+
+chart만 필수; 나머지 4개는 fulfilled 여부에 따라 null 허용.
+
+### fetchYahooStatements — 재무제표 수집 폴백 체인
+
+```
+① quoteSummary v10: modules=incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory
+   → HTTP 200 + result 있으면 반환
+
+② quoteSummary v10: modules=incomeStatementHistory,balanceSheetHistory
+   → HTTP 200 + result 있으면 반환
+
+③ quoteSummary v10: modules=incomeStatementHistory
+   → HTTP 200 + result 있으면 반환
+
+④ fetchYahooTimeSeries(symbol)
+   → GET /api/yahoo/timeseries/{sym}?type=annualTotalRevenue,...&period1=0&period2={now}
+   → parseTimeSeriesStatements(results) 로 구조 변환
+   → 성공 시 반환
+
+⑤ throw new Error('Yahoo statements 모두 실패')
+```
+
+**①~③이 실패하는 경우**: Yahoo Finance v10 quoteSummary는 TSE(일본), LSE(영국), XETRA(독일), Euronext(프랑스) 등 비US 종목의 statement 모듈 요청에 HTTP 400 반환. 단일 모듈 요청도 동일하게 실패.
+
+**④ timeseries 엔드포인트**: Yahoo Finance 웹사이트가 내부적으로 사용하는 `fundamentals-timeseries` API. 비US 종목 포함 전 시장 지원. 요청 타입 11개:
+
+| timeseries type | 매핑 필드 | 용도 |
+|---|---|---|
+| `annualTotalRevenue` | `totalRevenue` | 매출 |
+| `annualOperatingIncome` | `operatingIncome` | 영업이익 |
+| `annualNetIncome` | `netIncome` | 당기순이익 |
+| `annualDilutedEPS` | `dilutedEps` | 희석 EPS |
+| `annualStockholdersEquity` | `totalShareholderEquity` | 자기자본 |
+| `annualCurrentAssets` | `totalCurrentAssets` | 유동자산 |
+| `annualCurrentLiabilities` | `totalCurrentLiabilities` | 유동부채 |
+| `annualLongTermDebt` | `longTermDebt` | 장기차입금 |
+| `annualCurrentDebt` | `shortLongTermDebt` | 단기차입금 |
+| `annualOperatingCashFlow` | `totalCashFromOperatingActivities` | 영업현금흐름 |
+| `annualCapitalExpenditure` | `capitalExpenditures` | 설비투자 |
+
+**parseTimeSeriesStatements 변환 로직**:
+- timeseries 응답은 타입별 배열 형태: `[{ type: 'annualTotalRevenue', annualTotalRevenue: [{ asOfDate: '2023-03-31', reportedValue: { raw: 123 } }] }]`
+- `asOfDate`를 키로 `byDate` 맵 구성 → 날짜 내림차순 정렬
+- 각 날짜별로 `{ endDate: unix_ts, totalRevenue: { raw: v }, ... }` 형태의 statement 행 생성
+- **asOfDate 그대로 사용**: TSE(3월 결산), HK(12월)을 불문하고 실제 회계연도 종료일이 `endDate`로 저장됨 → `fetchYahooFinancialHistory`의 `getFullYear()` 추출이 정확
+
+출력 구조는 quoteSummary 응답과 동일하므로 `mapYahooPayload` / `fetchYahooFinancialHistory` 코드 수정 없이 그대로 동작.
+
+### mapYahooPayload — 재무지표 Fallback 체계
+
+`summary` 객체를 분해하여 3단계 우선순위로 각 지표를 채움:
+
+```
+1순위  financialData 모듈 (US 종목 대부분, 비US 일부)
+         fin.returnOnEquity, fin.operatingMargins, fin.freeCashflow,
+         fin.debtToEquity, fin.currentRatio, fin.revenueGrowth, fin.earningsGrowth
+         
+2순위  재무제표 직접 계산 (incomeStatementHistory / balanceSheetHistory / cashflowStatementHistory)
+         inc0/inc1/bal0/cf0에서 수치 추출 후:
+         ROE         = netIncome / totalShareholderEquity × 100
+         OP Margin   = operatingIncome / totalRevenue × 100
+         FCF Margin  = (totalCashFromOperatingActivities − |capitalExpenditures|) / totalRevenue × 100
+         Debt/Eq     = (shortLongTermDebt + longTermDebt) / totalShareholderEquity × 100
+         Cur Ratio   = totalCurrentAssets / totalCurrentLiabilities × 100
+         Rev Growth  = (rev₀ − rev₁) / rev₁ × 100
+
+3순위  earnings 모듈 연간 차트 (earnings.financialsChart.yearly)
+         연간 revenue / earnings 쌍에서 RevGrowth·EpsGrowth·OpMargin 근사
+         (OP Margin을 earnings/revenue로 근사 — 실제 영업이익 아님, 최후 수단)
+```
+
+지표별 fallback 코드:
+```js
+roe:          fb(pct(fin, 'returnOnEquity'),   fbRoe)
+opMargin:     fb(pct(fin, 'operatingMargins'), fb(fbOpMargin, fbOpMarginEy))
+fcfMargin:    fb(계산식,                        fbFcfMargin)
+debtRatio:    fb(raw(fin, 'debtToEquity'),     fbDebtRatio)
+currentRatio: fb(finCr * 100,                  fbCurRatio)
+revGrowth:    fb(pct(fin, 'revenueGrowth'),    fb(fbRevGrowth, fbRevGrowthEy))
+epsGrowth:    fb(pct(fin, 'earningsGrowth'),   fbEpsGrowthEy)
+```
+
+`fb(primary, fallback)` = `Number.isFinite(primary) ? primary : fallback`. 최종적으로 NaN인 지표는 `compactMetrics`가 제거 → UI에 "–" 표시.
+
+**캐시 주의**: `cacheDays`(기본 3일) 내 이미 저장된 빈 metrics 캐시는 Settings → Clear Cache 후 Fetch해야 새 데이터로 교체됨.
+
 ## 6. 변경 이력 (Recent Change Log)
-- **2026-05-11 (비US 종목 재무제표 fundamentals-timeseries 폴백)**:
-  - **원인**: Yahoo Finance v10 `quoteSummary` API가 TSE/LSE 등 비US 종목에서 `incomeStatementHistory`, `balanceSheetHistory`, `cashflowStatementHistory` 모듈을 전혀 지원하지 않아 진입 가능한 모든 module 조합(3개→2개→1개)에서 HTTP 400 반환. 결과: 5Y Financial History "Yahoo statements 모두 실패" + 재무지표(ROE/OP Margin 등) 전부 "–".
-  - **수정 — api/proxy.js**: `timeseries/` 경로 추가. `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{sym}` 라우트를 Yahoo 블록에 신규 등록 (crumb 포함 forwarding).
-  - **수정 — terminal-data.jsx**: `fetchYahooTimeSeries(symbol)` 신규 함수 추가. 11개 annual 타입(`annualTotalRevenue`, `annualOperatingIncome`, `annualNetIncome`, `annualDilutedEPS`, `annualStockholdersEquity`, `annualCurrentAssets`, `annualCurrentLiabilities`, `annualLongTermDebt`, `annualCurrentDebt`, `annualOperatingCashFlow`, `annualCapitalExpenditure`)을 한 번에 요청, 실패 시 `null` 반환.
-  - **`parseTimeSeriesStatements(results)`**: timeseries 응답(`type`+`asOfDate`+`reportedValue` 구조)을 `quoteSummary`와 동일한 `incomeStatementHistory / balanceSheetHistory / cashflowStatementHistory` 구조로 변환. asOfDate(YYYY-MM-DD)를 unix timestamp endDate로 변환하여 TSE(3월 결산) 등 비12월 결산 종목도 올바른 FY 추출 가능.
-  - **`fetchYahooStatements` 폴백 연결**: 기존 quoteSummary 3-combo 재시도 모두 실패 시 자동으로 `fetchYahooTimeSeries` → `parseTimeSeriesStatements` 경로 진입. 성공 시 기존과 동일한 구조 반환 → `mapYahooPayload` 지표 fallback 계산 및 `fetchYahooFinancialHistory` 모두 **코드 변경 없이** 정상 동작.
-  - **영향 범위**: TSE/LSE/XETRA/Euronext 등 모든 비US·비KRX 종목의 재무지표(ROE, OP Margin, FCF Margin, Debt/Eq, CR, Rev Growth) 및 5Y Financial History 정상화. 캐시가 남아 있으면 Settings → Clear Cache 후 Fetch 필요.
+- **2026-05-11 (비US 종목 재무제표 fundamentals-timeseries 폴백 — §5-A 참조)**:
+  - **증상**: TSE/LSE/XETRA 등 비US 종목에서 5Y Financial History "Yahoo statements 모두 실패" + 재무지표(ROE/OP Margin/FCF 등) 전부 "–" 동시 발생.
+  - **근본 원인**: Yahoo Finance v10 `quoteSummary` API가 비US 종목에서 statement 모듈(`incomeStatementHistory`, `balanceSheetHistory`, `cashflowStatementHistory`) 전부를 HTTP 400으로 거부. 단일 모듈 요청도 동일. → `fetchYahooStatements`의 3-combo 재시도 전부 실패 → `stmts = null` → `mapYahooPayload`에서 재무제표 기반 fallback 지표 계산도 전부 NaN.
+  - **수정 1 — api/proxy.js**: `timeseries/` 라우트 신규 추가. `/api/yahoo/timeseries/{sym}?type=…` → `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{sym}` 포워딩 (crumb 포함).
+  - **수정 2 — terminal-data.jsx**: `fetchYahooTimeSeries(symbol)` + `parseTimeSeriesStatements(results)` 신규 추가. timeseries 응답(`type`+`asOfDate`+`reportedValue[]` 구조)을 `incomeStatementHistory / balanceSheetHistory / cashflowStatementHistory` 구조로 변환 후 `fetchYahooStatements` 내 ④번 폴백으로 연결. 기존 `mapYahooPayload` / `fetchYahooFinancialHistory` 코드 **무변경**으로 동작.
+  - **캐시 주의**: 기존 빈 metrics로 저장된 캐시는 Settings → Clear Cache 후 재조회 필요.
 - **2026-05-11 (UI/UX 개선 2종)**:
   - **F9/F10 순서 교체**: F9=SCREEN, F10=SETTINGS (기존 반대).
   - **Alerts 읽음 처리**: 각 카드에 READ 버튼(new→read), 필터 바 우측 ALL READ(N) 버튼, 필터 드롭다운에 READ 탭 추가. 상태 색상: NEW=amber, READ=cyan, LOGGED=green, DISMISSED=회색.
@@ -128,16 +263,9 @@ overall = zToScore(zComp)       ← 0~100 백분위
   - **비US 종목 미지원 버그**: 일본(TSE) 등 비US/비KRX 종목은 `isSecEligibleStock` 체크에 막혀 항상 "미국 상장 종목만 지원" 에러. `fetchYahooFinancialHistory(stock)` 신규 함수 추가: `quoteSummary`의 `incomeStatementHistory/balanceSheetHistory/cashflowStatementHistory` 모듈에서 최대 4개년 재무 데이터 추출. KRX→DART, US(NASDAQ/NYSE/AMEX)→SEC EDGAR(Yahoo 폴백), 기타→Yahoo Finance.
   - **US 종목 SEC 실패 시 폴백 없음**: SEC CIK 조회 실패(`resolveSecCompany`) 시 `fetchYahooFinancialHistory`로 자동 폴백.
   - **레이아웃 버그**: ScoreBreakdown이 6줄+뱃지로 길면 5Y 섹션이 22px 헤더만 노출됨. `OverviewPanel`을 중첩 flex → 단일 `overflowY:auto` 스크롤 컨테이너로 변경.
-- **2026-05-11 (비US 종목 재무 지표 수정)**:
-  - **원인**: Yahoo Finance `quoteSummary` v10의 `financialData` 모듈이 일본(TSE) 등 비US 종목에서 빈 객체를 반환. PER/PBR는 `quote`(v7) 객체에 별도 fallback이 있어 표시됐지만, ROE/OP Margin/FCF/D-E/CR/RevGrowth는 `financialData`에만 의존 → 전부 "–".
-  - **수정**: `mapYahooPayload`에서 `financialData` 값이 NaN이면 재무제표에서 직접 계산하는 fallback 적용:
-    - ROE = 당기순이익 / 자기자본 × 100
-    - OP Margin = 영업이익 / 매출 × 100
-    - FCF Margin = (영업CF − CapEx) / 매출 × 100
-    - Debt/Eq = 총차입금 / 자기자본 × 100
-    - Current Ratio = 유동자산 / 유동부채 × 100
-    - Rev Growth = (금기 − 전기) / 전기 × 100
-  - US 종목은 `financialData`가 정상 반환되므로 기존 경로 그대로 유지.
+- **2026-05-11 (비US 종목 재무 지표 수정 — §5-A mapYahooPayload Fallback 참조)**:
+  - **원인**: `financialData` 모듈이 TSE 등 비US 종목에서 빈 객체 반환 → ROE/OP Margin/FCF/D-E/CR/RevGrowth 전부 "–". PER·PBR는 `quote`(v7) 객체에 별도 값이 있어 표시됨.
+  - **수정**: `mapYahooPayload`에 2·3순위 fallback 추가 (§5-A 상세). `financialData` NaN 시 재무제표(inc/bal/cf)에서 직접 계산 → earnings 모듈 연간 차트 순으로 대체. 단 재무제표 자체가 없으면 `null` → `compactMetrics` 제거 → "–". 이 경우 위 "fundamentals-timeseries 폴백" 수정으로 재무제표가 공급됨.
 - **2026-05-11 (PriceChart 크래시 — 훅 개수 불일치)**:
   - **원인**: `PriceChart` 컴포넌트(`terminal-components.jsx`)에서 `useMemo`(ma20/ma60/ma120) 3개가 early return(`if (!data.length && !valid.length) return ...`) 이후에 위치. 차트 데이터가 없을 때 훅 6개, 있을 때 훅 9개로 렌더 간 개수가 달라져 "Rendered more hooks than during the previous render" 에러로 앱 전체가 복구 화면으로 전환됨.
   - **수정**: `calcMA`, `sourceData`, 3개 `useMemo`를 early return 위로 이동. 데이터 유무와 관계없이 항상 9개 훅이 동일 순서로 호출됨.
