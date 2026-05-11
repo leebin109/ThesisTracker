@@ -53,5 +53,26 @@ Bloomberg Terminal 스타일의 주식 투자 관리 웹 애플리케이션입�
   - **REFACTOR**: 루트 폴더에 흩어져 있던 코드, 데이터, 문서를 정리하여 `src/`, `data/`, `docs/` 디렉토리로 구조화하고, 빌드 파이프라인(`tools/build.js`) 및 정적 JSON Fetcher의 경로를 연동 업데이트함.
 
 
-## 6. 향후 과제 (Next Steps)
-- **외부 알림 연동**: Telegram / Discord Webhook 봇 연동 (F6 Alerts의 알림을 스마트폰으로 푸시).
+## 6. 중장기 개발 대전략 (Grand Strategy Roadmap)
+앞으로의 기능 개선 및 추가 계획을 Phase 별로 구분하여 관리합니다.
+
+### 🚀 Phase 8: Automation & Notifications (외부 연동 및 자동화)
+현재 수동으로 확인해야 하는 데이터와 알림을 능동적으로 사용자에게 전달합니다.
+- **Telegram / Discord Webhook 연동**: `F6 Alerts` 패널에서 설정한 알림 조건이 충족될 때, `fetch` API를 사용하여 텔레그램 봇 API로 JSON 페이로드를 전송하여 푸시 알림 구현.
+- **Service Worker 백그라운드 Fetch**: 브라우저의 Service Worker API(`navigator.serviceWorker`)를 등록하여 탭이 닫혀 있더라도 백그라운드에서 `setInterval`처럼 일정 주기로 가격 동기화를 수행하고 OS 네이티브 알림을 띄우는 기능 구현.
+- **클라우드 수동 백업 및 복원 (Export/Import)**: `IndexedDB`에 쌓인 전체 데이터를 `JSON.stringify`하여 Blob 객체로 변환한 뒤 `<a>` 태그의 `download` 속성으로 내보내기 구현. 복원은 FileReader를 통해 파싱하여 DB 덮어쓰기.
+
+### 🤖 Phase 9: Bring Your Own AI (AI 인텔리전스 도입)
+유료 API 고정 비용을 피하면서(Zero-Cost 철학 유지), 강력한 AI 기능을 터미널 내부에 결합합니다.
+- **BYOK (Bring Your Own Key) 아키텍처**: `Settings(F11)` 패널에 OpenAI/Anthropic/Gemini API 키 입력란을 만들고 `localStorage`에 암호화 보관. 뉴스나 공시 요약 버튼을 누르면 해당 키를 헤더에 담아 브라우저 단에서 직접 API를 호출.
+- **WebLLM 로컬 구동 (선택)**: 브라우저의 `WebGPU` 기능을 기반으로 작동하는 `@mlc-ai/web-llm` 라이브러리를 인라인 삽입하여, Llama 3 8B 모델 등을 로컬 그래픽카드로 다운로드/구동시켜 100% 무료 감성 분석 엔진 구현.
+
+### 📈 Phase 10: Advanced Pro-Charting & Backtesting (전문가급 시각화)
+터미널의 가장 큰 장점인 빠르고 가벼운 자체 SVG 차트를 증권사 HTS/MTS 급으로 고도화합니다.
+- **심화 기술적 보조 지표 (RSI, MACD, Bollinger Bands)**: `terminal-components.jsx`의 `PriceChart` 컴포넌트 내부에 RSI 연산 로직(지수이동평균 EMA 활용)을 추가하고, Volume 바텀 오버레이처럼 하단에 별도의 SVG `<path>` 그룹을 생성해 렌더링.
+- **초경량 포트폴리오 시뮬레이션 (Paper Trading)**: 가상의 매수/매도 내역을 IndexedDB에 배열로 저장하고, 해당 내역의 시계열 자산 평가액을 계산하여 S&P 500 ETF(SPY)의 누적 수익률 곡선과 겹쳐서 비교하는 새로운 `F10 Backtest` 패널 추가.
+
+### 🔄 Phase 11: Cross-Device Sync (다중 기기 동기화)
+PC, 노트북, 모바일 등 여러 기기에서 동일한 터미널 경험을 끊김없이 이어갑니다.
+- **Supabase 무료 티어 실시간 동기화**: 프로젝트에 이미 추가되어 있는 `supabase-js` 클라이언트를 활성화하여 `Realtime` 구독(Subscribe) 기능 연동. 로컬 IndexedDB에 변경(Mutate)이 발생할 때마다 Supabase PostgreSQL 테이블로 비동기 업싱크(Upsync) 수행.
+- **멀티 워크스페이스 (Multi-Watchlist)**: 단일 `watchlist` 배열을 `{ id, name, symbols: [] }` 형태의 객체 배열로 구조 변경. 터미널 좌측이나 상단 탭을 통해 여러 개의 관심 그룹을 전환할 수 있도록 상태 관리(`useState`) 개편.
