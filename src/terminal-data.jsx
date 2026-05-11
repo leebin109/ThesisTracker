@@ -869,7 +869,7 @@ async function fetchYahooQuote(symbol) {
 }
 
 async function fetchYahooQuoteSummary(symbol) {
-  const modules = 'financialData,defaultKeyStatistics,summaryDetail,incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory';
+  const modules = 'financialData,defaultKeyStatistics,summaryDetail';
   const params = new URLSearchParams({ modules });
   const url = isProxiedOrigin()
     ? `/api/yahoo/quoteSummary/${encodeURIComponent(symbol)}?${params}`
@@ -879,6 +879,20 @@ async function fetchYahooQuoteSummary(symbol) {
   const data = await res.json();
   const result = data?.quoteSummary?.result?.[0];
   if (!result) throw new Error('Yahoo quoteSummary result 없음');
+  return result;
+}
+
+async function fetchYahooStatements(symbol) {
+  const modules = 'incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory';
+  const params = new URLSearchParams({ modules });
+  const url = isProxiedOrigin()
+    ? `/api/yahoo/quoteSummary/${encodeURIComponent(symbol)}?${params}`
+    : `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?${params}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Yahoo statements HTTP ${res.status}`);
+  const data = await res.json();
+  const result = data?.quoteSummary?.result?.[0];
+  if (!result) throw new Error('Yahoo statements result 없음');
   return result;
 }
 
@@ -1427,14 +1441,17 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
     onStatus('Yahoo Finance 가격/재무 조회 중...');
     const yahooSym = toYahooSymbol(stock);
     try {
-      const [chartRes, quoteRes, summaryRes] = await Promise.allSettled([
+      const [chartRes, quoteRes, summaryRes, stmtRes] = await Promise.allSettled([
         fetchYahooChart(yahooSym),
         fetchYahooQuote(yahooSym),
         fetchYahooQuoteSummary(yahooSym),
+        fetchYahooStatements(yahooSym),
       ]);
       if (chartRes.status === 'rejected') throw new Error(`Yahoo chart 실패: ${chartRes.reason?.message}`);
-      const quote   = quoteRes.status   === 'fulfilled' ? quoteRes.value   : null;
-      const summary = summaryRes.status === 'fulfilled' ? summaryRes.value : null;
+      const quote    = quoteRes.status   === 'fulfilled' ? quoteRes.value   : null;
+      const coreSumm = summaryRes.status === 'fulfilled' ? summaryRes.value : null;
+      const stmts    = stmtRes.status    === 'fulfilled' ? stmtRes.value    : null;
+      const summary  = (coreSumm || stmts) ? { ...coreSumm, ...stmts } : null;
       const payload = mapYahooPayload(stock, chartRes.value, yahooSym, quote, summary);
       const entry = { fetchedAt: new Date().toISOString(), provider: 'yahooExperimental', payload };
       return { ...payload, cacheUpdates: { [cacheKey]: entry } };
@@ -2054,7 +2071,7 @@ async function fetchMacroIndicators() {
 // Expose to window
 async function fetchYahooFinancialHistory(stock) {
   const yahooSym = toYahooSymbol(stock);
-  const summary = await fetchYahooQuoteSummary(yahooSym);
+  const summary = await fetchYahooStatements(yahooSym);
 
   const incStmts = summary?.incomeStatementHistory?.incomeStatementHistory || [];
   const balShts  = summary?.balanceSheetHistory?.balanceSheetStatements    || [];
