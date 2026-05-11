@@ -48,6 +48,7 @@ Bloomberg Terminal 스타일의 주식 투자 관리 웹 애플리케이션입�
   - **F2 PITCH**: 자체 구현한 초경량 마크다운 렌더러를 탑재하여 볼드체, 기울임꼴, 글머리 기호, 하이퍼링크 등 리포트 양식 작성 지원.
   - **F5 CHART**: SVG 차트 렌더러를 개편하여 거래량(Volume) 바텀 오버레이 및 이동평균선(MA20, MA60, MA120) 실시간 계산 기능 추가.
   - **MACRO DASHBOARD**: 글로벌 시장 동향을 실시간 파악할 수 있도록 상단 TickerRail에 S&P500, USD/KRW, US10Y, VIX를 연동.
+  - **BUGFIX**: Windows PowerShell 인코딩 문제로 인한 한글 깨짐 현상을 해결하기 위해, 빌드 스크립트를 Node.js 기반(`tools/build.js`)으로 전면 교체하여 완벽한 UTF-8 호환성 확보.
 
 ## 6. 향후 과제 (Next Steps)
 - **외부 알림 연동**: Telegram / Discord Webhook 봇 연동 (F6 Alerts의 알림을 스마트폰으로 푸시).
