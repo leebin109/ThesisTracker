@@ -1917,12 +1917,29 @@ async function fetchKrxYahooPrice(stock) {
 async function fetchYahooQuote(symbol) {
   const fields = 'symbol,shortName,longName,currency,regularMarketPrice,regularMarketTime,trailingPE,forwardPE,priceToBook,bookValue,epsTrailingTwelveMonths,epsForward,marketCap,sector,industry';
   const params = new URLSearchParams({ symbols: symbol, fields });
-  const res = await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?${params}`);
+  const url = isProxiedOrigin()
+    ? `/api/yahoo/quote?${params}`
+    : `https://query1.finance.yahoo.com/v7/finance/quote?${params}`;
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`Yahoo quote HTTP ${res.status}`);
   const data = await res.json();
   const quote = data?.quoteResponse?.result?.[0];
   if (!quote) throw new Error('Yahoo quote result 없음');
   return quote;
+}
+
+async function fetchYahooQuoteSummary(symbol) {
+  const modules = 'financialData,defaultKeyStatistics,summaryDetail';
+  const params = new URLSearchParams({ modules });
+  const url = isProxiedOrigin()
+    ? `/api/yahoo/quoteSummary/${encodeURIComponent(symbol)}?${params}`
+    : `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?${params}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Yahoo quoteSummary HTTP ${res.status}`);
+  const data = await res.json();
+  const result = data?.quoteSummary?.result?.[0];
+  if (!result) throw new Error('Yahoo quoteSummary result 없음');
+  return result;
 }
 
 async function fetchLivePriceForSymbol(stock, yahooSym) {
@@ -2105,7 +2122,7 @@ async function fetchDartStockInfo(corpCode, apiKey) {
 // ═══════════════════════════════════════════════════════════════
 // Data mapping (outputs opMargin, revGrowth for terminal naming)
 // ═══════════════════════════════════════════════════════════════
-function mapYahooPayload(stock, chart, yahooSym, quote) {
+function mapYahooPayload(stock, chart, yahooSym, quote, summary) {
   const result = chart?.chart?.result?.[0];
   if (!result) throw new Error('chart result 없음');
   const closes = result.indicators?.quote?.[0]?.close ?? [];
@@ -2114,15 +2131,40 @@ function mapYahooPayload(stock, chart, yahooSym, quote) {
   const ts = quote?.regularMarketTime ?? result.timestamp?.at(-1);
   const asOf = ts ? new Date(Number(ts) * 1000).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
   if (!priceHistory.length && !currentPrice) throw new Error('가격 데이터 없음');
+
+  // quoteSummary modules
+  const fin  = summary?.financialData   || {};
+  const kst  = summary?.defaultKeyStatistics || {};
+  const det  = summary?.summaryDetail   || {};
+
+  const raw = (obj, key) => toNumber(obj?.[key]?.raw ?? obj?.[key]);
+  const pct = (obj, key) => { const v = raw(obj, key); return Number.isFinite(v) ? v * 100 : NaN; };
+
   const metrics = compactMetrics({
-    per: firstFinite(toNumber(quote?.trailingPE), toNumber(quote?.forwardPE)),
-    pbr: firstFinite(toNumber(quote?.priceToBook)),
+    per:          firstFinite(raw(det,'trailingPE'), toNumber(quote?.trailingPE), raw(det,'forwardPE'), toNumber(quote?.forwardPE)),
+    pbr:          firstFinite(raw(kst,'priceToBook'), toNumber(quote?.priceToBook)),
+    roe:          pct(fin, 'returnOnEquity'),
+    opMargin:     pct(fin, 'operatingMargins'),
+    fcfMargin:    (() => {
+      const fcf = raw(fin, 'freeCashflow');
+      const rev = raw(fin, 'totalRevenue');
+      return (Number.isFinite(fcf) && Number.isFinite(rev) && rev > 0) ? (fcf / rev) * 100 : NaN;
+    })(),
+    debtRatio:    raw(fin, 'debtToEquity'),   // already in % (e.g. 145.3)
+    currentRatio: raw(fin, 'currentRatio') * 100,  // convert 1.73 → 173
+    revGrowth:    pct(fin, 'revenueGrowth'),
+    epsGrowth:    pct(fin, 'earningsGrowth'),
   });
+
   const industryGroup = detectIndustry(quote?.sector, quote?.industry);
   return {
     name: quote?.longName || quote?.shortName || result.meta?.longName || stock.name,
     currency: quote?.currency || result.meta?.currency || stock.currency,
     price: Number.isFinite(currentPrice) ? Math.round(currentPrice * 100) / 100 : undefined,
+    prevClose: firstFinite(
+      toNumber(result.meta?.regularMarketPreviousClose),
+      toNumber(result.meta?.previousClose),
+    ) || undefined,
     priceHistory: priceHistory.length ? priceHistory : undefined,
     metrics,
     asOf,
@@ -2402,13 +2444,18 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
     const cacheKey = buildCacheKey(stock, apiSettings, mode);
     const cached = getCachedEntry(cache, cacheKey, apiSettings.cacheDays);
     if (cached) return { ...cached.payload, cacheUpdates: {}, fromCache: true };
-    onStatus('Yahoo Finance 가격 조회 중...');
+    onStatus('Yahoo Finance 가격/재무 조회 중...');
     const yahooSym = toYahooSymbol(stock);
     try {
-      const [chartRes, quoteRes] = await Promise.allSettled([fetchYahooChart(yahooSym), fetchYahooQuote(yahooSym)]);
+      const [chartRes, quoteRes, summaryRes] = await Promise.allSettled([
+        fetchYahooChart(yahooSym),
+        fetchYahooQuote(yahooSym),
+        fetchYahooQuoteSummary(yahooSym),
+      ]);
       if (chartRes.status === 'rejected') throw new Error(`Yahoo chart 실패: ${chartRes.reason?.message}`);
-      const quote = quoteRes.status === 'fulfilled' ? quoteRes.value : null;
-      const payload = mapYahooPayload(stock, chartRes.value, yahooSym, quote);
+      const quote   = quoteRes.status   === 'fulfilled' ? quoteRes.value   : null;
+      const summary = summaryRes.status === 'fulfilled' ? summaryRes.value : null;
+      const payload = mapYahooPayload(stock, chartRes.value, yahooSym, quote, summary);
       const entry = { fetchedAt: new Date().toISOString(), provider: 'yahooExperimental', payload };
       return { ...payload, cacheUpdates: { [cacheKey]: entry } };
     } catch (e) {

@@ -103,6 +103,14 @@ module.exports = async function handler(req, res) {
         const url = `https://query1.finance.yahoo.com/v7/finance/quote${qs ? '?' + qs : ''}${crumbSuffix}`;
         upstream = await fetchYahoo(url, crumbInfo);
 
+      } else if (suffix.startsWith('quoteSummary/')) {
+        const sym = suffix.slice('quoteSummary/'.length);
+        if (!sym || sym.length > 40 || sym.includes('/')) {
+          return res.status(400).json({ error: 'invalid symbol' });
+        }
+        const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}${qs ? '?' + qs : ''}${crumbSuffix}`;
+        upstream = await fetchYahoo(url, crumbInfo);
+
       } else {
         return res.status(404).json({ error: `unknown yahoo path: ${suffix}` });
       }
