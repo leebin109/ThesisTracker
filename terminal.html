@@ -3983,8 +3983,8 @@ function PreMortemPanel({ stock, onSave }) {
   };
 
   return (
-    <Cell label="PRE-MORTEM METRICS" accent={T.red} style={{ height: '100%' }}>
-      <div style={{ padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <Cell label="PRE-MORTEM METRICS" accent={T.red} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', flex: 1, minHeight: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button onClick={addRow} style={{ ...btnSt, color: T.inkDim, border: `1px solid ${T.border}`, padding: '4px 9px' }}>ADD</button>
           {editing ? (
