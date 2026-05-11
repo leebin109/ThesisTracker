@@ -869,7 +869,7 @@ async function fetchYahooQuote(symbol) {
 }
 
 async function fetchYahooQuoteSummary(symbol) {
-  const modules = 'financialData,defaultKeyStatistics,summaryDetail';
+  const modules = 'financialData,defaultKeyStatistics,summaryDetail,incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory';
   const params = new URLSearchParams({ modules });
   const url = isProxiedOrigin()
     ? `/api/yahoo/quoteSummary/${encodeURIComponent(symbol)}?${params}`
@@ -1080,19 +1080,50 @@ function mapYahooPayload(stock, chart, yahooSym, quote, summary) {
   const raw = (obj, key) => toNumber(obj?.[key]?.raw ?? obj?.[key]);
   const pct = (obj, key) => { const v = raw(obj, key); return Number.isFinite(v) ? v * 100 : NaN; };
 
+  // Fallback: compute metrics from historical statements when financialData is empty
+  // (Yahoo Finance omits financialData for many non-US stocks)
+  const incomeStmts  = summary?.incomeStatementHistory?.incomeStatementHistory || [];
+  const balanceShts  = summary?.balanceSheetHistory?.balanceSheetStatements    || [];
+  const cashflows    = summary?.cashflowStatementHistory?.cashflowStatements   || [];
+  const inc0 = incomeStmts[0] || {};
+  const inc1 = incomeStmts[1] || {};
+  const bal0 = balanceShts[0] || {};
+  const cf0  = cashflows[0]  || {};
+  const hr = (obj, key) => toNumber(obj?.[key]?.raw ?? obj?.[key]);
+  const hRev   = hr(inc0, 'totalRevenue');
+  const hOp    = hr(inc0, 'operatingIncome') || hr(inc0, 'ebit');
+  const hNet   = hr(inc0, 'netIncome');
+  const hOCF   = hr(cf0,  'totalCashFromOperatingActivities');
+  const hCapex = Math.abs(hr(cf0, 'capitalExpenditures') || 0);
+  const hEq    = hr(bal0, 'totalShareholderEquity');
+  const hCA    = hr(bal0, 'totalCurrentAssets');
+  const hCL    = hr(bal0, 'totalCurrentLiabilities');
+  const hDebt  = (hr(bal0, 'shortLongTermDebt') || 0) + (hr(bal0, 'longTermDebt') || 0);
+  const hPrevRev = hr(inc1, 'totalRevenue');
+  const valid = v => Number.isFinite(v) && v !== 0;
+  const fb = (primary, fallback) => Number.isFinite(primary) ? primary : fallback;
+
+  const fbRoe        = valid(hEq) ? (hNet   / hEq)  * 100 : NaN;
+  const fbOpMargin   = valid(hRev) ? (hOp   / hRev) * 100 : NaN;
+  const fbFcfMargin  = valid(hRev) ? ((hOCF - hCapex) / hRev) * 100 : NaN;
+  const fbDebtRatio  = valid(hEq) ? (hDebt / hEq)  * 100 : NaN;
+  const fbCurRatio   = valid(hCL) ? (hCA   / hCL)  * 100 : NaN;
+  const fbRevGrowth  = valid(hPrevRev) ? ((hRev - hPrevRev) / hPrevRev) * 100 : NaN;
+
+  const finCr = raw(fin, 'currentRatio');
   const metrics = compactMetrics({
     per:          firstFinite(raw(det,'trailingPE'), toNumber(quote?.trailingPE), raw(det,'forwardPE'), toNumber(quote?.forwardPE)),
     pbr:          firstFinite(raw(kst,'priceToBook'), toNumber(quote?.priceToBook)),
-    roe:          pct(fin, 'returnOnEquity'),
-    opMargin:     pct(fin, 'operatingMargins'),
-    fcfMargin:    (() => {
+    roe:          fb(pct(fin, 'returnOnEquity'), fbRoe),
+    opMargin:     fb(pct(fin, 'operatingMargins'), fbOpMargin),
+    fcfMargin:    fb((() => {
       const fcf = raw(fin, 'freeCashflow');
       const rev = raw(fin, 'totalRevenue');
       return (Number.isFinite(fcf) && Number.isFinite(rev) && rev > 0) ? (fcf / rev) * 100 : NaN;
-    })(),
-    debtRatio:    raw(fin, 'debtToEquity'),   // already in % (e.g. 145.3)
-    currentRatio: raw(fin, 'currentRatio') * 100,  // convert 1.73 → 173
-    revGrowth:    pct(fin, 'revenueGrowth'),
+    })(), fbFcfMargin),
+    debtRatio:    fb(raw(fin, 'debtToEquity'), fbDebtRatio),
+    currentRatio: fb(Number.isFinite(finCr) ? finCr * 100 : NaN, fbCurRatio),
+    revGrowth:    fb(pct(fin, 'revenueGrowth'), fbRevGrowth),
     epsGrowth:    pct(fin, 'earningsGrowth'),
   });
 
