@@ -1347,7 +1347,7 @@ function getDartCorpEntry(dartCorpMap, stockOrSymbol) {
   return dartCorpMap?.[code] || dartCorpMap?.[symbol] || dartCorpMap?.[String(symbol).toUpperCase()] || null;
 }
 
-async function fetchLocalDartCorpMap(path = 'dart-corp-codes.json') {
+async function fetchLocalDartCorpMap(path = 'data/dart-corp-codes.json') {
   try {
     const res = await fetch(path, { cache: 'no-store' });
     if (res.status === 404) {

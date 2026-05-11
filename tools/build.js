@@ -12,7 +12,7 @@ const blocks = [
 ];
 
 for (const name of blocks) {
-  const p = path.join(projectRoot, name);
+  const p = path.join(projectRoot, 'src', name);
   if (!fs.existsSync(p)) {
     console.error(`Missing source: ${p}`);
     process.exit(1);
@@ -98,7 +98,7 @@ const tail = `</body>\n</html>\n`;
 let outHTML = head;
 
 for (const name of blocks) {
-  const p = path.join(projectRoot, name);
+  const p = path.join(projectRoot, 'src', name);
   let src = fs.readFileSync(p, 'utf8');
   src = src.replace(/[ \t\r\n]+$/, ''); // Trim end
   outHTML += `  <script type="text/babel" data-presets="react" data-source="${name}">\n`;
