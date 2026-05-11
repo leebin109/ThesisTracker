@@ -76,3 +76,23 @@ Bloomberg Terminal 스타일의 주식 투자 관리 웹 애플리케이션입�
 PC, 노트북, 모바일 등 여러 기기에서 동일한 터미널 경험을 끊김없이 이어갑니다.
 - **Supabase 무료 티어 실시간 동기화**: 프로젝트에 이미 추가되어 있는 `supabase-js` 클라이언트를 활성화하여 `Realtime` 구독(Subscribe) 기능 연동. 로컬 IndexedDB에 변경(Mutate)이 발생할 때마다 Supabase PostgreSQL 테이블로 비동기 업싱크(Upsync) 수행.
 - **멀티 워크스페이스 (Multi-Watchlist)**: 단일 `watchlist` 배열을 `{ id, name, symbols: [] }` 형태의 객체 배열로 구조 변경. 터미널 좌측이나 상단 탭을 통해 여러 개의 관심 그룹을 전환할 수 있도록 상태 관리(`useState`) 개편.
+
+### 🧩 Phase 12: Alternative Data & Smart Money (대안 데이터 분석)
+재무제표와 가격 데이터를 넘어, 시장을 움직이는 진짜 '스마트 머니'의 흐름을 쫓습니다.
+- **내부자 및 의원 거래 추적**: 무료 대안 데이터 API(예: Quiver Quantitative 등)의 엔드포인트를 `fetch`로 호출하여, 특정 종목(symbol)의 SEC Form 4 내부자 매수/매도 내역을 파싱. 워치리스트나 피어 탭 내부에 뱃지(Badge) 형태의 인디케이터로 시각화.
+- **Social Sentiment (소셜 여론 분석)**: Reddit API(r/wallstreetbets)를 직접 브라우저 단에서 호출(CORS 허용 엔드포인트 또는 프록시 서버 활용)하여, 지난 24시간 동안 가장 많이 언급된 종목(Tickers)과 긍/부정 비율을 수집해 메인 대시보드에 리스트업.
+
+### 💻 Phase 13: Custom Quant Scripting (나만의 수식 에디터)
+개발자/파워 유저를 위해 터미널 내부에 코딩 기능을 삽입하여 무한한 확장성을 부여합니다.
+- **In-App 수식 에디터 내장**: MS의 오픈소스 에디터 뷰어인 `Monaco Editor` 모듈을 패널 내부에 `<iframe>` 또는 컴포넌트 형태로 마운트.
+- **AST 기반의 안전한 조건식 인터프리터 구현**: 사용자가 입력한 `P/E < 10 && RSI < 30` 등의 문자열 수식을 자바스크립트의 안전한 파서(Parser)를 통해 Abstract Syntax Tree(AST)로 변환하여 `eval()` 없이 실행 가능하도록 샌드박스 룰 구축. 조건이 참인 종목만 화면에 필터링 표시.
+
+### 🌐 Phase 14: Macro Correlation Engine (매크로 상관관계 분석)
+단일 종목 분석을 넘어, 세계 거시경제와 내 종목이 어떤 영향을 주고받는지 통계적으로 분석합니다.
+- **상관계수 매트릭스 (Correlation Matrix)**: `terminal-data.jsx`에서 S&P500, US10Y(국채), WTI(유가) 등의 매크로 지표 과거 1년치 시계열 데이터를 캐싱. 내 워치리스트 종목들의 동일 시계열 가격 데이터와 매칭하여 피어슨 상관계수(Pearson Correlation Coefficient)를 계산하는 순수 수학 유틸리티 함수 구현.
+- **민감도 백테스팅(Stress Test)**: 사용자가 슬라이더 UI로 "달러 +5% 상승"을 세팅하면, 기존 상관계수 연산 결과를 역으로 곱하여 내 포트폴리오의 예상 변동폭(Risk)을 추정하는 시뮬레이터 기능 추가.
+
+### 🎨 Phase 15: Social Share & Reporting (리포팅 및 공유)
+내가 분석한 훌륭한 결과물(Thesis)을 멋지게 포장하고 외부에 자랑할 수 있는 수단입니다.
+- **원클릭 투자 리포트 생성기**: HTML5 Canvas를 활용하는 `html2canvas`나 `dom-to-image` 라이브러리를 동적으로 로딩하여, `F2 PITCH` (마크다운 렌더링 결과)와 `F5 CHART` (SVG)를 한 장의 고해상도 PNG 이미지로 합쳐서 렌더링(Export) 및 다운로드.
+- **웹 퍼블리싱 (Web Publishing)**: `PITCH` 데이터 객체 전체를 Base64로 인코딩한 뒤, 쿼리 스트링(`?thesis=base64...`)으로 포함시켜 Vercel 배포 URL을 생성하는 버튼 클릭 이벤트 추가. 다른 사람이 이 링크를 열면 읽기 전용 뷰어(Read-only Mode)로 해당 리포트 팝업 출력.
