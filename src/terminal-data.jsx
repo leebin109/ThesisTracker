@@ -2052,6 +2052,56 @@ async function fetchMacroIndicators() {
 
 // ═══════════════════════════════════════════════════════════════
 // Expose to window
+async function fetchYahooFinancialHistory(stock) {
+  const yahooSym = toYahooSymbol(stock);
+  const summary = await fetchYahooQuoteSummary(yahooSym);
+
+  const incStmts = summary?.incomeStatementHistory?.incomeStatementHistory || [];
+  const balShts  = summary?.balanceSheetHistory?.balanceSheetStatements    || [];
+  const cfStmts  = summary?.cashflowStatementHistory?.cashflowStatements   || [];
+  if (!incStmts.length) throw new Error('Yahoo 연간 재무제표 없음');
+
+  const hr = (obj, key) => {
+    const v = obj?.[key];
+    return v != null ? toNumber(typeof v === 'object' ? v.raw : v) : NaN;
+  };
+  const isJPY = stock.currency === 'JPY';
+  const isKRW = stock.currency === 'KRW';
+  const divisor = isKRW ? 1e8 : isJPY ? 1e6 : 1e6;
+  const unit    = isKRW ? '억원' : isJPY ? 'M JPY' : 'M';
+
+  const records = incStmts.map((inc, i) => {
+    const bal = balShts[i]  || {};
+    const cf  = cfStmts[i]  || {};
+    const endTs = hr(inc, 'endDate');
+    const fy = Number.isFinite(endTs) ? new Date(endTs * 1000).getFullYear() : null;
+    if (!fy) return null;
+
+    const rev       = hr(inc, 'totalRevenue');
+    const opIncome  = firstFinite(hr(inc, 'operatingIncome'), hr(inc, 'ebit'));
+    const netIncome = hr(inc, 'netIncome');
+    const ocf       = hr(cf,  'totalCashFromOperatingActivities');
+    const capexRaw  = hr(cf,  'capitalExpenditures');
+    const capex     = Number.isFinite(capexRaw) ? Math.abs(capexRaw) : 0;
+    const fcf       = Number.isFinite(ocf) ? ocf - capex : null;
+    const opMargin  = (Number.isFinite(opIncome) && Number.isFinite(rev) && rev !== 0)
+      ? Math.round((opIncome / rev) * 1000) / 10 : null;
+    const toM = v => Number.isFinite(v) ? Math.round(v / divisor) : null;
+
+    return {
+      fy, source: 'Yahoo',
+      revenue: toM(rev), opIncome: toM(opIncome), netIncome: toM(netIncome),
+      ocf: toM(ocf), capex: toM(capex) || null,
+      fcf: fcf != null ? toM(fcf) : null,
+      eps: null,
+      opMargin, unit, currency: stock.currency || 'USD',
+    };
+  }).filter(Boolean);
+
+  if (!records.length) throw new Error('연간 재무 데이터 없음');
+  return records.sort((a, b) => b.fy - a.fy);
+}
+
 // ═══════════════════════════════════════════════════════════════
 Object.assign(window, {
   TT_KEY, MARKET_PROFILES, COUNTRY_FLAGS,
@@ -2067,5 +2117,5 @@ Object.assign(window, {
   fetchOpenDartDisclosures, fetchSecFilings, fetchYahooNewsExperimental, fetchGoogleNewsRss,
   fetchAlertsForStock, makeAlertId, pruneAlerts,
   fetchYahooChartOhlc, toYahooSymbol, fetchMacroIndicators,
-  fetchSecFinancialHistory, fetchDartFinancialHistory,
+  fetchSecFinancialHistory, fetchDartFinancialHistory, fetchYahooFinancialHistory,
 });

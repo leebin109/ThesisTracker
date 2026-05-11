@@ -7,7 +7,7 @@
 /* global fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp */
 /* global fetchYahooChartOhlc, toYahooSymbol */
 /* global fetchAlertsForStock, pruneAlerts */
-/* global fetchSecFinancialHistory, fetchDartFinancialHistory */
+/* global fetchSecFinancialHistory, fetchDartFinancialHistory, fetchYahooFinancialHistory */
 /* global normalizeKrxStockCode, getDartCorpEntry, fetchLocalDartCorpMap */
 /* global inferMarketFromExchange, normalizeSymbolForMarket, getMarketProfile, buildYahooChartUrl, MARKET_PROFILES, COUNTRY_FLAGS, SCORE_CFG */
 /* global useTweaks, TweaksPanel */
@@ -686,15 +686,26 @@ function FinancialHistorySection({ stock, apiSettings, dartCorpMap, onSaveHistor
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
   const history = stock.metricsHistory || [];
-  const isKRX   = stock.currency === 'KRW' || stock.market === 'KRX' || stock.country === '한국';
+  const isKRX        = stock.currency === 'KRW' || stock.market === 'KRX' || stock.country === '한국';
+  const isSecEligible = ['NASDAQ', 'NYSE', 'AMEX'].includes(stock.market) || stock.country === '미국';
+  const sourceHint   = isKRX ? 'DART (API 키 필요)' : isSecEligible ? 'SEC EDGAR → Yahoo 폴백' : 'Yahoo Finance';
 
   const handleFetch = async () => {
     setLoading(true);
     setError('');
     try {
-      const data = isKRX
-        ? await fetchDartFinancialHistory(stock, apiSettings, dartCorpMap)
-        : await fetchSecFinancialHistory(stock);
+      let data;
+      if (isKRX) {
+        data = await fetchDartFinancialHistory(stock, apiSettings, dartCorpMap);
+      } else if (isSecEligible) {
+        try {
+          data = await fetchSecFinancialHistory(stock);
+        } catch {
+          data = await fetchYahooFinancialHistory(stock);
+        }
+      } else {
+        data = await fetchYahooFinancialHistory(stock);
+      }
       if (!data?.length) throw new Error('데이터 없음');
       onSaveHistory(stock.id, data);
     } catch (e) {
@@ -705,9 +716,9 @@ function FinancialHistorySection({ stock, apiSettings, dartCorpMap, onSaveHistor
   };
 
   return (
-    <Cell label="5Y FINANCIAL HISTORY" accent={T.amber} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+    <Cell label="5Y FINANCIAL HISTORY" accent={T.amber}>
+      <div style={{ padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button onClick={handleFetch} disabled={loading}
             style={{ ...btnSt, color: T.amber, border: `1px solid ${T.amber}`, padding: '3px 10px', fontSize: 10 }}>
             {loading ? '수집 중...' : '↻ FETCH HISTORY'}
@@ -719,9 +730,7 @@ function FinancialHistorySection({ stock, apiSettings, dartCorpMap, onSaveHistor
             </span>
           )}
           {!error && history.length === 0 && !loading && (
-            <span style={{ fontSize: 9, color: T.inkFaint }}>
-              {isKRX ? 'DART API 키 필요 (Settings)' : 'SEC EDGAR 자동 수집'}
-            </span>
+            <span style={{ fontSize: 9, color: T.inkFaint }}>{sourceHint}</span>
           )}
         </div>
         {history.length === 0 ? (
@@ -738,12 +747,12 @@ function FinancialHistorySection({ stock, apiSettings, dartCorpMap, onSaveHistor
 function OverviewPanel({ stock, apiSettings, dartCorpMap, onSaveHistory }) {
   const [activeDim, setActiveDim] = useState(null);
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', minHeight: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', overflowY: 'auto' }}>
       <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 8, flex: '0 0 auto' }}>
         <ScoreBreakdown scores={stock.scores} activeDim={activeDim} onDimClick={setActiveDim}/>
         <MetricsGrid metrics={stock.metrics} currency={stock.currency} activeDim={activeDim} refreshedAt={stock.refreshedAt}/>
       </div>
-      <div style={{ flex: 1, minHeight: 0 }}>
+      <div style={{ flex: '0 0 auto' }}>
         <FinancialHistorySection stock={stock} apiSettings={apiSettings} dartCorpMap={dartCorpMap} onSaveHistory={onSaveHistory}/>
       </div>
     </div>
