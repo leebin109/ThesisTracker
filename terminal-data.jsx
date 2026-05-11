@@ -1772,6 +1772,33 @@ async function fetchYahooChartOhlc(symbol, range, interval) {
   })).filter(c => Number.isFinite(c.close) && c.close > 0);
 }
 
+
+function buildYahooQuoteUrl(symbols) {
+  const q = 'symbols=' + symbols.join(',');
+  return isProxiedOrigin()
+    ? '/api/yahoo/quote?' + q
+    : 'https://query1.finance.yahoo.com/v7/finance/quote?' + q;
+}
+
+async function fetchMacroIndicators() {
+  try {
+    const symbols = ['^GSPC', 'KRW=X', '^TNX', '^VIX'];
+    const res = await fetch(buildYahooQuoteUrl(symbols));
+    if (!res.ok) return [];
+    const data = await res.json();
+    const resList = data?.quoteResponse?.result || [];
+    return resList.map(r => ({
+      symbol: r.symbol,
+      name: r.shortName || r.symbol,
+      price: r.regularMarketPrice,
+      change: r.regularMarketChange,
+      changePercent: r.regularMarketChangePercent
+    }));
+  } catch(e) {
+    return [];
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Expose to window
 // ═══════════════════════════════════════════════════════════════
@@ -1788,5 +1815,5 @@ Object.assign(window, {
   DEFAULT_SCORE, INDUSTRY_CFG,
   fetchOpenDartDisclosures, fetchSecFilings, fetchYahooNewsExperimental, fetchGoogleNewsRss,
   fetchAlertsForStock, makeAlertId, pruneAlerts, summarizeWithClaude,
-  fetchYahooChartOhlc, toYahooSymbol,
+  fetchYahooChartOhlc, toYahooSymbol, fetchMacroIndicators,
 });

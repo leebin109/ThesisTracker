@@ -528,6 +528,8 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
   const pad = { l: 50, r: 12, t: 10, b: 30 };
   const cw = Math.max(1, w - pad.l - pad.r);
   const ch = Math.max(1, height - pad.t - pad.b);
+  const pch = ch * 0.75;
+  const vch = ch * 0.2;
 
   const isCandle = chartType === 'candle' && ohlcData.length > 0;
   const valid = useMemo(
@@ -555,17 +557,41 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
     pointerEvents: 'none', zIndex: 10, whiteSpace: 'nowrap',
   };
 
-  /* ── CANDLE ── */
+  const calcMA = (period, source) => source.map((_, i) => {
+    if (i < period - 1) return null;
+    let sum = 0;
+    for (let j = 0; j < period; j++) sum += source[i - j].close || source[i - j];
+    return sum / period;
+  });
+
+  const sourceData = isCandle ? valid : data;
+  const ma20 = useMemo(() => calcMA(20, sourceData), [sourceData]);
+  const ma60 = useMemo(() => calcMA(60, sourceData), [sourceData]);
+  const ma120 = useMemo(() => calcMA(120, sourceData), [sourceData]);
+
+  const drawMA = (maData, yp, xp, color) => {
+    const pts = maData.map((v, i) => v !== null ? `${xp(i).toFixed(2)},${yp(v).toFixed(2)}` : null).filter(Boolean);
+    if (pts.length === 0) return null;
+    const d = 'M ' + pts.join(' L ');
+    return <path d={d} fill="none" stroke={color} strokeWidth="1" opacity="0.8" />;
+  };
+
   if (isCandle) {
     if (!valid.length) return <div ref={ref} style={{ width: '100%', height: '100%' }} />;
     const allLo = valid.map(c => c.low), allHi = valid.map(c => c.high);
     const mn = Math.min(...allLo), mx = Math.max(...allHi);
     const rng = mx - mn || 1;
     const top = mx + rng * 0.05, bot = mn - rng * 0.05;
-    const yp = v => pad.t + ((top - v) / (top - bot)) * ch;
+    
+    const maxVol = Math.max(...valid.map(v => v.volume || 0)) || 1;
+    
+    const yp = v => pad.t + ((top - v) / (top - bot)) * pch;
+    const vp = v => pad.t + ch - (v / maxVol) * vch;
+    
     const n = valid.length;
     const cWid = Math.max(2, Math.floor(cw / n) - 1);
     const xp = i => pad.l + ((i + 0.5) / n) * cw;
+
     const ticks = Array.from({ length: 5 }, (_, i) => top - ((top - bot) * i) / 4);
 
     const onMove = e => {
@@ -593,6 +619,21 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
                 </g>
               );
             })}
+            
+            {valid.map((c, i) => {
+              const x = xp(i);
+              const volY = vp(c.volume || 0);
+              const green = c.close >= c.open;
+              const color = green ? T.green : T.red;
+              return (
+                <rect key={'v'+i} x={x - cWid / 2} y={volY} width={cWid} height={(pad.t + ch) - volY} fill={color} opacity="0.3" />
+              );
+            })}
+            
+            {drawMA(ma20, yp, xp, T.amber)}
+            {drawMA(ma60, yp, xp, T.cyan)}
+            {drawMA(ma120, yp, xp, T.magenta)}
+            
             {valid.map((c, i) => {
               const x = xp(i);
               const openY = yp(c.open), closeY = yp(c.close);
@@ -626,26 +667,34 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
             <div style={{ color: T.inkFaint, marginBottom: 2 }}>{hc.date}</div>
             <div>O <span style={{ color: T.ink }}>{yLabel(hc.open)}</span>&nbsp;&nbsp;H <span style={{ color: T.green }}>{yLabel(hc.high)}</span></div>
             <div>L <span style={{ color: T.red }}>{yLabel(hc.low)}</span>&nbsp;&nbsp;C <span style={{ color: T.ink, fontWeight: 700 }}>{yLabel(hc.close)}</span></div>
+            <div style={{ marginTop: 3, borderTop: `1px solid ${T.borderSoft}`, paddingTop: 3 }}>
+               <span style={{ color: T.amber }}>MA20: {ma20[hoverIdx] ? ma20[hoverIdx].toFixed(2) : '-'}</span><br/>
+               <span style={{ color: T.cyan }}>MA60: {ma60[hoverIdx] ? ma60[hoverIdx].toFixed(2) : '-'}</span><br/>
+               <span style={{ color: T.magenta }}>MA120: {ma120[hoverIdx] ? ma120[hoverIdx].toFixed(2) : '-'}</span>
+            </div>
           </div>
         )}
       </div>
     );
   }
 
-  /* ── LINE ── */
+  /* LINE CHART */
   if (!data.length) return <div ref={ref} style={{ width: '100%', height: '100%' }} />;
   const mn = Math.min(...data), mx = Math.max(...data);
   const rng = mx - mn || 1;
   const top = mx + rng * 0.1, bot = mn - rng * 0.1;
+  const yp = v => pad.t + ((top - v) / (top - bot)) * pch;
+  const xp = i => pad.l + (i / Math.max(1, data.length - 1)) * cw;
+  
   const ticks = Array.from({ length: 5 }, (_, i) => top - ((top - bot) * i) / 4);
-  const pts = data.map((v, i) => [
-    pad.l + (i / Math.max(1, data.length - 1)) * cw,
-    pad.t + ((top - v) / (top - bot)) * ch,
-  ]);
+  const pts = data.map((v, i) => [xp(i), yp(v)]);
   const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(' ');
   const area = pts.length ? `${path} L ${pad.l + cw} ${pad.t + ch} L ${pad.l} ${pad.t + ch} Z` : '';
   const [lx, ly] = pts[pts.length - 1] || [0, 0];
   const dateSrc = ohlcData.length > 0 ? ohlcData : [];
+
+  const maxVol = Math.max(...dateSrc.map(v => v.volume || 0)) || 1;
+  const vp = v => pad.t + ch - (v / maxVol) * vch;
 
   const onMove = e => {
     if (!ref.current) return;
@@ -672,7 +721,7 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
             </linearGradient>
           </defs>
           {ticks.map((v, i) => {
-            const y = pad.t + ((top - v) / (top - bot)) * ch;
+            const y = yp(v);
             return (
               <g key={i}>
                 <line x1={pad.l} x2={pad.l + cw} y1={y} y2={y} stroke={T.border} strokeWidth="0.6" strokeDasharray="2 3" opacity="0.7"/>
@@ -680,298 +729,63 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
               </g>
             );
           })}
+          
+          {dateSrc.map((c, i) => {
+            const x = xp(i);
+            const volY = vp(c.volume || 0);
+            const green = c.close >= c.open;
+            const color = green ? T.green : T.red;
+            const cWid = Math.max(2, Math.floor(cw / data.length) - 1);
+            return (
+              <rect key={'v'+i} x={x - cWid / 2} y={volY} width={cWid} height={(pad.t + ch) - volY} fill={color} opacity="0.3" />
+            );
+          })}
+
           <path d={area} fill="url(#chartFill)"/>
           <path d={path} fill="none" stroke={accent} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round"
             style={{ filter: `drop-shadow(0 0 3px ${accent}aa)` }}/>
+            
+          {drawMA(ma20, yp, xp, T.amber)}
+          {drawMA(ma60, yp, xp, T.cyan)}
+          {drawMA(ma120, yp, xp, T.magenta)}
+
           {!hPt && pts.length > 0 && (
             <g>
               <circle cx={lx} cy={ly} r="3" fill={accent}/>
-              <line x1={pad.l} x2={pad.l + cw} y1={ly} y2={ly} stroke={accent} strokeWidth="0.6" strokeDasharray="3 3" opacity="0.5"/>
+              <circle cx={lx} cy={ly} r="9" fill={accent} opacity="0.2">
+                <animate attributeName="r" values="9;14;9" dur="2s" repeatCount="indefinite"/>
+              </circle>
             </g>
           )}
-          {xTickIdxs(dateSrc.length > 0 ? dateSrc.length : data.length).map(i => {
-            const x = pad.l + (i / Math.max(1, (dateSrc.length > 0 ? dateSrc.length : data.length) - 1)) * cw;
-            return (
-              <text key={i} x={x} y={pad.t + ch + 16} textAnchor="middle" fontSize="8.5" fill={T.inkFaint} fontFamily={T.font}>
-                {dateSrc[i] ? fmtDate(dateSrc[i].date) : String(i)}
-              </text>
-            );
-          })}
+          {xTickIdxs(data.length).map(i => (
+            <text key={i} x={xp(i)} y={pad.t + ch + 16} textAnchor="middle" fontSize="8.5" fill={T.inkFaint} fontFamily={T.font}>
+              {fmtDate(dateSrc[i]?.date)}
+            </text>
+          ))}
           {hPt && (
             <g>
               <line x1={hPt[0]} x2={hPt[0]} y1={pad.t} y2={pad.t + ch} stroke={T.inkFaint} strokeWidth="0.8" strokeDasharray="2 2" opacity="0.5"/>
-              <circle cx={hPt[0]} cy={hPt[1]} r="3.5" fill={accent} style={{ filter: `drop-shadow(0 0 4px ${accent})` }}/>
+              <circle cx={hPt[0]} cy={hPt[1]} r="4" fill={T.surface} stroke={accent} strokeWidth="2"/>
             </g>
           )}
         </svg>
       )}
       {hPt && (
         <div style={{ ...tipStyle, left: tipLeft }}>
-          {hDate && <div style={{ color: T.inkFaint, marginBottom: 2 }}>{hDate}</div>}
-          <div style={{ fontWeight: 700, color: T.ink }}>{yLabel(hPrice)}</div>
+          <div style={{ color: T.inkFaint, marginBottom: 2 }}>{hDate || 'Point '+hi}</div>
+          <div style={{ color: accent, fontWeight: 700 }}>{yLabel(hPrice)}</div>
+          <div style={{ marginTop: 3, borderTop: `1px solid ${T.borderSoft}`, paddingTop: 3 }}>
+             <span style={{ color: T.amber }}>MA20: {ma20[hi] ? ma20[hi].toFixed(2) : '-'}</span><br/>
+             <span style={{ color: T.cyan }}>MA60: {ma60[hi] ? ma60[hi].toFixed(2) : '-'}</span><br/>
+             <span style={{ color: T.magenta }}>MA120: {ma120[hi] ? ma120[hi].toFixed(2) : '-'}</span>
+          </div>
         </div>
       )}
     </div>
   );
 };
 
-// ── Top bar components ────────────────────────────────────────────────────────
-const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, providerStatus, alertCount = 0, onAlerts }) => {
-  const [val, setVal] = useState(symbol);
-  useEffect(() => { setVal(symbol); }, [symbol]);
-  const statusColor = providerStatus?.kind === 'ok' ? T.green : providerStatus?.kind === 'warn' ? T.yellow : providerStatus?.kind === 'error' ? T.red : T.inkFaint;
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 12, height: 34, padding: '0 12px 0 18px',
-      background: T.surface, borderBottom: `1px solid ${T.border}`,
-      whiteSpace: 'nowrap', overflow: 'hidden',
-    }}>
-      {/* Logo */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 auto' }}>
-        <div style={{ width: 18, height: 18, background: T.amber, display: 'grid', placeItems: 'center',
-          fontSize: 11, fontWeight: 800, color: '#000', boxShadow: `0 0 10px ${T.amber}88` }}>T</div>
-        <span style={{ fontWeight: 700, color: T.amber, fontSize: 12, letterSpacing: '0.14em' }}>THESIS//TRACK</span>
-      </div>
 
-      {/* Symbol input */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '0 0 auto' }}>
-        <span style={{ color: T.amber, fontWeight: 700 }}>&gt;</span>
-        <input
-          value={val}
-          onChange={(e) => setVal(e.target.value.toUpperCase())}
-          onKeyDown={(e) => { if (e.key === 'Enter') onSymbol?.(val); }}
-          style={{ background: 'transparent', border: 0, outline: 0, color: T.amber,
-            fontFamily: T.font, fontSize: 13, fontWeight: 600, width: 100, padding: 0, letterSpacing: '0.05em' }} />
-      </div>
-
-      {/* Search box */}
-      <button
-        onClick={onSearch}
-        style={{
-          flex: '0 1 640px', minWidth: 200,
-          height: 22, background: T.bg, border: `1px solid ${T.border}`,
-          display: 'flex', alignItems: 'center', gap: 8, padding: '0 10px',
-          cursor: 'pointer', textAlign: 'left',
-        }}>
-        <span style={{ fontSize: 12, color: T.inkFaint, lineHeight: 1 }}>⌕</span>
-        <span style={{ fontSize: 10.5, color: T.inkFaint, letterSpacing: '0.03em', fontFamily: T.font }}>
-          종목 검색 &nbsp;
-          <span style={{ opacity: 0.55 }}>— <kbd style={{ ...kbdStyle, fontSize: 9 }}>/</kbd> 를 누르면 바로 활성화</span>
-        </span>
-      </button>
-
-      <div style={{ flex: '1 1 auto' }}/>
-
-      {/* Right side status */}
-      {providerStatus && (
-        <span title={providerStatus.text} style={{ color: statusColor, fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', flex: '0 0 auto' }}>
-          ● {providerStatus.label || 'DATA'}
-        </span>
-      )}
-      {onAlerts && (
-        <button
-          onClick={onAlerts}
-          title={alertCount > 0 ? `새 알림 ${alertCount}건` : '알림 센터 (F6)'}
-          style={{
-            background: alertCount > 0 ? T.amber : 'transparent',
-            border: `1px solid ${alertCount > 0 ? T.amber : T.border}`,
-            color: alertCount > 0 ? '#000' : T.inkDim,
-            fontFamily: T.font, fontSize: 10, fontWeight: alertCount > 0 ? 800 : 500,
-            cursor: 'pointer', padding: '3px 10px', letterSpacing: '0.08em',
-            display: 'flex', alignItems: 'center', gap: 6, flex: '0 0 auto',
-          }}>
-          <span>ALERT</span>
-          {alertCount > 0 && (
-            <span style={{
-              background: '#000', color: T.amber, borderRadius: 8, padding: '1px 6px',
-              fontSize: 9, fontWeight: 800, minWidth: 16, textAlign: 'center',
-            }}>{alertCount > 99 ? '99+' : alertCount}</span>
-          )}
-        </button>
-      )}
-      {onSettings && (
-        <button onClick={onSettings} style={{ background: 'transparent', border: `1px solid ${T.border}`,
-          color: T.inkDim, fontFamily: T.font, fontSize: 10, cursor: 'pointer',
-          padding: '3px 10px', letterSpacing: '0.08em' }}>
-          API
-        </button>
-      )}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10.5, color: T.inkFaint, flex: '0 0 auto' }}>
-        {refreshing
-          ? <span style={{ color: T.amber }}>⟳</span>
-          : <Pulse />}
-        <span>{refreshing ? 'FETCHING' : 'LIVE'} · {new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} KST</span>
-      </div>
-      <style>{`
-        @keyframes tt-pulse { 0% { transform: scale(1); opacity: 0.7; } 100% { transform: scale(2.5); opacity: 0; } }
-      `}</style>
-    </div>
-  );
-};
-
-const kbdStyle = {
-  display: 'inline-block', padding: '1px 5px', background: T.surface2,
-  border: `1px solid ${T.border}`, borderRadius: 2, fontSize: 10, fontFamily: T.font, color: T.inkDim, margin: '0 2px',
-};
-
-const Pulse = () => (
-  <span style={{ position: 'relative', display: 'inline-block', width: 7, height: 7, flex: '0 0 auto' }}>
-    <span style={{ position: 'absolute', inset: 0, background: T.green, borderRadius: '50%', animation: 'tt-pulse 1.8s ease-out infinite' }}/>
-    <span style={{ position: 'absolute', inset: 1, background: T.green, borderRadius: '50%' }}/>
-  </span>
-);
-
-const TickerRail = ({ tickers }) => (
-  <div style={{ height: 26, display: 'flex', alignItems: 'center', gap: 0,
-    background: T.bg, borderBottom: `1px solid ${T.border}`, overflow: 'hidden' }}>
-    {tickers.map((t, i) => (
-      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6,
-        padding: '0 14px', borderRight: `1px solid ${T.borderSoft}`,
-        fontSize: 10.5, fontVariantNumeric: 'tabular-nums' }}>
-        <span style={{ color: T.inkDim, fontWeight: 600 }}>{t.symbol}</span>
-        <span style={{ color: T.ink }}>{t.val}</span>
-        <span style={{ color: colorForChange(t.change), fontWeight: 600 }}>
-          {sign(t.change)}{Number(t.change).toFixed(2)}%
-        </span>
-      </div>
-    ))}
-  </div>
-);
-
-// ── Hero strip ───────────────────────────────────────────────────────────────
-const HeroStrip = ({ stock, onRefresh, refreshing }) => {
-  const price = Number(stock.price) || 0;
-  const prev = Number(stock.prevClose) || price;
-  const change = price - prev;
-  const changePct = prev ? (change / prev) * 100 : 0;
-  const target = Number(stock.target) || 0;
-  const upside = price ? ((target - price) / price) * 100 : 0;
-  const daysLeft = window.getDaysLeft ? window.getDaysLeft(stock.review?.next) : null;
-  const heroName = stock.name || stock.symbol;
-  const heroNameSize = heroName.length > 34 ? 14 : heroName.length > 24 ? 16 : heroName.length > 16 ? 18 : 20;
-  return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: 'auto minmax(260px, 1.4fr) 1fr 1fr 1.2fr 0.9fr 1fr',
-      gap: 0, padding: '10px 16px',
-      background: `linear-gradient(180deg, ${T.surface} 0%, ${T.bg} 100%)`,
-      borderBottom: `1px solid ${T.border}`, alignItems: 'center',
-    }}>
-      <ScoreRing score={stock.scores?.overall ?? 0} size={58} accent={T.amber}/>
-      <div style={{ paddingLeft: 14, paddingRight: 14, borderRight: `1px solid ${T.borderSoft}`, minWidth: 0, overflow: 'hidden' }}>
-        <div style={{ marginBottom: 4, minWidth: 0, overflow: 'hidden' }}>
-          <span style={{ fontSize: heroNameSize, fontWeight: 800, color: T.ink, letterSpacing: '0.01em',
-            lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-            display: 'block' }}
-            title={heroName}>
-            {heroName}
-          </span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, color: T.inkDim, fontWeight: 600, letterSpacing: '0.04em', minWidth: 0, overflow: 'hidden' }}>
-          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
-            {stock.symbol} · {stock.market} · {stock.currency}
-          </span>
-          <span style={{ fontSize: 13, flex: '0 0 auto' }}>{stock.flag || ''}</span>
-          <span style={{ fontSize: 9, padding: '2px 6px', border: `1px solid ${T.amber}`,
-            color: T.amber, fontWeight: 700, letterSpacing: '0.1em', flex: '0 0 auto' }}>
-            {(stock.recommendation || 'Watch').toUpperCase()}
-          </span>
-          {onRefresh && (
-            <button onClick={() => onRefresh(stock.id)} disabled={refreshing}
-              style={{ marginLeft: 4, padding: '2px 8px', fontSize: 9, fontFamily: T.font,
-                background: 'transparent', border: `1px solid ${T.border}`,
-                color: refreshing ? T.inkFaint : T.cyan, cursor: refreshing ? 'default' : 'pointer',
-                letterSpacing: '0.08em', flex: '0 0 auto' }}>
-              {refreshing ? '...' : '↻ REFRESH'}
-            </button>
-          )}
-        </div>
-      </div>
-      <div style={{ paddingLeft: 18, paddingRight: 18, borderRight: `1px solid ${T.borderSoft}` }}>
-        <Stat
-          label="Last Price"
-          value={stock.currency === 'KRW' ? `₩${fmtPx(price, 'KRW')}` : `$${fmtPx(price, stock.currency)}`}
-          sub={<span style={{ color: colorForChange(change) }}>
-            {sign(change)}{Number.isFinite(change) ? change.toFixed(2) : '–'} ({sign(changePct)}{changePct.toFixed(2)}%)
-          </span>}
-        />
-      </div>
-      <div style={{ paddingLeft: 18, paddingRight: 18, borderRight: `1px solid ${T.borderSoft}` }}>
-        <Stat
-          label="Target · Upside"
-          value={stock.currency === 'KRW' ? `₩${fmtPx(target, 'KRW')}` : `$${fmtPx(target, stock.currency)}`}
-          sub={<span style={{ color: colorForChange(upside) }}>{sign(upside)}{upside.toFixed(2)}%</span>}
-        />
-      </div>
-      <div style={{ paddingLeft: 18, paddingRight: 18, borderRight: `1px solid ${T.borderSoft}` }}>
-        <div style={{ fontSize: 9.5, color: T.inkFaint, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>
-          Bull · Base · Bear
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontVariantNumeric: 'tabular-nums' }}>
-          <span style={{ color: T.green, fontSize: 14, fontWeight: 700 }}>{fmtPx(stock.valuation?.bull?.price ?? 0, stock.currency)}</span>
-          <span style={{ color: T.inkFaint }}>·</span>
-          <span style={{ color: T.amber, fontSize: 14, fontWeight: 700 }}>{fmtPx(stock.valuation?.base?.price ?? 0, stock.currency)}</span>
-          <span style={{ color: T.inkFaint }}>·</span>
-          <span style={{ color: T.red, fontSize: 14, fontWeight: 700 }}>{fmtPx(stock.valuation?.bear?.price ?? 0, stock.currency)}</span>
-        </div>
-        <div style={{ fontSize: 10, color: T.inkDim, marginTop: 4 }}>
-          PER {stock.valuation?.base?.multiple ?? '?'}x · base
-        </div>
-      </div>
-      <div style={{ paddingLeft: 18, paddingRight: 18, borderRight: `1px solid ${T.borderSoft}` }}>
-        <Stat
-          label="Next Review"
-          value={daysLeft !== null
-            ? <span style={{ color: daysLeft < 0 ? T.red : T.cyan }}>D{daysLeft >= 0 ? '-' : '+'}{Math.abs(daysLeft)}</span>
-            : <span style={{ color: T.inkFaint }}>–</span>}
-          sub={stock.review?.next || '미설정'}
-        />
-      </div>
-      <div style={{ paddingLeft: 18 }}>
-        <div style={{ fontSize: 9.5, color: T.inkFaint, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>
-          Score Trend · 12M
-        </div>
-        <Spark data={stock.scoreHistory || []} width={140} height={26} color={T.amber}/>
-        <div style={{ fontSize: 10, color: T.inkDim, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>
-          {stock.scoreHistory?.length
-            ? `${stock.scoreHistory[0]} → ${stock.scoreHistory[stock.scoreHistory.length-1]}`
-            : '–'}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const PitchHeadline = ({ text, onEdit }) => (
-  <div style={{
-    padding: '10px 20px', background: T.bg, borderBottom: `1px solid ${T.border}`,
-    display: 'flex', alignItems: 'center', gap: 12, minWidth: 0,
-  }}>
-    <div style={{ fontSize: 9, color: T.amber, letterSpacing: '0.18em', fontWeight: 700,
-      writingMode: 'vertical-rl', transform: 'rotate(180deg)', flex: '0 0 auto' }}>PITCH</div>
-    <div style={{ width: 2, alignSelf: 'stretch', background: T.amber, boxShadow: `0 0 8px ${T.amber}88`, flex: '0 0 auto' }}/>
-    <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 16, fontWeight: 500, color: T.ink,
-      lineHeight: 1.35, letterSpacing: '-0.01em', flex: 1, minWidth: 0,
-      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-      title={text}>
-      "{text || '—'}"
-    </div>
-    {onEdit && (
-      <button onClick={onEdit} style={{ background: 'transparent', border: `1px solid ${T.border}`,
-        color: T.inkDim, fontFamily: T.font, fontSize: 9, cursor: 'pointer',
-        padding: '4px 10px', letterSpacing: '0.1em', whiteSpace: 'nowrap' }}>
-        EDIT PITCH
-      </button>
-    )}
-  </div>
-);
-
-window.T = T;
-window.Cell = Cell;
-window.Stat = Stat;
-window.ScoreRing = ScoreRing;
-window.ScoreBar = ScoreBar;
-window.Spark = Spark;
 window.PriceChart = PriceChart;
 window.CommandBar = CommandBar;
 window.TickerRail = TickerRail;
@@ -2761,6 +2575,33 @@ async function fetchYahooChartOhlc(symbol, range, interval) {
   })).filter(c => Number.isFinite(c.close) && c.close > 0);
 }
 
+
+function buildYahooQuoteUrl(symbols) {
+  const q = 'symbols=' + symbols.join(',');
+  return isProxiedOrigin()
+    ? '/api/yahoo/quote?' + q
+    : 'https://query1.finance.yahoo.com/v7/finance/quote?' + q;
+}
+
+async function fetchMacroIndicators() {
+  try {
+    const symbols = ['^GSPC', 'KRW=X', '^TNX', '^VIX'];
+    const res = await fetch(buildYahooQuoteUrl(symbols));
+    if (!res.ok) return [];
+    const data = await res.json();
+    const resList = data?.quoteResponse?.result || [];
+    return resList.map(r => ({
+      symbol: r.symbol,
+      name: r.shortName || r.symbol,
+      price: r.regularMarketPrice,
+      change: r.regularMarketChange,
+      changePercent: r.regularMarketChangePercent
+    }));
+  } catch(e) {
+    return [];
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Expose to window
 // ═══════════════════════════════════════════════════════════════
@@ -2777,7 +2618,7 @@ Object.assign(window, {
   DEFAULT_SCORE, INDUSTRY_CFG,
   fetchOpenDartDisclosures, fetchSecFilings, fetchYahooNewsExperimental, fetchGoogleNewsRss,
   fetchAlertsForStock, makeAlertId, pruneAlerts, summarizeWithClaude,
-  fetchYahooChartOhlc, toYahooSymbol,
+  fetchYahooChartOhlc, toYahooSymbol, fetchMacroIndicators,
 });
   })();
   </script>
@@ -3375,25 +3216,37 @@ function ChartPanel({ stock, onRefresh, refreshing, fetchStatus, period: periodP
 }
 
 // ─── Pitch panel ─────────────────────────────────────────────────────────────
+function MarkdownText({ text }) {
+  if (typeof text !== 'string') return null;
+  const html = text
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--amber, #fca5a5)">$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:underline;">$1</a>')
+    .replace(/\n/g, '<br/>');
+  return <span dangerouslySetInnerHTML={{ __html: html }} />;
+}
 function PitchPanel({ stock, onEditPitch, onCaptureJournal }) {
   return (
     <Cell label="INVESTMENT PITCH" accent={T.amber} style={{ height: '100%' }}>
       <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto' }}>
         <div>
           <div style={{ fontSize: 9.5, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 6 }}>KEY QUESTION</div>
-          <div style={{ fontSize: 12.5, color: T.cyan, lineHeight: 1.55 }}>{stock.keyQuestion || '–'}</div>
+          <div style={{ fontSize: 12.5, color: T.cyan, lineHeight: 1.55 }}>
+            {stock.keyQuestion ? <MarkdownText text={stock.keyQuestion} /> : '–'}
+          </div>
         </div>
 
         <TwoColumn label1="THESIS" label2="CATALYSTS" col1={
           <ul style={{ margin: 0, padding: '0 0 0 14px', display: 'flex', flexDirection: 'column', gap: 5 }}>
             {(stock.thesis || []).map((t, i) => (
-              <li key={i} style={{ fontSize: 11.5, color: T.ink, lineHeight: 1.5 }}>{t}</li>
+              <li key={i} style={{ fontSize: 11.5, color: T.ink, lineHeight: 1.5 }}><MarkdownText text={t} /></li>
             ))}
           </ul>
         } col2={
           <ul style={{ margin: 0, padding: '0 0 0 14px', display: 'flex', flexDirection: 'column', gap: 5 }}>
             {(stock.catalysts || []).map((c, i) => (
-              <li key={i} style={{ fontSize: 11.5, color: T.green, lineHeight: 1.5 }}>{c}</li>
+              <li key={i} style={{ fontSize: 11.5, color: T.green, lineHeight: 1.5 }}><MarkdownText text={c} /></li>
             ))}
           </ul>
         }/>
@@ -3401,17 +3254,19 @@ function PitchPanel({ stock, onEditPitch, onCaptureJournal }) {
         <TwoColumn label1="RISKS" label2="VARIANT VIEW" col1={
           <ul style={{ margin: 0, padding: '0 0 0 14px', display: 'flex', flexDirection: 'column', gap: 5 }}>
             {(stock.risks || []).map((r, i) => (
-              <li key={i} style={{ fontSize: 11.5, color: T.red, lineHeight: 1.5 }}>{r}</li>
+              <li key={i} style={{ fontSize: 11.5, color: T.red, lineHeight: 1.5 }}><MarkdownText text={r} /></li>
             ))}
           </ul>
         } col2={
-          <div style={{ fontSize: 11.5, color: T.yellow, lineHeight: 1.55 }}>{stock.variantView || '–'}</div>
+          <div style={{ fontSize: 11.5, color: T.yellow, lineHeight: 1.55 }}>
+            {stock.variantView ? <MarkdownText text={stock.variantView} /> : '–'}
+          </div>
         }/>
 
         <div>
           <div style={{ fontSize: 9.5, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 6 }}>CHANGE MIND IF</div>
           <div style={{ fontSize: 11.5, color: T.ink, lineHeight: 1.55, borderLeft: `2px solid ${T.red}`, paddingLeft: 10 }}>
-            {stock.changeMind || '–'}
+            {stock.changeMind ? <MarkdownText text={stock.changeMind} /> : '–'}
           </div>
         </div>
 
@@ -5167,6 +5022,26 @@ function App({ initialData }) {
     text: 'dart-corp-codes.json not checked',
   });
   const [marketTickers, setMarketTickers] = useState(DEFAULT_MARKET_TICKERS);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchMacros = async () => {
+      try {
+        const macros = await fetchMacroIndicators();
+        if (cancelled || !macros || macros.length === 0) return;
+        setMarketTickers(macros.map(m => {
+          return {
+            symbol: m.name.replace('USD/KRW', 'USDKRW').replace('S&P 500', 'S&P'),
+            val: m.price ? m.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '-',
+            change: m.changePercent ? m.changePercent : 0,
+          };
+        }));
+      } catch (e) { }
+    };
+    fetchMacros();
+    const iv = setInterval(fetchMacros, 60000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, []);
   const [alerts, setAlerts]                 = useState(initial.alerts);
   const [alertSettings, setAlertSettings]   = useState(initial.alertSettings);
   const [alertErrors, setAlertErrors]       = useState([]);

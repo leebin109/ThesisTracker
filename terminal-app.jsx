@@ -590,25 +590,37 @@ function ChartPanel({ stock, onRefresh, refreshing, fetchStatus, period: periodP
 }
 
 // ─── Pitch panel ─────────────────────────────────────────────────────────────
+function MarkdownText({ text }) {
+  if (typeof text !== 'string') return null;
+  const html = text
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--amber, #fca5a5)">$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:underline;">$1</a>')
+    .replace(/\n/g, '<br/>');
+  return <span dangerouslySetInnerHTML={{ __html: html }} />;
+}
 function PitchPanel({ stock, onEditPitch, onCaptureJournal }) {
   return (
     <Cell label="INVESTMENT PITCH" accent={T.amber} style={{ height: '100%' }}>
       <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto' }}>
         <div>
           <div style={{ fontSize: 9.5, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 6 }}>KEY QUESTION</div>
-          <div style={{ fontSize: 12.5, color: T.cyan, lineHeight: 1.55 }}>{stock.keyQuestion || '–'}</div>
+          <div style={{ fontSize: 12.5, color: T.cyan, lineHeight: 1.55 }}>
+            {stock.keyQuestion ? <MarkdownText text={stock.keyQuestion} /> : '–'}
+          </div>
         </div>
 
         <TwoColumn label1="THESIS" label2="CATALYSTS" col1={
           <ul style={{ margin: 0, padding: '0 0 0 14px', display: 'flex', flexDirection: 'column', gap: 5 }}>
             {(stock.thesis || []).map((t, i) => (
-              <li key={i} style={{ fontSize: 11.5, color: T.ink, lineHeight: 1.5 }}>{t}</li>
+              <li key={i} style={{ fontSize: 11.5, color: T.ink, lineHeight: 1.5 }}><MarkdownText text={t} /></li>
             ))}
           </ul>
         } col2={
           <ul style={{ margin: 0, padding: '0 0 0 14px', display: 'flex', flexDirection: 'column', gap: 5 }}>
             {(stock.catalysts || []).map((c, i) => (
-              <li key={i} style={{ fontSize: 11.5, color: T.green, lineHeight: 1.5 }}>{c}</li>
+              <li key={i} style={{ fontSize: 11.5, color: T.green, lineHeight: 1.5 }}><MarkdownText text={c} /></li>
             ))}
           </ul>
         }/>
@@ -616,17 +628,19 @@ function PitchPanel({ stock, onEditPitch, onCaptureJournal }) {
         <TwoColumn label1="RISKS" label2="VARIANT VIEW" col1={
           <ul style={{ margin: 0, padding: '0 0 0 14px', display: 'flex', flexDirection: 'column', gap: 5 }}>
             {(stock.risks || []).map((r, i) => (
-              <li key={i} style={{ fontSize: 11.5, color: T.red, lineHeight: 1.5 }}>{r}</li>
+              <li key={i} style={{ fontSize: 11.5, color: T.red, lineHeight: 1.5 }}><MarkdownText text={r} /></li>
             ))}
           </ul>
         } col2={
-          <div style={{ fontSize: 11.5, color: T.yellow, lineHeight: 1.55 }}>{stock.variantView || '–'}</div>
+          <div style={{ fontSize: 11.5, color: T.yellow, lineHeight: 1.55 }}>
+            {stock.variantView ? <MarkdownText text={stock.variantView} /> : '–'}
+          </div>
         }/>
 
         <div>
           <div style={{ fontSize: 9.5, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 6 }}>CHANGE MIND IF</div>
           <div style={{ fontSize: 11.5, color: T.ink, lineHeight: 1.55, borderLeft: `2px solid ${T.red}`, paddingLeft: 10 }}>
-            {stock.changeMind || '–'}
+            {stock.changeMind ? <MarkdownText text={stock.changeMind} /> : '–'}
           </div>
         </div>
 
@@ -2382,6 +2396,26 @@ function App({ initialData }) {
     text: 'dart-corp-codes.json not checked',
   });
   const [marketTickers, setMarketTickers] = useState(DEFAULT_MARKET_TICKERS);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchMacros = async () => {
+      try {
+        const macros = await fetchMacroIndicators();
+        if (cancelled || !macros || macros.length === 0) return;
+        setMarketTickers(macros.map(m => {
+          return {
+            symbol: m.name.replace('USD/KRW', 'USDKRW').replace('S&P 500', 'S&P'),
+            val: m.price ? m.price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '-',
+            change: m.changePercent ? m.changePercent : 0,
+          };
+        }));
+      } catch (e) { }
+    };
+    fetchMacros();
+    const iv = setInterval(fetchMacros, 60000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, []);
   const [alerts, setAlerts]                 = useState(initial.alerts);
   const [alertSettings, setAlertSettings]   = useState(initial.alertSettings);
   const [alertErrors, setAlertErrors]       = useState([]);
