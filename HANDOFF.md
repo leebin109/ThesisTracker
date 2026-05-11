@@ -123,7 +123,7 @@ overall = zToScore(zComp)       ← 0~100 백분위
   - **레이아웃 버그**: ScoreBreakdown이 6줄+뱃지로 길면 5Y 섹션이 22px 헤더만 노출됨. `OverviewPanel`을 중첩 flex → 단일 `overflowY:auto` 스크롤 컨테이너로 변경.
 - **2026-05-11 (비US 종목 재무 지표 수정)**:
   - **원인**: Yahoo Finance `quoteSummary` v10의 `financialData` 모듈이 일본(TSE) 등 비US 종목에서 빈 객체를 반환. PER/PBR는 `quote`(v7) 객체에 별도 fallback이 있어 표시됐지만, ROE/OP Margin/FCF/D-E/CR/RevGrowth는 `financialData`에만 의존 → 전부 "–".
-  - **수정**: `fetchYahooQuoteSummary` 요청 모듈에 `incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory` 추가. `mapYahooPayload`에서 `financialData` 값이 NaN이면 재무제표에서 직접 계산하는 fallback 적용:
+  - **수정**: `mapYahooPayload`에서 `financialData` 값이 NaN이면 재무제표에서 직접 계산하는 fallback 적용:
     - ROE = 당기순이익 / 자기자본 × 100
     - OP Margin = 영업이익 / 매출 × 100
     - FCF Margin = (영업CF − CapEx) / 매출 × 100
@@ -131,6 +131,13 @@ overall = zToScore(zComp)       ← 0~100 백분위
     - Current Ratio = 유동자산 / 유동부채 × 100
     - Rev Growth = (금기 − 전기) / 전기 × 100
   - US 종목은 `financialData`가 정상 반환되므로 기존 경로 그대로 유지.
+- **2026-05-11 (Yahoo quoteSummary 400 오류 수정)**:
+  - **원인**: `fetchYahooQuoteSummary`에 6개 모듈을 한꺼번에 요청 → Yahoo Finance v10이 TSE/LSE 등 비US 종목에서 statement 모듈(`incomeStatementHistory` 등)을 지원하지 않으면 요청 전체를 **HTTP 400**으로 거부. 결과: summary 전체 null → Fetch History 클릭 시 "Yahoo quoteSummary HTTP 400" 에러 + 메인 지표도 전부 "–".
+  - **수정**: 모듈 요청을 두 함수로 분리:
+    - `fetchYahooQuoteSummary`: core 3개 모듈만 (`financialData, defaultKeyStatistics, summaryDetail`) — US/비US 모두 안정 지원
+    - `fetchYahooStatements` (신규): statement 3개 모듈만 (`incomeStatementHistory, balanceSheetHistory, cashflowStatementHistory`)
+  - 메인 데이터 fetch(`fetchStockData`)에서 두 함수를 `Promise.allSettled`로 병렬 실행 → 결과 merge. 어느 쪽이 실패해도 나머지는 정상 동작.
+  - `fetchYahooFinancialHistory`는 `fetchYahooStatements` 사용 (기존 `fetchYahooQuoteSummary` 호출 제거).
 - **2026-05-11 (F6 Alerts 품질 개선)**:
   - **Yahoo 뉴스 검색 쿼리 개선**: `fetchYahooNewsExperimental`이 ticker symbol(`005930.KS`, `MU`) 대신 `stock.name`(회사명)으로 Yahoo 검색 API를 호출. 종목과 무관한 광범위 기사 유입 차단.
   - **관련성 필터 (`isNewsRelevant`)**: 기사 제목에 회사명 키워드(3자↑, stop-word 제외) 또는 ticker 베이스가 포함되지 않으면 드롭. 국문/영문 회사명 모두 지원.
