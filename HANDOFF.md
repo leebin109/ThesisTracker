@@ -22,7 +22,7 @@ Bloomberg Terminal 스타일의 주식 투자 관리 웹 애플리케이션입�
 ## 3. 핵심 기능 및 패널 현황 (Panels)
 | 패널 | 이름 | 상태 | 주요 역할 |
 |---|---|---|---|
-| **F1** | Overview | ✅ 완료 | 퀀트 스코어링 Breakdown (Z-Score 5팩터 + Piotroski F-Score), 핵심 지표 요약 |
+| **F1** | Overview | ✅ 완료 | 퀀트 스코어링 Breakdown (Z-Score 5팩터 + Piotroski F-Score), 핵심 지표 요약, **5Y 재무 히스토리** |
 | **F2** | Pitch | ✅ 완료 | 투자 논리(Thesis), Pre-mortem(리스크), Bull/Base/Bear 가치평가 시나리오 |
 | **F3** | Valuation | ✅ 완료 | DCF/PER/PBR 가치평가 시나리오 시뮬레이터 |
 | **F4** | History | ✅ 완료 | Research Log 작성 (날짜, 메모, 링크 등) |
@@ -56,7 +56,70 @@ overall = zToScore(zComp)       ← 0~100 백분위
 - **Risk Guard 플래그 (8개)**: EPS성장 <−15%, FCF마진 <−5%, 부채비율 >250%, PER >60, PER≤0 & ROE<0, 유동성위기(CR<1 & D/E>150%), 매출급감(<−15%), 영업손실(OP<0)
 - **Alpha Vantage ROIC**: Alpha Vantage OVERVIEW API는 ROIC를 제공하지 않으므로 `roa` 키로 저장하고 ROIC는 채우지 않음. ROIC 누락 시 자동으로 Quality 평균 산출에서 제외됨.
 
-## 5. 변경 이력 (Recent Change Log)
+## 5. 5년 재무 히스토리 엔진 (Financial History)
+
+### stock.metricsHistory 구조
+`stock.metricsHistory` 배열에 연도별 레코드를 저장. `makeBlankStock`/`normalizeStockRecord`에 `metricsHistory: []`로 초기화.
+
+```js
+// 한 연도(FY)의 레코드
+{
+  fy:        2024,      // 회계연도
+  source:    'SEC',     // 'SEC' | 'DART'
+  revenue:   391035,    // 매출 (USD: Millions, KRW: 억원)
+  opIncome:  123216,    // 영업이익
+  netIncome:  93736,    // 당기순이익
+  ocf:       118254,    // 영업활동현금흐름
+  capex:      10959,    // 설비투자 (절대값)
+  fcf:       107295,    // OCF − CapEx
+  eps:          6.43,   // 주당순이익
+  opMargin:    31.5,    // 영업이익률 %
+  unit:       'M',      // 'M' (USD) | '억원' (KRW)
+  currency:   'USD',
+}
+```
+
+### 수집 함수 (terminal-data.jsx)
+| 함수 | 소스 | 대상 종목 | 방식 |
+|---|---|---|---|
+| `fetchSecFinancialHistory(stock)` | SEC EDGAR | 미국 (NASDAQ/NYSE) | `/companyfacts/CIK{}.json` XBRL → 10-K/20-F FY 필터, 최대 5개년 |
+| `fetchDartFinancialHistory(stock, apiSettings, dartCorpMap)` | OpenDART | 한국 (KRX) | `fnlttSinglAcntAll` 2회 병렬 호출 (year−1, year−3) → thstrm/frmtrm/bfefrmtrm 3개 컬럼 → 5개년 |
+
+**SEC XBRL 개념명 우선순위 (`SEC_CONCEPTS`)**
+- Revenue: `Revenues` → `RevenueFromContractWithCustomerExcludingAssessedTax` → `SalesRevenueNet`
+- OP: `OperatingIncomeLoss`
+- Net: `NetIncomeLoss` → `ProfitLoss`
+- OCF: `NetCashProvidedByUsedInOperatingActivities`
+- CapEx: `PaymentsToAcquirePropertyPlantAndEquipment` → `CapitalExpenditures`
+- EPS: `EarningsPerShareDiluted` → `EarningsPerShareBasic`
+
+**DART 계정명**: 기존 `findDartRow` 함수 재사용. KRW는 원 단위 → `÷1e8` 억원 변환.
+
+### F1 레이아웃 변경
+```
+┌──────────────────────────────────────────────┐
+│  ScoreBreakdown (260px)  │  KEY METRICS (1fr) │  ← flex: 0 0 auto
+├──────────────────────────────────────────────┤
+│  5Y FINANCIAL HISTORY  (flex: 1, 스크롤)      │  ← 신규
+│  [↻ FETCH HISTORY]  SEC · 5개 연도 FY20–FY24  │
+│  표: FY컬럼 × 지표행 + YoY% 색상코딩 + 미니바 │
+└──────────────────────────────────────────────┘
+```
+- `FinancialHistorySection` (로딩/에러 상태 관리) → `HistoryTable` (표 렌더링)
+- 최신 FY 컬럼에 amber 하이라이트, YoY 양수=green/음수=red
+- `handleSaveHistory(stockId, metricsHistory)` 콜백으로 App state 저장
+
+## 6. 변경 이력 (Recent Change Log)
+- **2026-05-11 (Month 3 — 5년 재무 히스토리)**:
+  - **fetchSecFinancialHistory**: SEC EDGAR `/companyfacts/` XBRL 파싱으로 미국 종목 10-K 5개년 자동 수집 (API 키 불필요).
+  - **fetchDartFinancialHistory**: DART `fnlttSinglAcntAll` 2회 병렬 호출로 한국 종목 5개년 수집 (DART API 키 필요).
+  - **HistoryTable**: Revenue/OP Income/FCF/OP Margin/EPS 5개 지표, FY 컬럼, YoY % 색상 코딩, 미니 바 배경.
+  - **F1 OverviewPanel 레이아웃 변경**: ScoreBreakdown+MetricsGrid 고정 상단 + FinancialHistorySection 스크롤 하단.
+  - **metricsHistory[] 필드 추가**: `makeBlankStock` / `normalizeStockRecord`에 신규 배열 필드 등록.
+- **2026-05-11 (버그픽스 3종)**:
+  - **TickerRail 전일비 오류**: `chartPreviousClose`(차트 시작 이전 종가) → `regularMarketPreviousClose`(실제 전일 종가)로 교체. KOSPI +18% 오표시 해결.
+  - **Last Price 변동값 포맷**: KRW/JPY 종목 변동액에 `fmtPx` 적용 → `-10,000` 형식 (기존 `-10000.00`).
+  - **DEFAULT_MARKET_TICKERS 초기값**: 2024년 고정값 → `'–'`로 교체, 실시간 fetch 전 오해 방지.
 - **2026-05-11 (Month 1~2 — IB-grade Risk + EQS Screener)**:
   - **Piotroski F-Score (7점)**: `computePiotroski()` 추가. ROE+, FCF+, OP>avg, D/E↓, CR>1, Rev+, EPS+ 7개 바이너리 신호 합산. F1 ScoreBreakdown 하단에 STRONG/NEUTRAL/WEAK 표시.
   - **Risk Guard 8개 확장**: 기존 5개 플래그 → 유동성 위기(CR<1 & D/E>150%), 매출 급감(<-15%), 영업손실 3개 추가. 플래그당 패널티 0.5→0.4 조정.
@@ -88,6 +151,17 @@ overall = zToScore(zComp)       ← 0~100 백분위
 - Piotroski F-Score (7점 간이 버전) — F1 ScoreBreakdown 표시
 - Risk Guard 5개 → 8개 확장 (유동성위기, 매출급감, 영업손실 추가)
 - F10 EQS Screener — 프리셋 4종 + 커스텀 8조건 필터
+
+### ✅ Month 3 (완료): 5-Year Financial History
+- **SEC EDGAR 자동 수집**: 미국 종목 `/companyfacts/` XBRL → 10-K 5개년 (API 키 불필요)
+- **DART 다년도 수집**: 한국 종목 `fnlttSinglAcntAll` 2회 호출 → 5개년 (DART 키 필요)
+- **F1 HistoryTable**: Revenue / OP Income / FCF / OP Margin / EPS, YoY % 색상 코딩, 미니 바
+- **stock.metricsHistory[]** 필드 신규 도입
+
+### 🚀 Month 4 (다음): DCF Mini Modeler
+- 8년 FCF 프로젝션 + WACC + Terminal Value 자동 계산
+- F3 Valuation 패널과 연동 (Bull/Base/Bear 시나리오별 DCF)
+- metricsHistory 5년 FCF 데이터를 기반 성장률 자동 제안
 
 ### 🚀 Phase 8: Automation & Notifications (외부 연동 및 자동화)
 현재 수동으로 확인해야 하는 데이터와 알림을 능동적으로 사용자에게 전달합니다.
