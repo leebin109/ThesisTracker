@@ -961,7 +961,7 @@ const HeroStrip = ({ stock, onRefresh, refreshing }) => {
           label="Last Price"
           value={stock.currency === 'KRW' ? `₩${fmtPx(price, 'KRW')}` : `$${fmtPx(price, stock.currency)}`}
           sub={<span style={{ color: colorForChange(change) }}>
-            {sign(change)}{Number.isFinite(change) ? change.toFixed(2) : '–'} ({sign(changePct)}{changePct.toFixed(2)}%)
+            {sign(change)}{Number.isFinite(change) ? fmtPx(Math.abs(change), stock.currency) : '–'} ({sign(changePct)}{changePct.toFixed(2)}%)
           </span>}
         />
       </div>
