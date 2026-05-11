@@ -3286,10 +3286,16 @@ function ScoreBreakdown({ scores, activeDim, onDimClick }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                   <span style={{ fontSize: 9.5, color: T.inkFaint, letterSpacing: '0.1em' }}>PIOTROSKI F</span>
                   <span
-                    onMouseEnter={() => {}} onMouseLeave={() => {}}
-                    title={SCORE_TOOLTIPS.piotroski}
-                    style={{ fontSize: 8.5, color: T.inkFaint, border: `1px solid ${T.border}`, borderRadius: '50%', width: 13, height: 13, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'default', flexShrink: 0 }}
+                    onMouseEnter={(e) => { e.stopPropagation(); setTip('piotroski'); }}
+                    onMouseLeave={() => setTip(null)}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ fontSize: 8.5, color: T.inkFaint, border: `1px solid ${T.border}`, borderRadius: '50%', width: 13, height: 13, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'default', flexShrink: 0, lineHeight: 1 }}
                   >?</span>
+                  {tip === 'piotroski' && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 99, background: T.surface, border: `1px solid ${T.border}`, padding: '8px 10px', fontSize: 9.5, color: T.inkDim, lineHeight: 1.7, whiteSpace: 'pre', minWidth: 220, marginTop: 4, pointerEvents: 'none' }}>
+                      {SCORE_TOOLTIPS.piotroski}
+                    </div>
+                  )}
                 </div>
                 <span style={{ fontSize: 10.5, fontWeight: 700, color: pioColor }}>
                   {pio}<span style={{ color: T.inkFaint, fontWeight: 400 }}>/7 · {pio >= 6 ? 'STRONG' : pio >= 4 ? 'NEUTRAL' : 'WEAK'}</span>
