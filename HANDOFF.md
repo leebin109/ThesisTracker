@@ -49,6 +49,7 @@ Bloomberg Terminal 스타일의 주식 투자 관리 웹 애플리케이션입�
   - **F5 CHART**: SVG 차트 렌더러를 개편하여 거래량(Volume) 바텀 오버레이 및 이동평균선(MA20, MA60, MA120) 실시간 계산 기능 추가.
   - **MACRO DASHBOARD**: 글로벌 시장 동향을 실시간 파악할 수 있도록 상단 TickerRail에 S&P500, USD/KRW, US10Y, VIX를 연동.
   - **BUGFIX**: Windows PowerShell 인코딩 문제로 인한 한글 깨짐 현상을 해결하기 위해, 빌드 스크립트를 Node.js 기반(`tools/build.js`)으로 전면 교체하여 완벽한 UTF-8 호환성 확보.
+  - **BUGFIX**: 컴포넌트 파일(`terminal-components.jsx`) 수정 과정에서 유실되었던 `CommandBar`, `HeroStrip`, `TickerRail` 등의 핵심 UI 컴포넌트들을 성공적으로 복구하여 터미널 앱의 `CommandBar is not defined` 로딩 에러(Syntax Error) 해결 완료.
 
 ## 6. 향후 과제 (Next Steps)
 - **외부 알림 연동**: Telegram / Discord Webhook 봇 연동 (F6 Alerts의 알림을 스마트폰으로 푸시).
