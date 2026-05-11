@@ -110,6 +110,16 @@ overall = zToScore(zComp)       ← 0~100 백분위
 - `handleSaveHistory(stockId, metricsHistory)` 콜백으로 App state 저장
 
 ## 6. 변경 이력 (Recent Change Log)
+- **2026-05-11 (비US 종목 재무 지표 수정)**:
+  - **원인**: Yahoo Finance `quoteSummary` v10의 `financialData` 모듈이 일본(TSE) 등 비US 종목에서 빈 객체를 반환. PER/PBR는 `quote`(v7) 객체에 별도 fallback이 있어 표시됐지만, ROE/OP Margin/FCF/D-E/CR/RevGrowth는 `financialData`에만 의존 → 전부 "–".
+  - **수정**: `fetchYahooQuoteSummary` 요청 모듈에 `incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory` 추가. `mapYahooPayload`에서 `financialData` 값이 NaN이면 재무제표에서 직접 계산하는 fallback 적용:
+    - ROE = 당기순이익 / 자기자본 × 100
+    - OP Margin = 영업이익 / 매출 × 100
+    - FCF Margin = (영업CF − CapEx) / 매출 × 100
+    - Debt/Eq = 총차입금 / 자기자본 × 100
+    - Current Ratio = 유동자산 / 유동부채 × 100
+    - Rev Growth = (금기 − 전기) / 전기 × 100
+  - US 종목은 `financialData`가 정상 반환되므로 기존 경로 그대로 유지.
 - **2026-05-11 (F6 Alerts 품질 개선)**:
   - **Yahoo 뉴스 검색 쿼리 개선**: `fetchYahooNewsExperimental`이 ticker symbol(`005930.KS`, `MU`) 대신 `stock.name`(회사명)으로 Yahoo 검색 API를 호출. 종목과 무관한 광범위 기사 유입 차단.
   - **관련성 필터 (`isNewsRelevant`)**: 기사 제목에 회사명 키워드(3자↑, stop-word 제외) 또는 ticker 베이스가 포함되지 않으면 드롭. 국문/영문 회사명 모두 지원.
