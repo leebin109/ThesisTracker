@@ -3890,14 +3890,14 @@ function PeersPanel({ stock, stocks, watchlistIds, onSelect, onSavePeers, onAddP
             )}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {allCandidates.map(id => {
+            {peerIds.map(id => {
               const s = stocks[id];
-              const on = selectedSet.has(id);
               return (
-                <div key={id} onClick={() => togglePeer(id)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', border: `1px solid ${on ? T.cyan : T.border}`, background: on ? `${T.cyan}18` : 'transparent', cursor: 'pointer', fontSize: 10 }}>
-                  <span style={{ color: on ? T.cyan : T.inkFaint, fontWeight: 700 }}>{s.symbol}</span>
+                <div key={id} onClick={() => togglePeer(id)} title="클릭하여 제거"
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', border: `1px solid ${T.cyan}`, background: `${T.cyan}18`, cursor: 'pointer', fontSize: 10 }}>
+                  <span style={{ color: T.cyan, fontWeight: 700 }}>{s.symbol}</span>
                   <span style={{ color: T.inkFaint, fontSize: 9 }}>{s.name}</span>
+                  <span style={{ color: T.cyan, marginLeft: 4, fontSize: 11 }}>×</span>
                 </div>
               );
             })}
