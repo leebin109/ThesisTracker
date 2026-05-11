@@ -57,8 +57,8 @@ const PANEL_DEFS = [
   { k: 'F6', label: 'ALERTS', short: 'ALRT' },
   { k: 'F7', label: 'PEERS', short: 'PEER' },
   { k: 'F8', label: 'JOURNAL', short: 'JRN' },
-  { k: 'F9', label: 'SETTINGS', short: 'DATA' },
-  { k: 'F10', label: 'SCREEN', short: 'SCR' },
+  { k: 'F9', label: 'SCREEN', short: 'SCR' },
+  { k: 'F10', label: 'SETTINGS', short: 'DATA' },
 ];
 
 const BACKUP_SCHEMA_VERSION = 2;
@@ -1914,7 +1914,7 @@ function SettingsDataPanel({
 function AlertsPanel({
   stocks, watchlistIds, alerts, alertSettings, alertErrors, alertStatus,
   dartCoverage, lastPolled,
-  onRefresh, onOpen, onLog, onDismiss, onSettingsChange,
+  onRefresh, onOpen, onLog, onDismiss, onMarkRead, onMarkAllRead, onSettingsChange,
 }) {
   const [filter, setFilter] = useState({ status: 'new', source: '', kind: '', stockId: '' });
   const setting = alertSettings || {};
@@ -1922,9 +1922,10 @@ function AlertsPanel({
   const setSrc = (k, v) => onSettingsChange({ ...setting, sources: { ...sources, [k]: v } });
 
   const filtered = (alerts || []).filter(a => {
-    if (filter.status === 'new'      && a.status !== 'new')      return false;
-    if (filter.status === 'logged'   && a.status !== 'logged')   return false;
-    if (filter.status === 'dismissed'&& a.status !== 'dismissed')return false;
+    if (filter.status === 'new'       && a.status !== 'new')       return false;
+    if (filter.status === 'read'      && a.status !== 'read')      return false;
+    if (filter.status === 'logged'    && a.status !== 'logged')    return false;
+    if (filter.status === 'dismissed' && a.status !== 'dismissed') return false;
     if (filter.source && a.source !== filter.source) return false;
     if (filter.kind   && a.kind   !== filter.kind)   return false;
     if (filter.stockId && a.stockId !== filter.stockId) return false;
@@ -1933,6 +1934,7 @@ function AlertsPanel({
   const sorted = filtered.slice().sort((a, b) => String(b.publishedAt || '').localeCompare(String(a.publishedAt || '')));
   const counts = {
     new: (alerts || []).filter(a => a.status === 'new').length,
+    read: (alerts || []).filter(a => a.status === 'read').length,
     logged: (alerts || []).filter(a => a.status === 'logged').length,
     dismissed: (alerts || []).filter(a => a.status === 'dismissed').length,
     total: (alerts || []).length,
@@ -2032,9 +2034,10 @@ function AlertsPanel({
 
       <Cell label={`ALERTS · ${counts.new} NEW / ${counts.total}`} accent={T.amber} style={{ height: '100%', overflow: 'hidden' }}>
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: 10, borderBottom: `1px solid ${T.borderSoft}`, fontSize: 10 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: 10, borderBottom: `1px solid ${T.borderSoft}`, fontSize: 10, alignItems: 'center' }}>
             <select value={filter.status} onChange={(e) => setFilter(f => ({ ...f, status: e.target.value }))} style={{ ...inputSt, fontSize: 10 }}>
               <option value="new">NEW ({counts.new})</option>
+              <option value="read">READ ({counts.read})</option>
               <option value="">ALL ({counts.total})</option>
               <option value="logged">LOGGED ({counts.logged})</option>
               <option value="dismissed">DISMISSED ({counts.dismissed})</option>
@@ -2055,6 +2058,12 @@ function AlertsPanel({
               <option value="">STOCK: ALL</option>
               {watchlistOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
+            <span style={{ flex: 1 }}/>
+            {counts.new > 0 && (
+              <button onClick={onMarkAllRead} style={{ ...btnSt, fontSize: 9, padding: '2px 10px', color: T.cyan, border: `1px solid ${T.cyan}` }}>
+                ALL READ ({counts.new})
+              </button>
+            )}
           </div>
           <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
             {sorted.length === 0 ? (
@@ -2066,7 +2075,7 @@ function AlertsPanel({
             ) : sorted.map(a => {
               const sym = stocks[a.stockId]?.symbol || a.stockId;
               const dateStr = a.publishedAt ? new Date(a.publishedAt).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
-              const statusColor = a.status === 'new' ? T.amber : a.status === 'logged' ? T.green : T.inkFaint;
+              const statusColor = a.status === 'new' ? T.amber : a.status === 'read' ? T.cyan : a.status === 'logged' ? T.green : T.inkFaint;
               return (
                 <div key={a.id} style={{
                   borderBottom: `1px solid ${T.borderSoft}`, padding: 10,
@@ -2090,10 +2099,12 @@ function AlertsPanel({
                     {a.url && (
                       <button onClick={() => onOpen(a)} style={{ ...btnSt, color: T.cyan, border: `1px solid ${T.cyan}`, fontSize: 9, padding: '2px 8px' }}>OPEN</button>
                     )}
+                    {a.status === 'new' && (
+                      <button onClick={() => onMarkRead(a)} style={{ ...btnSt, color: T.cyan, border: `1px solid ${T.cyan}44`, fontSize: 9, padding: '2px 8px' }}>READ</button>
+                    )}
                     {a.status !== 'logged' && (
                       <button onClick={() => onLog(a)} style={{ ...btnSt, color: T.green, border: `1px solid ${T.green}`, fontSize: 9, padding: '2px 8px' }}>LOG</button>
                     )}
-
                     {a.status !== 'dismissed' && (
                       <button onClick={() => onDismiss(a)} style={{ ...btnSt, color: T.inkFaint, border: `1px solid ${T.borderSoft}`, fontSize: 9, padding: '2px 8px' }}>DISMISS</button>
                     )}
@@ -3294,6 +3305,14 @@ function App({ initialData }) {
     setAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, status: 'dismissed' } : a));
   }, []);
 
+  const handleAlertMarkRead = useCallback((alert) => {
+    setAlerts(prev => prev.map(a => a.id === alert.id && a.status === 'new' ? { ...a, status: 'read' } : a));
+  }, []);
+
+  const handleAlertMarkAllRead = useCallback(() => {
+    setAlerts(prev => prev.map(a => a.status === 'new' ? { ...a, status: 'read' } : a));
+  }, []);
+
 
   const handleSaveSettings = useCallback((newSettings, newDcm) => {
     setApiSettings(newSettings);
@@ -3456,7 +3475,8 @@ function App({ initialData }) {
         onOpen={handleAlertOpen}
         onLog={handleAlertLog}
         onDismiss={handleAlertDismiss}
-
+        onMarkRead={handleAlertMarkRead}
+        onMarkAllRead={handleAlertMarkAllRead}
         onSettingsChange={setAlertSettings}
       />
     ),
@@ -3467,6 +3487,9 @@ function App({ initialData }) {
       <JournalPanel stock={stock} onCapture={handleCaptureJournal} onUpdate={handleUpdateJournal}/>
     ),
     F9: (
+      <ScreenerPanel stocks={stocks} watchlistIds={watchlistIds}/>
+    ),
+    F10: (
       <SettingsDataPanel
         apiSettings={apiSettings}
         dartCorpMap={dartCorpMap}
@@ -3480,9 +3503,6 @@ function App({ initialData }) {
         onImportBackup={handleImportBackup}
         onReloadDartMap={() => loadLocalDartMap(true)}
       />
-    ),
-    F10: (
-      <ScreenerPanel stocks={stocks} watchlistIds={watchlistIds}/>
     ),
   };
 
