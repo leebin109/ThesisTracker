@@ -3800,7 +3800,7 @@ function SliderRow({ label, value, min, max, step, onChange }) {
 
 
 // ─── Peer comparison ─────────────────────────────────────────────────────────
-function PeersPanel({ stock, stocks, watchlistIds, onSelect, onSavePeers }) {
+function PeersPanel({ stock, stocks, watchlistIds, onSelect, onSavePeers, onAddPeer }) {
   const [editing, setEditing] = React.useState(false);
   const [sortBy, setSortBy] = React.useState(null);
   const [sortDir, setSortDir] = React.useState(1);
@@ -3901,6 +3901,9 @@ function PeersPanel({ stock, stocks, watchlistIds, onSelect, onSavePeers }) {
                 </div>
               );
             })}
+            <button onClick={onAddPeer} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', border: `1px dashed ${T.cyan}`, background: 'transparent', color: T.cyan, cursor: 'pointer', fontSize: 10, fontFamily: T.font }}>
+              + SEARCH NEW PEER
+            </button>
             {allCandidates.length === 0 && (
               <span style={{ color: T.inkFaint, fontSize: 10 }}>워치리스트에 다른 종목이 없습니다.</span>
             )}
@@ -5181,7 +5184,7 @@ function App({ initialData }) {
   }));
   const [toasts, setToasts]               = useState([]);
   const [activePanel, setActivePanel]     = useState('F1');
-  const [searchOpen, setSearchOpen]       = useState(false);
+  const [searchMode, setSearchMode]       = useState(null); // 'watchlist' | 'peer' | null
   const [settingsOpen, setSettingsOpen]   = useState(false);
   const [pitchEditId, setPitchEditId]     = useState(null);
   // tweaks-panel is a design-time tool; not used at runtime in terminal
@@ -5413,12 +5416,12 @@ function App({ initialData }) {
     const handler = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (map[e.key]) { e.preventDefault(); setActivePanel(map[e.key]); }
-      if (e.key === '/' && !searchOpen) { e.preventDefault(); setSearchOpen(true); }
-      if (e.key === 'Escape') { setSearchOpen(false); setSettingsOpen(false); setPitchEditId(null); }
+      if (e.key === '/' && !searchMode) { e.preventDefault(); setSearchMode('watchlist'); }
+      if (e.key === 'Escape') { setSearchMode(null); setSettingsOpen(false); setPitchEditId(null); }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [searchOpen]);
+  }, [searchMode]);
 
   // ── Refresh handler ────────────────────────────────────────────────────────
   const handleRefresh = useCallback(async (stockId) => {
@@ -5479,11 +5482,29 @@ function App({ initialData }) {
       toast(`${s.symbol}: ${e.message}`, 'error', 7000);
     } finally {
       setRefreshing(false);
-      setFetchStatus('');
+        setFetchStatus('');
     }
   }, [stocks, refreshing, apiSettings, dataCache, dartCorpMap, toast, refreshMarketTickers, refreshLivePrices]);
 
   // ── Add stock from search ──────────────────────────────────────────────────
+  const handleAddPeerFromSearch = async (s) => {
+    setStocks(prev => {
+      const next = { ...prev };
+      if (!next[s.id]) next[s.id] = s;
+      
+      const currentStock = next[activeId];
+      const currentPeers = Array.isArray(currentStock.peers) ? currentStock.peers : watchlistIds.filter(id => id !== activeId && prev[id]);
+      
+      next[activeId] = {
+        ...currentStock,
+        peers: [...new Set([...currentPeers, s.id])]
+      };
+      
+      return next;
+    });
+    setSearchMode(null);
+  };
+
   const handleAddFromSearch = useCallback((result = {}) => {
     try {
       const id = String(result.symbol || '').trim().toUpperCase();
@@ -5874,7 +5895,7 @@ function App({ initialData }) {
       />
     ),
     F7: (
-      <PeersPanel stock={stock} stocks={stocks} watchlistIds={watchlistIds} onSelect={setActiveId} onSavePeers={handleSavePeers}/>
+      <PeersPanel stock={stock} stocks={stocks} watchlistIds={watchlistIds} onSelect={setActiveId} onSavePeers={handleSavePeers} onAddPeer={() => setSearchMode('peer')}/>
     ),
     F8: (
       <JournalPanel stock={stock} onCapture={handleCaptureJournal} onUpdate={handleUpdateJournal}/>
@@ -5910,7 +5931,7 @@ function App({ initialData }) {
       <CommandBar
         symbol={stock.symbol}
         onSymbol={handleSymbolNav}
-        onSearch={() => setSearchOpen(true)}
+        onSearch={() => setSearchMode('watchlist')}
         onSettings={() => setActivePanel('F11')}
         refreshing={refreshing}
         providerStatus={providerStatus}
@@ -5954,7 +5975,7 @@ function App({ initialData }) {
         <div style={{ borderRight: `1px solid ${T.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <WatchlistPanel
             stocks={stocks} watchlistIds={watchlistIds} activeId={activeId}
-            onSelect={setActiveId} onAdd={() => setSearchOpen(true)}
+            onSelect={setActiveId} onAdd={() => setSearchMode('watchlist')}
             onRemove={handleRemove}
           />
         </div>
@@ -5973,8 +5994,8 @@ function App({ initialData }) {
       />
 
       {/* Overlays */}
-      {searchOpen && (
-        <SearchOverlay apiSettings={apiSettings} dartCorpMap={dartCorpMap} onAdd={handleAddFromSearch} onClose={() => setSearchOpen(false)}/>
+      {searchMode && (
+        <SearchOverlay apiSettings={apiSettings} dartCorpMap={dartCorpMap} onAdd={searchMode === 'watchlist' ? handleAddFromSearch : handleAddPeerFromSearch} onClose={() => setSearchMode(null)}/>
       )}
       {settingsOpen && (
         <ApiSettingsModal settings={apiSettings} dartCorpMap={dartCorpMap} onSave={handleSaveSettings} onClose={() => setSettingsOpen(false)}/>
