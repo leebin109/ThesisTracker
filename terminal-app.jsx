@@ -56,8 +56,7 @@ const PANEL_DEFS = [
   { k: 'F6', label: 'ALERTS', short: 'ALRT' },
   { k: 'F7', label: 'PEERS', short: 'PEER' },
   { k: 'F8', label: 'JOURNAL', short: 'JRN' },
-  { k: 'F9', label: 'PORTFOLIO', short: 'PF' },
-  { k: 'F10', label: 'SETTINGS', short: 'DATA' },
+  { k: 'F9', label: 'SETTINGS', short: 'DATA' },
 ];
 
 const BACKUP_SCHEMA_VERSION = 2;
@@ -3097,9 +3096,6 @@ function App({ initialData }) {
       <JournalPanel stock={stock} onCapture={handleCaptureJournal} onUpdate={handleUpdateJournal}/>
     ),
     F9: (
-      <div style={{ padding: 20, color: T.inkDim, textAlign: 'center', fontFamily: T.font }}>Portfolio 기능 준비 중 (Phase 6)</div>
-    ),
-    F10: (
       <SettingsDataPanel
         apiSettings={apiSettings}
         dartCorpMap={dartCorpMap}
