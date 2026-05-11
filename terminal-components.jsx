@@ -397,7 +397,262 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
   );
 };
 
+const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, providerStatus, alertCount = 0, onAlerts }) => {
+  const [val, setVal] = useState(symbol);
+  useEffect(() => { setVal(symbol); }, [symbol]);
+  const statusColor = providerStatus?.kind === 'ok' ? T.green : providerStatus?.kind === 'warn' ? T.yellow : providerStatus?.kind === 'error' ? T.red : T.inkFaint;
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 12, height: 34, padding: '0 12px 0 18px',
+      background: T.surface, borderBottom: `1px solid ${T.border}`,
+      whiteSpace: 'nowrap', overflow: 'hidden',
+    }}>
+      {/* Logo */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 auto' }}>
+        <div style={{ width: 18, height: 18, background: T.amber, display: 'grid', placeItems: 'center',
+          fontSize: 11, fontWeight: 800, color: '#000', boxShadow: `0 0 10px ${T.amber}88` }}>T</div>
+        <span style={{ fontWeight: 700, color: T.amber, fontSize: 12, letterSpacing: '0.14em' }}>THESIS//TRACK</span>
+      </div>
 
+      {/* Symbol input */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '0 0 auto' }}>
+        <span style={{ color: T.amber, fontWeight: 700 }}>&gt;</span>
+        <input
+          value={val}
+          onChange={(e) => setVal(e.target.value.toUpperCase())}
+          onKeyDown={(e) => { if (e.key === 'Enter') onSymbol?.(val); }}
+          style={{ background: 'transparent', border: 0, outline: 0, color: T.amber,
+            fontFamily: T.font, fontSize: 13, fontWeight: 600, width: 100, padding: 0, letterSpacing: '0.05em' }} />
+      </div>
+
+      {/* Search box */}
+      <button
+        onClick={onSearch}
+        style={{
+          flex: '0 1 640px', minWidth: 200,
+          height: 22, background: T.bg, border: `1px solid ${T.border}`,
+          display: 'flex', alignItems: 'center', gap: 8, padding: '0 10px',
+          cursor: 'pointer', textAlign: 'left',
+        }}>
+        <span style={{ fontSize: 12, color: T.inkFaint, lineHeight: 1 }}>⌕</span>
+        <span style={{ fontSize: 10.5, color: T.inkFaint, letterSpacing: '0.03em', fontFamily: T.font }}>
+          종목 검색 &nbsp;
+          <span style={{ opacity: 0.55 }}>— <kbd style={{ ...kbdStyle, fontSize: 9 }}>/</kbd> 를 누르면 바로 활성화</span>
+        </span>
+      </button>
+
+      <div style={{ flex: '1 1 auto' }}/>
+
+      {/* Right side status */}
+      {providerStatus && (
+        <span title={providerStatus.text} style={{ color: statusColor, fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', flex: '0 0 auto' }}>
+          ● {providerStatus.label || 'DATA'}
+        </span>
+      )}
+      {onAlerts && (
+        <button
+          onClick={onAlerts}
+          title={alertCount > 0 ? `새 알림 ${alertCount}건` : '알림 센터 (F6)'}
+          style={{
+            background: alertCount > 0 ? T.amber : 'transparent',
+            border: `1px solid ${alertCount > 0 ? T.amber : T.border}`,
+            color: alertCount > 0 ? '#000' : T.inkDim,
+            fontFamily: T.font, fontSize: 10, fontWeight: alertCount > 0 ? 800 : 500,
+            cursor: 'pointer', padding: '3px 10px', letterSpacing: '0.08em',
+            display: 'flex', alignItems: 'center', gap: 6, flex: '0 0 auto',
+          }}>
+          <span>ALERT</span>
+          {alertCount > 0 && (
+            <span style={{
+              background: '#000', color: T.amber, borderRadius: 8, padding: '1px 6px',
+              fontSize: 9, fontWeight: 800, minWidth: 16, textAlign: 'center',
+            }}>{alertCount > 99 ? '99+' : alertCount}</span>
+          )}
+        </button>
+      )}
+      {onSettings && (
+        <button onClick={onSettings} style={{ background: 'transparent', border: `1px solid ${T.border}`,
+          color: T.inkDim, fontFamily: T.font, fontSize: 10, cursor: 'pointer',
+          padding: '3px 10px', letterSpacing: '0.08em' }}>
+          API
+        </button>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10.5, color: T.inkFaint, flex: '0 0 auto' }}>
+        {refreshing
+          ? <span style={{ color: T.amber }}>⟳</span>
+          : <Pulse />}
+        <span>{refreshing ? 'FETCHING' : 'LIVE'} · {new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} KST</span>
+      </div>
+      <style>{`
+        @keyframes tt-pulse { 0% { transform: scale(1); opacity: 0.7; } 100% { transform: scale(2.5); opacity: 0; } }
+      `}</style>
+    </div>
+  );
+};
+
+const kbdStyle = {
+  display: 'inline-block', padding: '1px 5px', background: T.surface2,
+  border: `1px solid ${T.border}`, borderRadius: 2, fontSize: 10, fontFamily: T.font, color: T.inkDim, margin: '0 2px',
+};
+
+const Pulse = () => (
+  <span style={{ position: 'relative', display: 'inline-block', width: 7, height: 7, flex: '0 0 auto' }}>
+    <span style={{ position: 'absolute', inset: 0, background: T.green, borderRadius: '50%', animation: 'tt-pulse 1.8s ease-out infinite' }}/>
+    <span style={{ position: 'absolute', inset: 1, background: T.green, borderRadius: '50%' }}/>
+  </span>
+);
+
+const TickerRail = ({ tickers }) => (
+  <div style={{ height: 26, display: 'flex', alignItems: 'center', gap: 0,
+    background: T.bg, borderBottom: `1px solid ${T.border}`, overflow: 'hidden' }}>
+    {tickers.map((t, i) => (
+      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6,
+        padding: '0 14px', borderRight: `1px solid ${T.borderSoft}`,
+        fontSize: 10.5, fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ color: T.inkDim, fontWeight: 600 }}>{t.symbol}</span>
+        <span style={{ color: T.ink }}>{t.val}</span>
+        <span style={{ color: colorForChange(t.change), fontWeight: 600 }}>
+          {sign(t.change)}{Number(t.change).toFixed(2)}%
+        </span>
+      </div>
+    ))}
+  </div>
+);
+
+// ── Hero strip ───────────────────────────────────────────────────────────────
+const HeroStrip = ({ stock, onRefresh, refreshing }) => {
+  const price = Number(stock.price) || 0;
+  const prev = Number(stock.prevClose) || price;
+  const change = price - prev;
+  const changePct = prev ? (change / prev) * 100 : 0;
+  const target = Number(stock.target) || 0;
+  const upside = price ? ((target - price) / price) * 100 : 0;
+  const daysLeft = window.getDaysLeft ? window.getDaysLeft(stock.review?.next) : null;
+  const heroName = stock.name || stock.symbol;
+  const heroNameSize = heroName.length > 34 ? 14 : heroName.length > 24 ? 16 : heroName.length > 16 ? 18 : 20;
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'auto minmax(260px, 1.4fr) 1fr 1fr 1.2fr 0.9fr 1fr',
+      gap: 0, padding: '10px 16px',
+      background: `linear-gradient(180deg, ${T.surface} 0%, ${T.bg} 100%)`,
+      borderBottom: `1px solid ${T.border}`, alignItems: 'center',
+    }}>
+      <ScoreRing score={stock.scores?.overall ?? 0} size={58} accent={T.amber}/>
+      <div style={{ paddingLeft: 14, paddingRight: 14, borderRight: `1px solid ${T.borderSoft}`, minWidth: 0, overflow: 'hidden' }}>
+        <div style={{ marginBottom: 4, minWidth: 0, overflow: 'hidden' }}>
+          <span style={{ fontSize: heroNameSize, fontWeight: 800, color: T.ink, letterSpacing: '0.01em',
+            lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            display: 'block' }}
+            title={heroName}>
+            {heroName}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, color: T.inkDim, fontWeight: 600, letterSpacing: '0.04em', minWidth: 0, overflow: 'hidden' }}>
+          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+            {stock.symbol} · {stock.market} · {stock.currency}
+          </span>
+          <span style={{ fontSize: 13, flex: '0 0 auto' }}>{stock.flag || ''}</span>
+          <span style={{ fontSize: 9, padding: '2px 6px', border: `1px solid ${T.amber}`,
+            color: T.amber, fontWeight: 700, letterSpacing: '0.1em', flex: '0 0 auto' }}>
+            {(stock.recommendation || 'Watch').toUpperCase()}
+          </span>
+          {onRefresh && (
+            <button onClick={() => onRefresh(stock.id)} disabled={refreshing}
+              style={{ marginLeft: 4, padding: '2px 8px', fontSize: 9, fontFamily: T.font,
+                background: 'transparent', border: `1px solid ${T.border}`,
+                color: refreshing ? T.inkFaint : T.cyan, cursor: refreshing ? 'default' : 'pointer',
+                letterSpacing: '0.08em', flex: '0 0 auto' }}>
+              {refreshing ? '...' : '↻ REFRESH'}
+            </button>
+          )}
+        </div>
+      </div>
+      <div style={{ paddingLeft: 18, paddingRight: 18, borderRight: `1px solid ${T.borderSoft}` }}>
+        <Stat
+          label="Last Price"
+          value={stock.currency === 'KRW' ? `₩${fmtPx(price, 'KRW')}` : `$${fmtPx(price, stock.currency)}`}
+          sub={<span style={{ color: colorForChange(change) }}>
+            {sign(change)}{Number.isFinite(change) ? change.toFixed(2) : '–'} ({sign(changePct)}{changePct.toFixed(2)}%)
+          </span>}
+        />
+      </div>
+      <div style={{ paddingLeft: 18, paddingRight: 18, borderRight: `1px solid ${T.borderSoft}` }}>
+        <Stat
+          label="Target · Upside"
+          value={stock.currency === 'KRW' ? `₩${fmtPx(target, 'KRW')}` : `$${fmtPx(target, stock.currency)}`}
+          sub={<span style={{ color: colorForChange(upside) }}>{sign(upside)}{upside.toFixed(2)}%</span>}
+        />
+      </div>
+      <div style={{ paddingLeft: 18, paddingRight: 18, borderRight: `1px solid ${T.borderSoft}` }}>
+        <div style={{ fontSize: 9.5, color: T.inkFaint, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>
+          Bull · Base · Bear
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontVariantNumeric: 'tabular-nums' }}>
+          <span style={{ color: T.green, fontSize: 14, fontWeight: 700 }}>{fmtPx(stock.valuation?.bull?.price ?? 0, stock.currency)}</span>
+          <span style={{ color: T.inkFaint }}>·</span>
+          <span style={{ color: T.amber, fontSize: 14, fontWeight: 700 }}>{fmtPx(stock.valuation?.base?.price ?? 0, stock.currency)}</span>
+          <span style={{ color: T.inkFaint }}>·</span>
+          <span style={{ color: T.red, fontSize: 14, fontWeight: 700 }}>{fmtPx(stock.valuation?.bear?.price ?? 0, stock.currency)}</span>
+        </div>
+        <div style={{ fontSize: 10, color: T.inkDim, marginTop: 4 }}>
+          PER {stock.valuation?.base?.multiple ?? '?'}x · base
+        </div>
+      </div>
+      <div style={{ paddingLeft: 18, paddingRight: 18, borderRight: `1px solid ${T.borderSoft}` }}>
+        <Stat
+          label="Next Review"
+          value={daysLeft !== null
+            ? <span style={{ color: daysLeft < 0 ? T.red : T.cyan }}>D{daysLeft >= 0 ? '-' : '+'}{Math.abs(daysLeft)}</span>
+            : <span style={{ color: T.inkFaint }}>–</span>}
+          sub={stock.review?.next || '미설정'}
+        />
+      </div>
+      <div style={{ paddingLeft: 18 }}>
+        <div style={{ fontSize: 9.5, color: T.inkFaint, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>
+          Score Trend · 12M
+        </div>
+        <Spark data={stock.scoreHistory || []} width={140} height={26} color={T.amber}/>
+        <div style={{ fontSize: 10, color: T.inkDim, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>
+          {stock.scoreHistory?.length
+            ? `${stock.scoreHistory[0]} → ${stock.scoreHistory[stock.scoreHistory.length-1]}`
+            : '–'}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const PitchHeadline = ({ text, onEdit }) => (
+  <div style={{
+    padding: '10px 20px', background: T.bg, borderBottom: `1px solid ${T.border}`,
+    display: 'flex', alignItems: 'center', gap: 12, minWidth: 0,
+  }}>
+    <div style={{ fontSize: 9, color: T.amber, letterSpacing: '0.18em', fontWeight: 700,
+      writingMode: 'vertical-rl', transform: 'rotate(180deg)', flex: '0 0 auto' }}>PITCH</div>
+    <div style={{ width: 2, alignSelf: 'stretch', background: T.amber, boxShadow: `0 0 8px ${T.amber}88`, flex: '0 0 auto' }}/>
+    <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 16, fontWeight: 500, color: T.ink,
+      lineHeight: 1.35, letterSpacing: '-0.01em', flex: 1, minWidth: 0,
+      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+      title={text}>
+      "{text || '—'}"
+    </div>
+    {onEdit && (
+      <button onClick={onEdit} style={{ background: 'transparent', border: `1px solid ${T.border}`,
+        color: T.inkDim, fontFamily: T.font, fontSize: 9, cursor: 'pointer',
+        padding: '4px 10px', letterSpacing: '0.1em', whiteSpace: 'nowrap' }}>
+        EDIT PITCH
+      </button>
+    )}
+  </div>
+);
+
+window.T = T;
+window.Cell = Cell;
+window.Stat = Stat;
+window.ScoreRing = ScoreRing;
+window.ScoreBar = ScoreBar;
+window.Spark = Spark;
 window.PriceChart = PriceChart;
 window.CommandBar = CommandBar;
 window.TickerRail = TickerRail;
