@@ -110,6 +110,10 @@ overall = zToScore(zComp)       ← 0~100 백분위
 - `handleSaveHistory(stockId, metricsHistory)` 콜백으로 App state 저장
 
 ## 6. 변경 이력 (Recent Change Log)
+- **2026-05-11 (F6 Alerts 품질 개선)**:
+  - **Yahoo 뉴스 검색 쿼리 개선**: `fetchYahooNewsExperimental`이 ticker symbol(`005930.KS`, `MU`) 대신 `stock.name`(회사명)으로 Yahoo 검색 API를 호출. 종목과 무관한 광범위 기사 유입 차단.
+  - **관련성 필터 (`isNewsRelevant`)**: 기사 제목에 회사명 키워드(3자↑, stop-word 제외) 또는 ticker 베이스가 포함되지 않으면 드롭. 국문/영문 회사명 모두 지원.
+  - **크로스-종목 중복 제거**: `handleRefreshAlerts`에서 `seenNativeIds` Set(`source:nativeId` 키)을 유지하여 동일 기사가 워치리스트 N개 종목에 걸쳐 중복 수집되는 현상 차단. 기존 `incomingMap`은 단일 종목 내 id 중복만 처리해 이 케이스를 놓쳤음.
 - **2026-05-11 (Month 3 — 5년 재무 히스토리)**:
   - **fetchSecFinancialHistory**: SEC EDGAR `/companyfacts/` XBRL 파싱으로 미국 종목 10-K 5개년 자동 수집 (API 키 불필요).
   - **fetchDartFinancialHistory**: DART `fnlttSinglAcntAll` 2회 병렬 호출로 한국 종목 5개년 수집 (DART API 키 필요).
