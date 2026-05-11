@@ -36,9 +36,9 @@
     <div id="boot-fallback" style="min-height:100vh;background:#07090b;color:#e5e7eb;display:none;place-items:center;padding:24px;font-family:'JetBrains Mono',ui-monospace,monospace;">
       <div style="width:min(720px,100%);border:1px solid #1f2937;background:#0d1116;padding:22px;">
         <div style="color:#FF9500;font-size:11px;letter-spacing:.14em;font-weight:800;margin-bottom:10px;">THESISTRACK BOOT</div>
-        <div style="font-size:20px;font-weight:800;margin-bottom:8px;">?깆쓣 遺덈윭?ㅻ뒗 以묒엯?덈떎.</div>
+        <div style="font-size:20px;font-weight:800;margin-bottom:8px;">앱을 불러오는 중입니다.</div>
         <div id="boot-fallback-msg" style="color:#9ca3af;font-size:12px;line-height:1.6;margin-bottom:14px;">
-          ?붾㈃??怨꾩냽 硫덉떠 ?덉쑝硫?React/Babel CDN 濡쒕뵫 ?먮뒗 ??λ맂 濡쒖뺄 ?곗씠??臾몄젣?????덉뒿?덈떎.
+          화면이 계속 멈춰 있으면 React/Babel CDN 로딩 또는 저장된 로컬 데이터 문제일 수 있습니다.
         </div>
         <button onclick="try{localStorage.removeItem('tt-terminal-v1')}catch(e){} location.reload()" style="background:transparent;color:#ef4444;border:1px solid #ef4444;padding:8px 12px;font:11px 'JetBrains Mono',monospace;letter-spacing:.08em;cursor:pointer;">
           RESET LOCAL DATA
@@ -52,20 +52,20 @@
         var el = document.getElementById('boot-fallback');
         var msg = document.getElementById('boot-fallback-msg');
         if (!el || !msg) return;
-        msg.textContent = message || '??濡쒕뵫 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.';
+        msg.textContent = message || '앱 로딩 중 오류가 발생했습니다.';
       }
       window.addEventListener('error', function (event) {
-        showBootIssue(event && event.message ? event.message : '?ㅽ겕由쏀듃 濡쒕뵫 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.');
+        showBootIssue(event && event.message ? event.message : '스크립트 로딩 중 오류가 발생했습니다.');
       });
       window.addEventListener('unhandledrejection', function (event) {
         var reason = event && event.reason;
-        showBootIssue(reason && reason.message ? reason.message : '鍮꾨룞湲?濡쒕뵫 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.');
+        showBootIssue(reason && reason.message ? reason.message : '비동기 로딩 중 오류가 발생했습니다.');
       });
       setTimeout(function () {
         var el = document.getElementById('boot-fallback');
         if (el) {
           el.style.display = 'grid';
-          showBootIssue('React/Babel/CDN 濡쒕뵫??吏?곕릺怨??덉뒿?덈떎. Ctrl+F5濡??덈줈怨좎묠?섍굅?? 怨꾩냽 ?ㅽ뙣?섎㈃ RESET LOCAL DATA瑜??쒕룄?섏꽭??');
+          showBootIssue('React/Babel/CDN 로딩이 지연되고 있습니다. Ctrl+F5로 새로고침하거나, 계속 실패하면 RESET LOCAL DATA를 시도하세요.');
         }
       }, 8000);
     })();
