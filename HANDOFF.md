@@ -110,6 +110,17 @@ overall = zToScore(zComp)       ← 0~100 백분위
 - `handleSaveHistory(stockId, metricsHistory)` 콜백으로 App state 저장
 
 ## 6. 변경 이력 (Recent Change Log)
+- **2026-05-11 (UI/UX 개선 2종)**:
+  - **F9/F10 순서 교체**: F9=SCREEN, F10=SETTINGS (기존 반대).
+  - **Alerts 읽음 처리**: 각 카드에 READ 버튼(new→read), 필터 바 우측 ALL READ(N) 버튼, 필터 드롭다운에 READ 탭 추가. 상태 색상: NEW=amber, READ=cyan, LOGGED=green, DISMISSED=회색.
+- **2026-05-11 (Last Price 전일가 표시 버그)**:
+  - **원인**: `fetchLivePriceForSymbol`에서 가격 우선순위가 반대. `closes.at(-1)`(1분봉 종가) PRIMARY, `meta.regularMarketPrice`(Yahoo 실시간 현재가) FALLBACK이었음. 1분봉 미확정 구간에서 직전 봉 종가 또는 전일 데이터가 표시됨.
+  - **수정**: `firstFinite(meta.regularMarketPrice, closes.at(-1))` 순서로 변경. `prevClose`도 `regularMarketPreviousClose` → `previousClose` → `chartPreviousClose` 순으로 통일.
+  - **갱신 주기**: 5분 → **2분** (Yahoo 무료 API 여유 충분, N종목×1 call/2min).
+- **2026-05-11 (5Y Financial History 오류 3종)**:
+  - **비US 종목 미지원 버그**: 일본(TSE) 등 비US/비KRX 종목은 `isSecEligibleStock` 체크에 막혀 항상 "미국 상장 종목만 지원" 에러. `fetchYahooFinancialHistory(stock)` 신규 함수 추가: `quoteSummary`의 `incomeStatementHistory/balanceSheetHistory/cashflowStatementHistory` 모듈에서 최대 4개년 재무 데이터 추출. KRX→DART, US(NASDAQ/NYSE/AMEX)→SEC EDGAR(Yahoo 폴백), 기타→Yahoo Finance.
+  - **US 종목 SEC 실패 시 폴백 없음**: SEC CIK 조회 실패(`resolveSecCompany`) 시 `fetchYahooFinancialHistory`로 자동 폴백.
+  - **레이아웃 버그**: ScoreBreakdown이 6줄+뱃지로 길면 5Y 섹션이 22px 헤더만 노출됨. `OverviewPanel`을 중첩 flex → 단일 `overflowY:auto` 스크롤 컨테이너로 변경.
 - **2026-05-11 (비US 종목 재무 지표 수정)**:
   - **원인**: Yahoo Finance `quoteSummary` v10의 `financialData` 모듈이 일본(TSE) 등 비US 종목에서 빈 객체를 반환. PER/PBR는 `quote`(v7) 객체에 별도 fallback이 있어 표시됐지만, ROE/OP Margin/FCF/D-E/CR/RevGrowth는 `financialData`에만 의존 → 전부 "–".
   - **수정**: `fetchYahooQuoteSummary` 요청 모듈에 `incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory` 추가. `mapYahooPayload`에서 `financialData` 값이 NaN이면 재무제표에서 직접 계산하는 fallback 적용:
