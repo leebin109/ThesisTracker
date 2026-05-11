@@ -2990,7 +2990,7 @@ function App({ initialData }) {
     refreshLivePrices(undefined, { silent: true });
     const id = setInterval(() => {
       if (!document.hidden) refreshLivePrices(undefined, { silent: true });
-    }, 300000);
+    }, 120000);
     const onVisible = () => {
       if (!document.hidden) refreshLivePrices(undefined, { silent: true });
     };

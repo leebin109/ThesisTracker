@@ -901,8 +901,17 @@ async function fetchLivePriceForSymbol(stock, yahooSym) {
 
   if (!result) throw new Error('Yahoo live result 없음');
   const meta = result.meta || {};
-  const price = firstFinite(closes.at(-1), meta.regularMarketPrice);
-  const prevClose = firstFinite(meta.chartPreviousClose, meta.previousClose, closes.length > 1 ? closes.at(-2) : NaN, stock.prevClose);
+  // meta.regularMarketPrice = Yahoo's real-time price (primary)
+  // closes.at(-1) = last completed candle close (fallback when meta price missing)
+  const price = firstFinite(toNumber(meta.regularMarketPrice), closes.at(-1));
+  // regularMarketPreviousClose is always the actual previous session's close
+  const prevClose = firstFinite(
+    toNumber(meta.regularMarketPreviousClose),
+    toNumber(meta.previousClose),
+    toNumber(meta.chartPreviousClose),
+    closes.length > 1 ? closes.at(-2) : NaN,
+    stock.prevClose,
+  );
   if (!Number.isFinite(price) || price <= 0) throw new Error('Yahoo live 가격 없음');
   const ts = firstFinite(meta.regularMarketTime, result.timestamp?.at(-1));
   const asOf = ts ? new Date(Number(ts) * 1000).toISOString() : new Date().toISOString();
