@@ -4,7 +4,7 @@
 /* global TT_KEY, DEFAULT_STOCKS, DEFAULT_WATCHLIST_IDS, DEFAULT_API_SETTINGS, DEFAULT_DART_CORP_MAP, DEFAULT_MARKET_TICKERS */
 /* global DEFAULT_ALERT_SETTINGS, ALERT_RETENTION_DAYS */
 /* global loadAppState, saveAppState, computeScores, computeQuantScores, applyQuantScores, computeDynamicQuality, getDaysLeft */
-/* global fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp, summarizeWithClaude */
+/* global fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp */
 /* global fetchYahooChartOhlc, toYahooSymbol */
 /* global fetchAlertsForStock, pruneAlerts */
 /* global normalizeKrxStockCode, getDartCorpEntry, fetchLocalDartCorpMap */
@@ -1485,9 +1485,6 @@ function SettingsDataPanel({
           <SettingRow label="DATA.GO.KR KEY">
             <ApiKeyInput value={s.dataGoKrKey} onChange={(v) => setS({ ...s, dataGoKrKey: v })}/>
           </SettingRow>
-          <SettingRow label="ANTHROPIC KEY (BYOK 요약)">
-            <ApiKeyInput value={s.anthropicKey || ''} onChange={(v) => setS({ ...s, anthropicKey: v })}/>
-          </SettingRow>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
             <SettingRow label="DART YEAR">
@@ -1584,7 +1581,7 @@ function SettingsDataPanel({
 function AlertsPanel({
   stocks, watchlistIds, alerts, alertSettings, alertErrors, alertStatus,
   dartCoverage, lastPolled,
-  onRefresh, onOpen, onLog, onDismiss, onSettingsChange, onSummarize, canSummarize,
+  onRefresh, onOpen, onLog, onDismiss, onSettingsChange,
 }) {
   const [filter, setFilter] = useState({ status: 'new', source: '', kind: '', stockId: '' });
   const setting = alertSettings || {};
@@ -1763,9 +1760,7 @@ function AlertsPanel({
                     {a.status !== 'logged' && (
                       <button onClick={() => onLog(a)} style={{ ...btnSt, color: T.green, border: `1px solid ${T.green}`, fontSize: 9, padding: '2px 8px' }}>LOG</button>
                     )}
-                    {canSummarize && (
-                      <button onClick={() => onSummarize(a)} style={{ ...btnSt, color: T.yellow, border: `1px solid ${T.yellow}`, fontSize: 9, padding: '2px 8px' }}>요약</button>
-                    )}
+
                     {a.status !== 'dismissed' && (
                       <button onClick={() => onDismiss(a)} style={{ ...btnSt, color: T.inkFaint, border: `1px solid ${T.borderSoft}`, fontSize: 9, padding: '2px 8px' }}>DISMISS</button>
                     )}
@@ -2953,29 +2948,6 @@ function App({ initialData }) {
     setAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, status: 'dismissed' } : a));
   }, []);
 
-  // ── Save API settings ──────────────────────────────────────────────────────
-  const handleSummarizeAlert = useCallback(async (alert) => {
-    if (!apiSettings.anthropicKey) {
-      toast('F11 Settings/Data에 Anthropic API key를 먼저 입력하세요.', 'info', 6000);
-      return;
-    }
-    const oldSummary = alert.summary;
-    setAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, summary: 'Summarizing...' } : a));
-    try {
-      const text = [
-        stocks[alert.stockId]?.symbol || alert.stockId,
-        alert.title || '',
-        alert.source || '',
-        alert.url || '',
-      ].filter(Boolean).join('\n');
-      const summary = await summarizeWithClaude(text, apiSettings.anthropicKey);
-      setAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, summary } : a));
-      toast('Claude summary saved', 'ok');
-    } catch (e) {
-      setAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, summary: oldSummary || '' } : a));
-      toast(`Claude summary failed: ${e.message}`, 'error', 7000);
-    }
-  }, [apiSettings.anthropicKey, stocks, toast]);
 
   const handleSaveSettings = useCallback((newSettings, newDcm) => {
     setApiSettings(newSettings);
@@ -2992,7 +2964,7 @@ function App({ initialData }) {
   const handleExportBackup = useCallback((includeKeys = false) => {
     const exportSettings = includeKeys
       ? apiSettings
-      : { ...apiSettings, alphaVantageKey: '', fmpKey: '', openDartKey: '', dataGoKrKey: '', anthropicKey: '' };
+      : { ...apiSettings, alphaVantageKey: '', fmpKey: '', openDartKey: '', dataGoKrKey: '' };
     const payload = {
       schemaVersion: BACKUP_SCHEMA_VERSION,
       exportedAt: new Date().toISOString(),
@@ -3023,7 +2995,7 @@ function App({ initialData }) {
       if (!data || typeof data !== 'object') throw new Error('백업 JSON 형식 오류');
       const importedSettings = data.apiSettings ? { ...data.apiSettings } : null;
       if (mode === 'merge' && importedSettings) {
-        ['alphaVantageKey', 'fmpKey', 'openDartKey', 'dataGoKrKey', 'anthropicKey'].forEach(k => {
+        ['alphaVantageKey', 'fmpKey', 'openDartKey', 'dataGoKrKey'].forEach(k => {
           if (!importedSettings[k]) delete importedSettings[k];
         });
       }
@@ -3138,8 +3110,7 @@ function App({ initialData }) {
         onOpen={handleAlertOpen}
         onLog={handleAlertLog}
         onDismiss={handleAlertDismiss}
-        onSummarize={handleSummarizeAlert}
-        canSummarize={!!apiSettings.anthropicKey}
+
         onSettingsChange={setAlertSettings}
       />
     ),

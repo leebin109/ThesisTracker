@@ -86,10 +86,12 @@ overall = zToScore(zComp)       ← 0~100 백분위
 - **Service Worker 백그라운드 Fetch**: 브라우저의 Service Worker API(`navigator.serviceWorker`)를 등록하여 탭이 닫혀 있더라도 백그라운드에서 `setInterval`처럼 일정 주기로 가격 동기화를 수행하고 OS 네이티브 알림을 띄우는 기능 구현.
 - **클라우드 수동 백업 및 복원 (Export/Import)**: `IndexedDB`에 쌓인 전체 데이터를 `JSON.stringify`하여 Blob 객체로 변환한 뒤 `<a>` 태그의 `download` 속성으로 내보내기 구현. 복원은 FileReader를 통해 파싱하여 DB 덮어쓰기.
 
-### 🤖 Phase 9: Bring Your Own AI (AI 인텔리전스 도입)
-유료 API 고정 비용을 피하면서(Zero-Cost 철학 유지), 강력한 AI 기능을 터미널 내부에 결합합니다.
-- **BYOK (Bring Your Own Key) 아키텍처**: `Settings(F11)` 패널에 OpenAI/Anthropic/Gemini API 키 입력란을 만들고 `localStorage`에 암호화 보관. 뉴스나 공시 요약 버튼을 누르면 해당 키를 헤더에 담아 브라우저 단에서 직접 API를 호출.
-- **WebLLM 로컬 구동 (선택)**: 브라우저의 `WebGPU` 기능을 기반으로 작동하는 `@mlc-ai/web-llm` 라이브러리를 인라인 삽입하여, Llama 3 8B 모델 등을 로컬 그래픽카드로 다운로드/구동시켜 100% 무료 감성 분석 엔진 구현.
+### 🤖 Phase 9: Zero-Cost Local AI (WebLLM)
+**완전 무료** 철학을 지키면서 AI 기능을 터미널에 결합합니다. API 키·계정·구독 일절 없음.
+- **WebLLM 단독 도입**: 브라우저의 `WebGPU` API 기반 `@mlc-ai/web-llm` 라이브러리를 사용하여 LLM을 사용자 로컬 GPU에서 직접 구동. 외부 서버 호출 없음 — 데이터가 브라우저 밖으로 나가지 않음.
+- **권장 모델**: Llama 3.2 3B Instruct (1.8GB, 빠름) 또는 Qwen 2.5 7B (4GB, 정확도↑). 첫 실행 시 한 번만 다운로드, 이후 IndexedDB 캐시.
+- **주요 사용처**: F6 Alerts 뉴스/공시 요약, F2 PITCH Pre-mortem 자동 작성("이 thesis의 반대 논리는?"), 공시 핵심 지표 추출.
+- **BYOK 제거 사유**: "완전 무료" 철학과 충돌. Anthropic/OpenAI 키는 유료 과금 발생. `summarizeWithClaude` 함수 및 관련 Settings UI 제거 완료 (2026-05-11).
 
 ### 📈 Phase 10: Advanced Pro-Charting & Backtesting (전문가급 시각화)
 터미널의 가장 큰 장점인 빠르고 가벼운 자체 SVG 차트를 증권사 HTS/MTS 급으로 고도화합니다.

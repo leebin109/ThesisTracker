@@ -38,7 +38,7 @@ const DEFAULT_API_SETTINGS = {
   alphaVantageKey: '',
   fmpKey: '',
   openDartKey: '',
-  anthropicKey: '',
+
   dartFiscalYear: new Date().getFullYear() - 1,
   dartReportCode: '11011',
   dartFsDiv: 'CFS',
@@ -1720,42 +1720,6 @@ function pruneAlerts(alerts, retentionDays = ALERT_RETENTION_DAYS) {
   });
 }
 
-async function summarizeWithClaude(text, key, model = 'claude-haiku-4-5-20251001') {
-  if (!key) throw new Error('Anthropic API key를 먼저 저장해 주세요.');
-  const prompt = [
-    '다음 주식 관련 뉴스/공시를 한국어로 아주 짧게 요약하세요.',
-    '출력 형식:',
-    '1) 핵심 내용: 한 문장',
-    '2) 투자 영향: Bull/Bear/Neutral 중 하나와 이유',
-    '3) 확인할 숫자/이벤트: 최대 2개',
-    '',
-    text,
-  ].join('\n');
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 420,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
-  if (!res.ok) {
-    let msg = `Anthropic HTTP ${res.status}`;
-    try {
-      const data = await res.json();
-      msg = data?.error?.message || msg;
-    } catch {}
-    throw new Error(msg);
-  }
-  const data = await res.json();
-  return (data?.content || []).map(part => part?.text || '').join('\n').trim();
-}
 
 async function fetchYahooChartOhlc(symbol, range, interval) {
   const params = new URLSearchParams({ range, interval, includePrePost: 'false', events: 'div,splits' });
@@ -1819,6 +1783,6 @@ Object.assign(window, {
   inferMarketFromExchange, normalizeSymbolForMarket, getMarketProfile, buildYahooChartUrl, buildYahooSearchUrl,
   DEFAULT_SCORE, INDUSTRY_CFG,
   fetchOpenDartDisclosures, fetchSecFilings, fetchYahooNewsExperimental, fetchGoogleNewsRss,
-  fetchAlertsForStock, makeAlertId, pruneAlerts, summarizeWithClaude,
+  fetchAlertsForStock, makeAlertId, pruneAlerts,
   fetchYahooChartOhlc, toYahooSymbol, fetchMacroIndicators,
 });
