@@ -2605,7 +2605,8 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
   if (apiSettings.globalProvider === 'yahooExperimental') {
     const cacheKey = buildCacheKey(stock, apiSettings, mode);
     const cached = getCachedEntry(cache, cacheKey, apiSettings.cacheDays);
-    if (cached) return { ...cached.payload, cacheUpdates: {}, fromCache: true };
+    // schemaVersion 2 = timeseries fallback included; older entries lack non-US metrics
+    if (cached && (cached.schemaVersion ?? 1) >= 2) return { ...cached.payload, cacheUpdates: {}, fromCache: true };
     onStatus('Yahoo Finance 가격/재무 조회 중...');
     const yahooSym = toYahooSymbol(stock);
     try {
@@ -2623,7 +2624,7 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
       const earnData = earningsRes.status === 'fulfilled' ? earningsRes.value : null;
       const summary  = (coreSumm || stmts) ? { ...coreSumm, ...stmts, ...(earnData || {}) } : null;
       const payload = mapYahooPayload(stock, chartRes.value, yahooSym, quote, summary);
-      const entry = { fetchedAt: new Date().toISOString(), provider: 'yahooExperimental', payload };
+      const entry = { fetchedAt: new Date().toISOString(), provider: 'yahooExperimental', schemaVersion: 2, payload };
       return { ...payload, cacheUpdates: { [cacheKey]: entry } };
     } catch (e) {
       const stale = getAnyCachedEntry(cache, cacheKey);
@@ -2841,7 +2842,7 @@ async function fetchSecFinancialHistory(stock) {
 async function fetchDartFinancialHistory(stock, apiSettings, dartCorpMap) {
   const key = apiSettings?.openDartKey;
   if (!key) throw new Error('DART API 키 없음 (Settings에서 입력)');
-  const entry = getDartCorpEntry(stock, dartCorpMap);
+  const entry = getDartCorpEntry(dartCorpMap, stock);
   if (!entry?.corpCode) throw new Error('DART 기업코드 없음');
   const corpCode = entry.corpCode;
 
