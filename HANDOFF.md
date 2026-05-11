@@ -22,16 +22,16 @@ Bloomberg Terminal 스타일의 주식 투자 관리 웹 애플리케이션입�
 ## 3. 핵심 기능 및 패널 현황 (Panels)
 | 패널 | 이름 | 상태 | 주요 역할 |
 |---|---|---|---|
-| **F1** | Overview | ✅ 완료 | 기업 개요, 퀀트 스코어링 Breakdown (상대/절대평가), 핵심 지표 요약 |
+| **F1** | Overview | ✅ 완료 | 퀀트 스코어링 Breakdown (Z-Score 5팩터 + Piotroski F-Score), 핵심 지표 요약 |
 | **F2** | Pitch | ✅ 완료 | 투자 논리(Thesis), Pre-mortem(리스크), Bull/Base/Bear 가치평가 시나리오 |
-| **F3** | Valuation | ✅ 완료 | (향후 추가 고도화 가능) 현재는 F1/F2와 통합 관리 중 |
+| **F3** | Valuation | ✅ 완료 | DCF/PER/PBR 가치평가 시나리오 시뮬레이터 |
 | **F4** | History | ✅ 완료 | Research Log 작성 (날짜, 메모, 링크 등) |
-| **F5** | Chart | ✅ 완료 | Yahoo Finance 기반 캔들/라인 차트 표시 |
-| **F6** | Alerts | ✅ 완료 | 설정한 키워드 기반 Google News, OpenDART 공시 알림 자동 수집 |
+| **F5** | Chart | ✅ 완료 | Yahoo Finance 기반 캔들/라인 차트, MA/Volume 오버레이 |
+| **F6** | Alerts | ✅ 완료 | 키워드 기반 Google News + OpenDART 공시 알림 자동 수집 |
 | **F7** | Peers | ✅ 완료 | 워치리스트 내 경쟁사/유사 기업 상대 지표 비교 (Peer Analysis) |
-| **F8~10** | Check/Cal/Jour | 🗓️ 대기 | 체크리스트, 캘린더, 투자 일지 (현재 Placeholder) |
-| **F11** | Portfolio | 🗓️ 대기 | 개인 포트폴리오 비중 및 통합 성과 추적 (LLM 연동 예정) |
-| **F12** | Settings | ✅ 완료 | API 키 관리(FMP, Alpha, DART 등), JSON 백업/복원, 캐시 초기화 |
+| **F8** | Journal | ✅ 완료 | 매매 판단 일지 (BUY/SELL/REVIEW 캡처, 결과 기록) |
+| **F9** | Settings | ✅ 완료 | API 키 관리(FMP, Alpha, DART 등), JSON 백업/복원, 캐시 초기화 |
+| **F10** | Screen | ✅ 완료 | **EQS Screener** — 워치리스트 내 종목 조건 필터링 (프리셋 4종 + 커스텀 최대 8조건) |
 
 ## 4. 퀀트 스코어링 엔진 (Quant Engine)
 - 기존의 단순 절대평가(Absolute Threshold) 방식에서 **시장 기준점 기반 상대평가(Market Baseline-Anchored Z-Score)** 방식으로 개편 (Phase 5).
@@ -57,6 +57,10 @@ overall = zToScore(zComp)       ← 0~100 백분위
 - **Alpha Vantage ROIC**: Alpha Vantage OVERVIEW API는 ROIC를 제공하지 않으므로 `roa` 키로 저장하고 ROIC는 채우지 않음. ROIC 누락 시 자동으로 Quality 평균 산출에서 제외됨.
 
 ## 5. 변경 이력 (Recent Change Log)
+- **2026-05-11 (Month 1~2 — IB-grade Risk + EQS Screener)**:
+  - **Piotroski F-Score (7점)**: `computePiotroski()` 추가. ROE+, FCF+, OP>avg, D/E↓, CR>1, Rev+, EPS+ 7개 바이너리 신호 합산. F1 ScoreBreakdown 하단에 STRONG/NEUTRAL/WEAK 표시.
+  - **Risk Guard 8개 확장**: 기존 5개 플래그 → 유동성 위기(CR<1 & D/E>150%), 매출 급감(<-15%), 영업손실 3개 추가. 플래그당 패널티 0.5→0.4 조정.
+  - **F10 EQS Screener**: 새 패널 추가. CapIQ Screening 무료 대체. 프리셋 4종(Quality Compounder, Deep Value, High Momentum, Safe & Stable) + 커스텀 조건 최대 8개. 결과에 필터 지표값 + Overall Score + Piotroski 병렬 표시.
 - **2026-05-11 (Phase 5 버그픽스 — 스코어링 정합성 수정)**:
   - **Risk Guard 미반영 버그 수정**: `computeQuantScores`가 `riskFlags`를 계산은 했으나 `zComp`에 반영하지 않고 있었음 (`weights.risk: 0`). 이제 플래그당 −0.5 z-score 패널티를 적용하여 Overall 점수를 직접 낮춤. `SCORING_METHODOLOGY.md`에서 약속한 Risk Guard 감점 로직이 실제로 구현됨.
   - **누락 데이터 → 평균값 오염 버그 수정**: `zScoreMarket`이 `null`/`NaN` 입력 시 `0`(= 시장 평균과 동일)을 반환하여 미입력 지표가 '평균 기업'처럼 처리되던 문제를 수정. 이제 `null` 반환 후 `nonNullArray` 필터로 제외하므로 보유한 지표만으로 정확히 평균을 냄.
@@ -79,6 +83,11 @@ overall = zToScore(zComp)       ← 0~100 백분위
 
 ## 6. 중장기 개발 대전략 (Grand Strategy Roadmap)
 앞으로의 기능 개선 및 추가 계획을 Phase 별로 구분하여 관리합니다.
+
+### ✅ Month 1~2 (완료): IB-Grade Risk Engine + EQS Screener
+- Piotroski F-Score (7점 간이 버전) — F1 ScoreBreakdown 표시
+- Risk Guard 5개 → 8개 확장 (유동성위기, 매출급감, 영업손실 추가)
+- F10 EQS Screener — 프리셋 4종 + 커스텀 8조건 필터
 
 ### 🚀 Phase 8: Automation & Notifications (외부 연동 및 자동화)
 현재 수동으로 확인해야 하는 데이터와 알림을 능동적으로 사용자에게 전달합니다.

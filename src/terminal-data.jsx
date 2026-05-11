@@ -551,6 +551,24 @@ function zToScore(z) {
   return Math.round(50*(1+erf((z||0)/Math.SQRT2)));
 }
 
+function computePiotroski(metrics, ind) {
+  const cfg = MARKET_BASELINES[ind] || MARKET_BASELINES.ALL;
+  const get = key => toNumber(metrics?.[key]);
+  let score = 0;
+  const signals = [];
+  // Profitability
+  if (Number.isFinite(get('roe'))         && get('roe') > 0)                        { score++; signals.push('ROE+'); }
+  if (Number.isFinite(get('fcfMargin'))   && get('fcfMargin') > 0)                  { score++; signals.push('FCF+'); }
+  if (Number.isFinite(get('opMargin'))    && get('opMargin') > cfg.opMargin.m)      { score++; signals.push('OP>avg'); }
+  // Leverage & Liquidity
+  if (Number.isFinite(get('debtRatio'))   && get('debtRatio') < cfg.debtRatio.m)    { score++; signals.push('D/E↓'); }
+  if (Number.isFinite(get('currentRatio'))&& get('currentRatio') > 100)              { score++; signals.push('CR>1'); }
+  // Growth
+  if (Number.isFinite(get('revGrowth'))   && get('revGrowth') > 0)                  { score++; signals.push('Rev+'); }
+  if (Number.isFinite(get('epsGrowth'))   && get('epsGrowth') > 0)                  { score++; signals.push('EPS+'); }
+  return { score, signals };
+}
+
 function computeQuantScores(universe) {
   const N = universe.length;
   const getMetric = (s, key) => toNumber(s.metrics?.[key]);
@@ -594,9 +612,14 @@ function computeQuantScores(universe) {
       getMetric(stock, 'debtRatio') > 250,
       rawPer > 60,
       rawPer <= 0 && getMetric(stock, 'roe') < 0,
+      getMetric(stock, 'currentRatio') < 100 && getMetric(stock, 'debtRatio') > 150,
+      getMetric(stock, 'revGrowth') < -15,
+      getMetric(stock, 'opMargin') < 0,
     ].filter(Boolean).length;
-    const riskPenalty = riskFlags * 0.5;
+    const riskPenalty = riskFlags * 0.4;
     const zComp = 0.3 * valueNeut + 0.3 * qualityNeut + 0.2 * safetyNeut + 0.2 * growthNeut - riskPenalty;
+
+    const pio = computePiotroski(stock.metrics, ind);
 
     updates[stock.id] = {
       overall: zToScore(zComp),
@@ -604,8 +627,11 @@ function computeQuantScores(universe) {
       stability: zToScore(safetyNeut),
       growth: zToScore(growthNeut),
       valuation: zToScore(valueNeut),
-      risk: clamp(100 - riskFlags * 20),
+      risk: clamp(100 - riskFlags * 13),
       riskFlagCount: riskFlags,
+      riskFlagMax: 8,
+      piotroskiScore: pio.score,
+      piotroskiSignals: pio.signals,
       weights: { profitability: 30, stability: 20, growth: 20, valuation: 30, risk: 10 },
       industryGroup: stock.industryGroup || null,
       isRelative: true

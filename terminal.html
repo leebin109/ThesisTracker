@@ -1609,6 +1609,24 @@ function zToScore(z) {
   return Math.round(50*(1+erf((z||0)/Math.SQRT2)));
 }
 
+function computePiotroski(metrics, ind) {
+  const cfg = MARKET_BASELINES[ind] || MARKET_BASELINES.ALL;
+  const get = key => toNumber(metrics?.[key]);
+  let score = 0;
+  const signals = [];
+  // Profitability
+  if (Number.isFinite(get('roe'))         && get('roe') > 0)                        { score++; signals.push('ROE+'); }
+  if (Number.isFinite(get('fcfMargin'))   && get('fcfMargin') > 0)                  { score++; signals.push('FCF+'); }
+  if (Number.isFinite(get('opMargin'))    && get('opMargin') > cfg.opMargin.m)      { score++; signals.push('OP>avg'); }
+  // Leverage & Liquidity
+  if (Number.isFinite(get('debtRatio'))   && get('debtRatio') < cfg.debtRatio.m)    { score++; signals.push('D/E↓'); }
+  if (Number.isFinite(get('currentRatio'))&& get('currentRatio') > 100)              { score++; signals.push('CR>1'); }
+  // Growth
+  if (Number.isFinite(get('revGrowth'))   && get('revGrowth') > 0)                  { score++; signals.push('Rev+'); }
+  if (Number.isFinite(get('epsGrowth'))   && get('epsGrowth') > 0)                  { score++; signals.push('EPS+'); }
+  return { score, signals };
+}
+
 function computeQuantScores(universe) {
   const N = universe.length;
   const getMetric = (s, key) => toNumber(s.metrics?.[key]);
@@ -1652,9 +1670,14 @@ function computeQuantScores(universe) {
       getMetric(stock, 'debtRatio') > 250,
       rawPer > 60,
       rawPer <= 0 && getMetric(stock, 'roe') < 0,
+      getMetric(stock, 'currentRatio') < 100 && getMetric(stock, 'debtRatio') > 150,
+      getMetric(stock, 'revGrowth') < -15,
+      getMetric(stock, 'opMargin') < 0,
     ].filter(Boolean).length;
-    const riskPenalty = riskFlags * 0.5;
+    const riskPenalty = riskFlags * 0.4;
     const zComp = 0.3 * valueNeut + 0.3 * qualityNeut + 0.2 * safetyNeut + 0.2 * growthNeut - riskPenalty;
+
+    const pio = computePiotroski(stock.metrics, ind);
 
     updates[stock.id] = {
       overall: zToScore(zComp),
@@ -1662,8 +1685,11 @@ function computeQuantScores(universe) {
       stability: zToScore(safetyNeut),
       growth: zToScore(growthNeut),
       valuation: zToScore(valueNeut),
-      risk: clamp(100 - riskFlags * 20),
+      risk: clamp(100 - riskFlags * 13),
       riskFlagCount: riskFlags,
+      riskFlagMax: 8,
+      piotroskiScore: pio.score,
+      piotroskiSignals: pio.signals,
       weights: { profitability: 30, stability: 20, growth: 20, valuation: 30, risk: 10 },
       industryGroup: stock.industryGroup || null,
       isRelative: true
@@ -2907,6 +2933,7 @@ const PANEL_DEFS = [
   { k: 'F7', label: 'PEERS', short: 'PEER' },
   { k: 'F8', label: 'JOURNAL', short: 'JRN' },
   { k: 'F9', label: 'SETTINGS', short: 'DATA' },
+  { k: 'F10', label: 'SCREEN', short: 'SCR' },
 ];
 
 const BACKUP_SCHEMA_VERSION = 2;
@@ -3190,7 +3217,8 @@ const SCORE_TOOLTIPS = {
   stability:     'SAFETY 팩터 (Cross-sectional Z-Score)\n부채비율(Debt/Eq), 유동비율(Cur Ratio) 종합\n워치리스트/섹터 내 상대 평가',
   growth:        'GROWTH 팩터 (Cross-sectional Z-Score)\n매출 성장률, EPS 성장률 종합\n워치리스트/섹터 내 상대 평가',
   valuation:     'VALUE 팩터 (Cross-sectional Z-Score)\nPER, PBR, EV/EBITDA 종합 (낮을수록 고득점)\n워치리스트/섹터 내 상대 평가',
-  risk:          'RISK 플래그\n아래 플래그 1개당 감점:\n· EPS 성장률 < -15%\n· FCF 마진 < -5%\n· 부채비율 > 250%\n· PER > 60\n· 적자 (PER<=0 & ROE<0)',
+  risk:          'RISK 플래그 (8개 체크)\n· EPS 성장률 < -15%\n· FCF 마진 < -5%\n· 부채비율 > 250%\n· PER > 60\n· 적자 (PER<=0 & ROE<0)\n· 유동성 위기 (CR<1 & D/E>150%)\n· 매출 급감 < -15%\n· 영업손실 (OP<0)',
+  piotroski:     'Piotroski F-Score (7점)\n수익성·레버리지·성장 7개 바이너리 신호\n6~7: STRONG · 4~5: NEUTRAL · 0~3: WEAK\n(ROE+, FCF+, OP>avg, D/E↓, CR>1, Rev+, EPS+)',
 };
 
 function ScoreBreakdown({ scores, activeDim, onDimClick }) {
@@ -3210,7 +3238,8 @@ function ScoreBreakdown({ scores, activeDim, onDimClick }) {
           const v = scores[d.key];
           const w = scores.weights?.[d.key] ?? 20;
           const isRisk = d.key === 'risk';
-          const flagCount = isRisk ? (scores.riskFlagCount ?? Math.round((100 - (v || 0)) / 22)) : null;
+          const flagMax = scores.riskFlagMax ?? 5;
+          const flagCount = isRisk ? (scores.riskFlagCount ?? Math.round((100 - (v || 0)) / 13)) : null;
           const isActive = activeDim === d.key;
           const isDimmed = activeDim && !isActive;
           return (
@@ -3234,7 +3263,7 @@ function ScoreBreakdown({ scores, activeDim, onDimClick }) {
                 {isRisk ? (
                   <span style={{ fontSize: 10.5, fontVariantNumeric: 'tabular-nums' }}>
                     <span style={{ fontWeight: 700, color: flagCount === 0 ? T.green : flagCount <= 2 ? T.yellow : T.red }}>{flagCount}</span>
-                    <span style={{ color: T.inkFaint, fontWeight: 400 }}>/5 flags</span>
+                    <span style={{ color: T.inkFaint, fontWeight: 400 }}>/{flagMax} flags</span>
                     <span style={{ color: T.inkFaint, fontWeight: 400, fontSize: 9, marginLeft: 6 }}>{w}%</span>
                   </span>
                 ) : (
@@ -3248,11 +3277,195 @@ function ScoreBreakdown({ scores, activeDim, onDimClick }) {
             </div>
           );
         })}
+        {Number.isFinite(scores.piotroskiScore) && (() => {
+          const pio = scores.piotroskiScore;
+          const pioColor = pio >= 6 ? T.green : pio >= 4 ? T.yellow : T.red;
+          return (
+            <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 8, marginTop: 2, position: 'relative' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ fontSize: 9.5, color: T.inkFaint, letterSpacing: '0.1em' }}>PIOTROSKI F</span>
+                  <span
+                    onMouseEnter={() => {}} onMouseLeave={() => {}}
+                    title={SCORE_TOOLTIPS.piotroski}
+                    style={{ fontSize: 8.5, color: T.inkFaint, border: `1px solid ${T.border}`, borderRadius: '50%', width: 13, height: 13, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'default', flexShrink: 0 }}
+                  >?</span>
+                </div>
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: pioColor }}>
+                  {pio}<span style={{ color: T.inkFaint, fontWeight: 400 }}>/7 · {pio >= 6 ? 'STRONG' : pio >= 4 ? 'NEUTRAL' : 'WEAK'}</span>
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                {(scores.piotroskiSignals || []).map(sig => (
+                  <span key={sig} style={{ fontSize: 8, color: T.green, border: `1px solid ${T.green}40`, padding: '1px 5px', letterSpacing: '0.04em' }}>{sig}</span>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
         {activeDim && (
           <div style={{ fontSize: 9, color: T.inkFaint, textAlign: 'center', marginTop: 2 }}>클릭하면 필터 해제</div>
         )}
       </div>
     </Cell>
+  );
+}
+
+// ─── EQS Screener Panel ────────────────────────────────────────────────────────
+const SCR_FIELDS = [
+  { key: 'per',            label: 'P/E Ratio',     unit: 'x' },
+  { key: 'pbr',            label: 'P/B Ratio',     unit: 'x' },
+  { key: 'evEbitda',       label: 'EV/EBITDA',     unit: 'x' },
+  { key: 'roe',            label: 'ROE',            unit: '%' },
+  { key: 'roic',           label: 'ROIC',           unit: '%' },
+  { key: 'opMargin',       label: 'OP Margin',      unit: '%' },
+  { key: 'gpa',            label: 'GP/Assets',      unit: '%' },
+  { key: 'debtRatio',      label: 'Debt/Equity',    unit: '%' },
+  { key: 'currentRatio',   label: 'Current Ratio',  unit: '%' },
+  { key: 'revGrowth',      label: 'Rev Growth',     unit: '%' },
+  { key: 'epsGrowth',      label: 'EPS Growth',     unit: '%' },
+  { key: 'fcfMargin',      label: 'FCF Margin',     unit: '%' },
+  { key: 'overall',        label: 'Overall Score',  unit: 'pt', isScore: true },
+  { key: 'piotroskiScore', label: 'Piotroski F',    unit: '/7', isScore: true },
+];
+
+const SCR_TEMPLATES = [
+  { name: 'Quality Compounder', filters: [
+    { field: 'roe', op: '>', value: '15' }, { field: 'revGrowth', op: '>', value: '10' },
+    { field: 'debtRatio', op: '<', value: '100' }, { field: 'opMargin', op: '>', value: '15' },
+  ]},
+  { name: 'Deep Value', filters: [
+    { field: 'per', op: '<', value: '12' }, { field: 'pbr', op: '<', value: '1.5' },
+    { field: 'debtRatio', op: '<', value: '100' },
+  ]},
+  { name: 'High Momentum', filters: [
+    { field: 'revGrowth', op: '>', value: '20' }, { field: 'epsGrowth', op: '>', value: '20' },
+    { field: 'fcfMargin', op: '>', value: '5' },
+  ]},
+  { name: 'Safe & Stable', filters: [
+    { field: 'debtRatio', op: '<', value: '80' }, { field: 'currentRatio', op: '>', value: '150' },
+    { field: 'fcfMargin', op: '>', value: '5' }, { field: 'piotroskiScore', op: '>=', value: '5' },
+  ]},
+];
+
+function ScreenerPanel({ stocks, watchlistIds }) {
+  const blank = () => ({ field: 'roe', op: '>', value: '' });
+  const [filters, setFilters] = useState([blank()]);
+  const [results, setResults] = useState(null);
+
+  const universe = (watchlistIds || []).map(id => stocks[id]).filter(Boolean);
+
+  const getVal = (stock, field) => {
+    const fd = SCR_FIELDS.find(f => f.key === field);
+    return toNumber(fd?.isScore ? stock.scores?.[field] : stock.metrics?.[field]);
+  };
+
+  const runScreen = (fs) => {
+    const valid = fs.filter(f => f.field && f.op && f.value !== '' && Number.isFinite(Number(f.value)));
+    setResults(universe.filter(stock => valid.every(f => {
+      const v = getVal(stock, f.field); if (!Number.isFinite(v)) return false;
+      const t = Number(f.value);
+      return f.op === '>' ? v > t : f.op === '<' ? v < t : f.op === '>=' ? v >= t : f.op === '<=' ? v <= t : Math.abs(v - t) < 0.001;
+    })));
+  };
+
+  const upd = (i, patch) => setFilters(f => f.map((r, j) => j === i ? { ...r, ...patch } : r));
+  const ss = { background: T.surface, border: `1px solid ${T.border}`, color: T.ink, padding: '4px 8px', fontSize: 11, outline: 'none', cursor: 'pointer' };
+  const bs = { background: 'transparent', border: `1px solid ${T.border}`, color: T.inkDim, padding: '4px 12px', fontSize: 10, cursor: 'pointer', letterSpacing: '0.06em' };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, height: '100%', overflowY: 'auto', paddingBottom: 16 }}>
+      <div>
+        <div style={{ fontSize: 11, color: T.amber, letterSpacing: '0.12em', fontWeight: 700, marginBottom: 2 }}>EQS SCREENER</div>
+        <div style={{ fontSize: 9, color: T.inkFaint }}>워치리스트 {universe.length}개 종목 대상 · 조건 모두 충족하는 종목 필터링</div>
+      </div>
+
+      <div>
+        <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.1em', marginBottom: 6 }}>PRESET SCREENS</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {SCR_TEMPLATES.map(t => (
+            <button key={t.name} onClick={() => { setFilters(t.filters); setResults(null); }} style={{ ...bs, color: T.ink }}>
+              {t.name.toUpperCase()}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.1em', marginBottom: 6 }}>FILTER CONDITIONS</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {filters.map((f, i) => (
+            <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <select value={f.field} onChange={e => upd(i, { field: e.target.value })} style={ss}>
+                {SCR_FIELDS.map(fd => <option key={fd.key} value={fd.key}>{fd.label} ({fd.unit})</option>)}
+              </select>
+              <select value={f.op} onChange={e => upd(i, { op: e.target.value })} style={{ ...ss, width: 54 }}>
+                {['>', '<', '>=', '<=', '='].map(op => <option key={op}>{op}</option>)}
+              </select>
+              <input type="number" value={f.value} onChange={e => upd(i, { value: e.target.value })}
+                placeholder="값" style={{ ...ss, width: 80 }} />
+              {filters.length > 1 && (
+                <button onClick={() => setFilters(f => f.filter((_, j) => j !== i))}
+                  style={{ ...bs, color: T.red, border: `1px solid ${T.red}55`, padding: '4px 8px' }}>✕</button>
+              )}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          {filters.length < 8 && <button onClick={() => setFilters(f => [...f, blank()])} style={bs}>+ 조건 추가</button>}
+          <button onClick={() => runScreen(filters)} style={{ ...bs, color: T.amber, border: `1px solid ${T.amber}` }}>
+            ▶ SCREEN
+          </button>
+          {results !== null && <button onClick={() => setResults(null)} style={bs}>RESET</button>}
+        </div>
+      </div>
+
+      {results !== null && (
+        <div>
+          <div style={{ fontSize: 9.5, marginBottom: 8, color: results.length ? T.green : T.inkFaint, letterSpacing: '0.08em' }}>
+            {results.length ? `✓ ${results.length} / ${universe.length} 종목 매칭` : `✗ 조건을 만족하는 종목 없음 (${universe.length}종목 중)`}
+          </div>
+          {results.map(stock => {
+            const pio = stock.scores?.piotroskiScore;
+            const overall = stock.scores?.overall;
+            const pioColor = Number.isFinite(pio) ? (pio >= 6 ? T.green : pio >= 4 ? T.yellow : T.red) : T.inkFaint;
+            const activeFields = filters.filter(f => f.field && f.value !== '');
+            return (
+              <div key={stock.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 14px', marginBottom: 5, background: T.surface, border: `1px solid ${T.border}` }}>
+                <div style={{ minWidth: 100 }}>
+                  <div style={{ fontSize: 11.5, color: T.ink, fontWeight: 700 }}>{stock.symbol}</div>
+                  <div style={{ fontSize: 9, color: T.inkFaint, marginTop: 1, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stock.name}</div>
+                </div>
+                <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  {activeFields.slice(0, 4).map((f, i) => {
+                    const fd = SCR_FIELDS.find(fd => fd.key === f.field);
+                    const val = getVal(stock, f.field);
+                    return (
+                      <div key={i} style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 8, color: T.inkFaint }}>{fd?.label}</div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: T.amber, fontVariantNumeric: 'tabular-nums' }}>
+                          {Number.isFinite(val) ? (Math.abs(val) >= 100 ? Math.round(val) : val.toFixed(1)) : '–'}{fd?.unit === 'x' ? 'x' : fd?.unit === '%' ? '' : ''}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div style={{ textAlign: 'right', borderLeft: `1px solid ${T.border}`, paddingLeft: 12 }}>
+                    <div style={{ fontSize: 8, color: T.inkFaint }}>SCORE</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.amber }}>{Number.isFinite(overall) ? overall : '–'}</div>
+                  </div>
+                  {Number.isFinite(pio) && (
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 8, color: T.inkFaint }}>F-PIO</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: pioColor }}>{pio}/7</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -5984,6 +6197,9 @@ function App({ initialData }) {
         onImportBackup={handleImportBackup}
         onReloadDartMap={() => loadLocalDartMap(true)}
       />
+    ),
+    F10: (
+      <ScreenerPanel stocks={stocks} watchlistIds={watchlistIds}/>
     ),
   };
 
