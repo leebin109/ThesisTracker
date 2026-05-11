@@ -1019,21 +1019,20 @@ function PeersPanel({ stock, stocks, watchlistIds, onSelect, onSavePeers }) {
   const [editing, setEditing] = React.useState(false);
   const [sortBy, setSortBy] = React.useState(null);
   const [sortDir, setSortDir] = React.useState(1);
-  const hasExplicit = (stock.peers || []).filter(id => id !== stock.id && stocks[id]).length > 0;
+  const hasExplicit = Array.isArray(stock.peers);
 
   const peerIds = useMemo(() => {
-    const explicit = (stock.peers || []).filter(id => id !== stock.id && stocks[id]);
-    const fallback = watchlistIds.filter(id => id !== stock.id && stocks[id]);
-    return explicit.length ? explicit : fallback;
+    if (hasExplicit) return stock.peers.filter(id => id !== stock.id && stocks[id]);
+    return watchlistIds.filter(id => id !== stock.id && stocks[id]);
   }, [stock, stocks, watchlistIds]);
 
-  const allCandidates = watchlistIds.filter(id => id !== stock.id && stocks[id]);
-  const selectedSet = new Set(hasExplicit ? (stock.peers || []).filter(id => stocks[id] && id !== stock.id) : allCandidates.map(id => id));
+  const allCandidates = Object.keys(stocks).filter(id => id !== stock.id);
+  const selectedSet = new Set(hasExplicit ? stock.peers.filter(id => stocks[id] && id !== stock.id) : watchlistIds.filter(id => id !== stock.id && stocks[id]));
 
   const togglePeer = (id) => {
     const current = hasExplicit
-      ? (stock.peers || []).filter(i => stocks[i] && i !== stock.id)
-      : allCandidates.map(i => i);
+      ? stock.peers.filter(i => stocks[i] && i !== stock.id)
+      : watchlistIds.filter(i => stocks[i] && i !== stock.id);
     const next = current.includes(id) ? current.filter(i => i !== id) : [...current, id];
     onSavePeers?.(stock.id, next);
   };
