@@ -7,6 +7,7 @@
 /* global fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp */
 /* global fetchYahooChartOhlc, toYahooSymbol */
 /* global fetchAlertsForStock, pruneAlerts */
+/* global fetchSecFinancialHistory, fetchDartFinancialHistory */
 /* global normalizeKrxStockCode, getDartCorpEntry, fetchLocalDartCorpMap */
 /* global inferMarketFromExchange, normalizeSymbolForMarket, getMarketProfile, buildYahooChartUrl, MARKET_PROFILES, COUNTRY_FLAGS, SCORE_CFG */
 /* global useTweaks, TweaksPanel */
@@ -109,6 +110,7 @@ function makeBlankStock(patch = {}) {
     calendarEvents: [],
     journal: [],
     peers: [],
+    metricsHistory: [],
     ...patch,
   };
 }
@@ -137,7 +139,7 @@ function normalizeStockRecord(stock, fallbackId = '') {
     note: stock?.valuation?.note || '',
   };
   next.review = { ...base.review, ...(stock?.review || {}) };
-  for (const key of ['thesis', 'catalysts', 'risks', 'numbersToWatch', 'scoreHistory', 'priceHistory', 'notes', 'preMortem', 'checklist', 'calendarEvents', 'journal', 'peers']) {
+  for (const key of ['thesis', 'catalysts', 'risks', 'numbersToWatch', 'scoreHistory', 'priceHistory', 'notes', 'preMortem', 'checklist', 'calendarEvents', 'journal', 'peers', 'metricsHistory']) {
     next[key] = Array.isArray(stock?.[key]) ? stock[key] : [];
   }
   return next;
@@ -599,13 +601,151 @@ function ScreenerPanel({ stocks, watchlistIds }) {
   );
 }
 
+// ─── Financial History ────────────────────────────────────────────────────────
+function HistoryTable({ history }) {
+  const sorted = [...history].sort((a, b) => a.fy - b.fy);
+  const isKRW = sorted[0]?.currency === 'KRW';
+  const unit = sorted[0]?.unit || (isKRW ? '억원' : 'M USD');
+
+  const calcYoy = (curr, prev) => {
+    if (curr == null || prev == null || prev === 0) return null;
+    return Math.round((curr - prev) / Math.abs(prev) * 1000) / 10;
+  };
+
+  const rows = [
+    { label: 'REVENUE',   key: 'revenue',   fmt: v => v != null ? fmtNum(v, { dp: 0 }) : '–' },
+    { label: 'OP INCOME', key: 'opIncome',  fmt: v => v != null ? fmtNum(v, { dp: 0 }) : '–' },
+    { label: 'FCF',       key: 'fcf',       fmt: v => v != null ? fmtNum(v, { dp: 0 }) : '–' },
+    { label: 'OP MARGIN', key: 'opMargin',  fmt: v => v != null ? safeFixed(v, 1) + '%' : '–', isMargin: true },
+    { label: 'EPS',       key: 'eps',       fmt: v => v != null ? (isKRW ? fmtNum(v, { dp: 0 }) : safeFixed(v, 2)) : '–' },
+  ];
+
+  const tdBase = { padding: '5px 10px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ borderCollapse: 'collapse', fontSize: 10.5, width: '100%' }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left', color: T.inkFaint, fontSize: 9, letterSpacing: '0.1em', padding: '3px 10px 3px 0', minWidth: 72 }}>
+              ({unit})
+            </th>
+            {sorted.map(r => (
+              <th key={r.fy} style={{ textAlign: 'right', color: T.inkFaint, fontSize: 9, letterSpacing: '0.1em', padding: '3px 10px' }}>
+                FY{r.fy}
+              </th>
+            ))}
+            <th style={{ textAlign: 'right', color: T.inkFaint, fontSize: 9, letterSpacing: '0.1em', padding: '3px 10px' }}>YoY</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ label, key, fmt, isMargin }) => {
+            const lastTwo = sorted.slice(-2);
+            const yoy = lastTwo.length === 2 ? calcYoy(lastTwo[1][key], lastTwo[0][key]) : null;
+            const vals = sorted.map(r => r[key]).filter(v => v != null && v > 0);
+            const maxVal = vals.length ? Math.max(...vals) : 1;
+            return (
+              <tr key={key} style={{ borderTop: `1px solid ${T.border}` }}>
+                <td style={{ ...tdBase, color: T.inkFaint, fontSize: 9, letterSpacing: '0.1em', paddingLeft: 0 }}>{label}</td>
+                {sorted.map(r => {
+                  const v = r[key];
+                  const isLast = r.fy === sorted.at(-1)?.fy;
+                  const barH = (!isMargin && v != null && v > 0) ? Math.max(2, Math.round((v / maxVal) * 14)) : 0;
+                  const valueColor = isMargin
+                    ? (v > 0 ? T.green : v < 0 ? T.red : T.inkDim)
+                    : key === 'opIncome' || key === 'fcf'
+                      ? (v != null && v < 0 ? T.red : T.ink)
+                      : T.ink;
+                  return (
+                    <td key={r.fy} style={{
+                      ...tdBase, textAlign: 'right', position: 'relative', color: valueColor,
+                      background: isLast ? `${T.amber}0A` : 'transparent',
+                      borderLeft: isLast ? `1px solid ${T.amber}33` : 'none',
+                    }}>
+                      {barH > 0 && (
+                        <span style={{ position: 'absolute', bottom: 2, left: '50%', transform: 'translateX(-50%)', width: 3, height: barH, background: `${T.amber}55`, borderRadius: 1 }}/>
+                      )}
+                      {fmt(v)}
+                    </td>
+                  );
+                })}
+                <td style={{ ...tdBase, textAlign: 'right', fontWeight: 700,
+                  color: yoy == null ? T.inkFaint : yoy > 0 ? T.green : T.red }}>
+                  {yoy != null ? `${yoy > 0 ? '+' : ''}${yoy}%` : '–'}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function FinancialHistorySection({ stock, apiSettings, dartCorpMap, onSaveHistory }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState('');
+  const history = stock.metricsHistory || [];
+  const isKRX   = stock.currency === 'KRW' || stock.market === 'KRX' || stock.country === '한국';
+
+  const handleFetch = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = isKRX
+        ? await fetchDartFinancialHistory(stock, apiSettings, dartCorpMap)
+        : await fetchSecFinancialHistory(stock);
+      if (!data?.length) throw new Error('데이터 없음');
+      onSaveHistory(stock.id, data);
+    } catch (e) {
+      setError(e.message || '수집 실패');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Cell label="5Y FINANCIAL HISTORY" accent={T.amber} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <button onClick={handleFetch} disabled={loading}
+            style={{ ...btnSt, color: T.amber, border: `1px solid ${T.amber}`, padding: '3px 10px', fontSize: 10 }}>
+            {loading ? '수집 중...' : '↻ FETCH HISTORY'}
+          </button>
+          {error && <span style={{ fontSize: 10, color: T.red }}>{error}</span>}
+          {!error && history.length > 0 && (
+            <span style={{ fontSize: 9, color: T.inkFaint }}>
+              {history[0]?.source} · {history.length}개 연도 · FY{history.at(-1)?.fy}–FY{history[0]?.fy}
+            </span>
+          )}
+          {!error && history.length === 0 && !loading && (
+            <span style={{ fontSize: 9, color: T.inkFaint }}>
+              {isKRX ? 'DART API 키 필요 (Settings)' : 'SEC EDGAR 자동 수집'}
+            </span>
+          )}
+        </div>
+        {history.length === 0 ? (
+          <div style={{ color: T.inkFaint, fontSize: 11 }}>히스토리 없음 — FETCH HISTORY 버튼으로 수집</div>
+        ) : (
+          <HistoryTable history={history}/>
+        )}
+      </div>
+    </Cell>
+  );
+}
+
 // ─── Overview panel (wraps ScoreBreakdown + MetricsGrid with shared activeDim) ─
-function OverviewPanel({ stock }) {
+function OverviewPanel({ stock, apiSettings, dartCorpMap, onSaveHistory }) {
   const [activeDim, setActiveDim] = useState(null);
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 8, height: '100%' }}>
-      <ScoreBreakdown scores={stock.scores} activeDim={activeDim} onDimClick={setActiveDim}/>
-      <MetricsGrid metrics={stock.metrics} currency={stock.currency} activeDim={activeDim} refreshedAt={stock.refreshedAt}/>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', minHeight: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 8, flex: '0 0 auto' }}>
+        <ScoreBreakdown scores={stock.scores} activeDim={activeDim} onDimClick={setActiveDim}/>
+        <MetricsGrid metrics={stock.metrics} currency={stock.currency} activeDim={activeDim} refreshedAt={stock.refreshedAt}/>
+      </div>
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <FinancialHistorySection stock={stock} apiSettings={apiSettings} dartCorpMap={dartCorpMap} onSaveHistory={onSaveHistory}/>
+      </div>
     </div>
   );
 }
@@ -3013,6 +3153,11 @@ function App({ initialData }) {
     toast('프리모템 지표 저장 완료', 'ok');
   }, [toast]);
 
+  const handleSaveHistory = useCallback((stockId, metricsHistory) => {
+    setStocks(prev => ({ ...prev, [stockId]: { ...prev[stockId], metricsHistory } }));
+    toast(`${stockId} 5년 재무 히스토리 저장 완료 (${metricsHistory.length}개 연도)`, 'ok');
+  }, [toast]);
+
   // ── Alert actions (Phase 2) ────────────────────────────────────────────────
   const handleSavePeers = useCallback((stockId, peers) => {
     setStocks(prev => ({ ...prev, [stockId]: { ...prev[stockId], peers } }));
@@ -3260,7 +3405,7 @@ function App({ initialData }) {
 
   // ── Panel content ──────────────────────────────────────────────────────────
   const panelContent = {
-    F1: <OverviewPanel stock={stock}/>,
+    F1: <OverviewPanel stock={stock} apiSettings={apiSettings} dartCorpMap={dartCorpMap} onSaveHistory={handleSaveHistory}/>,
     F2: (
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 8, height: '100%' }}>
         <PitchPanel stock={stock} onEditPitch={setPitchEditId} onCaptureJournal={handleCaptureJournal}/>

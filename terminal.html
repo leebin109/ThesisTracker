@@ -2549,6 +2549,155 @@ function formatDartDate(d) {
 }
 
 const SEC_FILING_FORMS = new Set(['10-K', '10-Q', '8-K', '20-F', '40-F', '6-K', 'S-1', 'S-3', 'DEF 14A']);
+
+// ═══════════════════════════════════════════════════════════════
+// 5-Year Financial History
+// ═══════════════════════════════════════════════════════════════
+
+const SEC_CONCEPTS = {
+  revenue:   ['Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax', 'SalesRevenueNet', 'RevenueFromContractWithCustomerIncludingAssessedTax'],
+  opIncome:  ['OperatingIncomeLoss'],
+  netIncome: ['NetIncomeLoss', 'ProfitLoss'],
+  ocf:       ['NetCashProvidedByUsedInOperatingActivities'],
+  capex:     ['PaymentsToAcquirePropertyPlantAndEquipment', 'CapitalExpenditures'],
+  eps:       ['EarningsPerShareDiluted', 'EarningsPerShareBasic'],
+};
+
+function pickAnnualFY(gaap, concepts) {
+  for (const concept of concepts) {
+    const entries = gaap[concept]?.units?.USD || [];
+    const byFY = {};
+    for (const e of entries) {
+      if (e.form !== '10-K' && e.form !== '20-F') continue;
+      const fy = Number(e.end?.slice(0, 4));
+      if (!Number.isFinite(fy)) continue;
+      if (!byFY[fy] || e.filed > byFY[fy].filed) byFY[fy] = e;
+    }
+    const sorted = Object.values(byFY).sort((a, b) => b.end.localeCompare(a.end)).slice(0, 5);
+    if (sorted.length > 0) return sorted;
+  }
+  return [];
+}
+
+async function fetchSecFinancialHistory(stock) {
+  if (!isSecEligibleStock(stock)) throw new Error('미국 상장 종목만 지원');
+  const company = await resolveSecCompany(stock);
+  const url = buildSecApiUrl(`companyfacts/CIK${company.cik}.json`);
+  const res = await fetch(url, { headers: { 'User-Agent': 'ThesisTrack research@example.com', 'Accept': 'application/json' } });
+  if (!res.ok) throw new Error(`SEC companyfacts HTTP ${res.status}`);
+  const data = await res.json();
+  const gaap = data?.facts?.['us-gaap'] || {};
+
+  const revArr   = pickAnnualFY(gaap, SEC_CONCEPTS.revenue);
+  const opArr    = pickAnnualFY(gaap, SEC_CONCEPTS.opIncome);
+  const netArr   = pickAnnualFY(gaap, SEC_CONCEPTS.netIncome);
+  const ocfArr   = pickAnnualFY(gaap, SEC_CONCEPTS.ocf);
+  const capexArr = pickAnnualFY(gaap, SEC_CONCEPTS.capex);
+  const epsArr   = pickAnnualFY(gaap, SEC_CONCEPTS.eps);
+
+  const years = [...new Set(revArr.map(e => Number(e.end?.slice(0, 4))))].sort((a, b) => b - a).slice(0, 5);
+  if (!years.length) throw new Error('연간 재무 데이터 없음');
+
+  const getVal = (arr, fy) => arr.find(e => Number(e.end?.slice(0, 4)) === fy)?.val ?? null;
+  const toM = v => v != null ? Math.round(v / 1e6) : null;
+
+  return years.map(fy => {
+    const rev  = getVal(revArr, fy);
+    const op   = getVal(opArr, fy);
+    const net  = getVal(netArr, fy);
+    const ocf  = getVal(ocfArr, fy);
+    const cpx  = getVal(capexArr, fy);
+    const fcf  = (ocf != null && cpx != null) ? ocf - Math.abs(cpx) : null;
+    const eps  = getVal(epsArr, fy);
+    return {
+      fy, source: 'SEC',
+      revenue:  toM(rev),
+      opIncome: toM(op),
+      netIncome: toM(net),
+      ocf: toM(ocf),
+      capex: cpx != null ? Math.round(Math.abs(cpx) / 1e6) : null,
+      fcf: toM(fcf),
+      eps: eps != null ? Math.round(eps * 100) / 100 : null,
+      opMargin: (rev && op) ? Math.round(op / rev * 1000) / 10 : null,
+      unit: 'M', currency: 'USD',
+    };
+  });
+}
+
+async function fetchDartFinancialHistory(stock, apiSettings, dartCorpMap) {
+  const key = apiSettings?.openDartKey;
+  if (!key) throw new Error('DART API 키 없음 (Settings에서 입력)');
+  const entry = getDartCorpEntry(stock, dartCorpMap);
+  if (!entry?.corpCode) throw new Error('DART 기업코드 없음');
+  const corpCode = entry.corpCode;
+
+  const currentYear = new Date().getFullYear();
+  const fetchYear = async (year) => {
+    for (const fsDiv of ['CFS', 'OFS']) {
+      for (const endpoint of ['fnlttSinglAcntAll', 'fnlttSinglAcnt']) {
+        try {
+          const params = new URLSearchParams({ crtfc_key: key, corp_code: corpCode, bsns_year: String(year), reprt_code: '11011', fs_div: fsDiv });
+          const res = await fetch(buildOpenDartApiUrl(endpoint, params));
+          if (!res.ok) continue;
+          const data = await res.json();
+          if (data.status === '000' && Array.isArray(data.list) && data.list.length) return { rows: data.list, year };
+        } catch {}
+      }
+    }
+    return null;
+  };
+
+  const [r1, r2] = await Promise.all([fetchYear(currentYear - 1), fetchYear(currentYear - 3)]);
+
+  const extractFromResult = (result) => {
+    if (!result) return [];
+    const { rows, year } = result;
+    const revRow  = findDartRow(rows, ['ifrs-full_Revenue','ifrs-full_SalesRevenue'], ['매출액','수익(매출액)']);
+    const opRow   = findDartRow(rows, ['dart_OperatingIncomeLoss','ifrs-full_ProfitLossFromOperatingActivities'], ['영업이익']);
+    const netRow  = findDartRow(rows, ['ifrs-full_ProfitLoss'], ['당기순이익']);
+    const ocfRow  = findDartRow(rows, ['ifrs-full_CashFlowsFromUsedInOperatingActivities','dart_CashFlowsFromOperatingActivities'], ['영업활동현금흐름']);
+    const cpxRow  = findDartRow(rows, ['ifrs-full_PurchaseOfPropertyPlantAndEquipment'], ['유형자산의 취득','유형자산취득']);
+    const epsRow  = findDartRow(rows, ['ifrs-full_BasicEarningsLossPerShare'], ['기본주당이익','주당순이익']);
+
+    const getAmts = (row) => [
+      getDartAmt(row),
+      getPrevDartAmt(row),
+      row ? toNumber(row.bfefrmtrm_amount) : NaN,
+    ];
+    const [rev0,rev1,rev2]   = getAmts(revRow);
+    const [op0,op1,op2]      = getAmts(opRow);
+    const [net0,net1,net2]   = getAmts(netRow);
+    const [ocf0,ocf1,ocf2]   = getAmts(ocfRow);
+    const [cpx0,cpx1,cpx2]   = getAmts(cpxRow);
+    const [eps0,eps1,eps2]   = getAmts(epsRow);
+
+    const toH = v => Number.isFinite(v) ? Math.round(v / 1e8) : null;
+    const mkFCF = (ocf, cpx) => (Number.isFinite(ocf) && Number.isFinite(cpx)) ? toH(ocf + cpx) : null;
+
+    return [
+      { fy: year,   rev: rev0, op: op0, net: net0, ocf: ocf0, cpx: cpx0, eps: eps0 },
+      { fy: year-1, rev: rev1, op: op1, net: net1, ocf: ocf1, cpx: cpx1, eps: eps1 },
+      { fy: year-2, rev: rev2, op: op2, net: net2, ocf: ocf2, cpx: cpx2, eps: eps2 },
+    ].filter(r => Number.isFinite(r.rev)).map(r => ({
+      fy: r.fy, source: 'DART',
+      revenue:  toH(r.rev),
+      opIncome: toH(r.op),
+      netIncome: toH(r.net),
+      ocf: toH(r.ocf),
+      capex: Number.isFinite(r.cpx) ? Math.round(Math.abs(r.cpx) / 1e8) : null,
+      fcf: mkFCF(r.ocf, r.cpx),
+      eps: Number.isFinite(r.eps) ? Math.round(r.eps) : null,
+      opMargin: (Number.isFinite(r.rev) && Number.isFinite(r.op) && r.rev !== 0) ? Math.round(r.op / r.rev * 1000) / 10 : null,
+      unit: '억원', currency: 'KRW',
+    }));
+  };
+
+  const seen = new Set();
+  return [...extractFromResult(r1), ...extractFromResult(r2)]
+    .filter(r => { if (seen.has(r.fy)) return false; seen.add(r.fy); return true; })
+    .sort((a, b) => b.fy - a.fy)
+    .slice(0, 5);
+}
 let secTickerMapPromise = null;
 
 function normalizeSecTicker(symbol) {
@@ -2871,6 +3020,7 @@ Object.assign(window, {
   fetchOpenDartDisclosures, fetchSecFilings, fetchYahooNewsExperimental, fetchGoogleNewsRss,
   fetchAlertsForStock, makeAlertId, pruneAlerts,
   fetchYahooChartOhlc, toYahooSymbol, fetchMacroIndicators,
+  fetchSecFinancialHistory, fetchDartFinancialHistory,
 });
   })();
   </script>
@@ -2885,6 +3035,7 @@ Object.assign(window, {
 /* global fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp */
 /* global fetchYahooChartOhlc, toYahooSymbol */
 /* global fetchAlertsForStock, pruneAlerts */
+/* global fetchSecFinancialHistory, fetchDartFinancialHistory */
 /* global normalizeKrxStockCode, getDartCorpEntry, fetchLocalDartCorpMap */
 /* global inferMarketFromExchange, normalizeSymbolForMarket, getMarketProfile, buildYahooChartUrl, MARKET_PROFILES, COUNTRY_FLAGS, SCORE_CFG */
 /* global useTweaks, TweaksPanel */
@@ -2987,6 +3138,7 @@ function makeBlankStock(patch = {}) {
     calendarEvents: [],
     journal: [],
     peers: [],
+    metricsHistory: [],
     ...patch,
   };
 }
@@ -3015,7 +3167,7 @@ function normalizeStockRecord(stock, fallbackId = '') {
     note: stock?.valuation?.note || '',
   };
   next.review = { ...base.review, ...(stock?.review || {}) };
-  for (const key of ['thesis', 'catalysts', 'risks', 'numbersToWatch', 'scoreHistory', 'priceHistory', 'notes', 'preMortem', 'checklist', 'calendarEvents', 'journal', 'peers']) {
+  for (const key of ['thesis', 'catalysts', 'risks', 'numbersToWatch', 'scoreHistory', 'priceHistory', 'notes', 'preMortem', 'checklist', 'calendarEvents', 'journal', 'peers', 'metricsHistory']) {
     next[key] = Array.isArray(stock?.[key]) ? stock[key] : [];
   }
   return next;
@@ -3477,13 +3629,151 @@ function ScreenerPanel({ stocks, watchlistIds }) {
   );
 }
 
+// ─── Financial History ────────────────────────────────────────────────────────
+function HistoryTable({ history }) {
+  const sorted = [...history].sort((a, b) => a.fy - b.fy);
+  const isKRW = sorted[0]?.currency === 'KRW';
+  const unit = sorted[0]?.unit || (isKRW ? '억원' : 'M USD');
+
+  const calcYoy = (curr, prev) => {
+    if (curr == null || prev == null || prev === 0) return null;
+    return Math.round((curr - prev) / Math.abs(prev) * 1000) / 10;
+  };
+
+  const rows = [
+    { label: 'REVENUE',   key: 'revenue',   fmt: v => v != null ? fmtNum(v, { dp: 0 }) : '–' },
+    { label: 'OP INCOME', key: 'opIncome',  fmt: v => v != null ? fmtNum(v, { dp: 0 }) : '–' },
+    { label: 'FCF',       key: 'fcf',       fmt: v => v != null ? fmtNum(v, { dp: 0 }) : '–' },
+    { label: 'OP MARGIN', key: 'opMargin',  fmt: v => v != null ? safeFixed(v, 1) + '%' : '–', isMargin: true },
+    { label: 'EPS',       key: 'eps',       fmt: v => v != null ? (isKRW ? fmtNum(v, { dp: 0 }) : safeFixed(v, 2)) : '–' },
+  ];
+
+  const tdBase = { padding: '5px 10px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ borderCollapse: 'collapse', fontSize: 10.5, width: '100%' }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left', color: T.inkFaint, fontSize: 9, letterSpacing: '0.1em', padding: '3px 10px 3px 0', minWidth: 72 }}>
+              ({unit})
+            </th>
+            {sorted.map(r => (
+              <th key={r.fy} style={{ textAlign: 'right', color: T.inkFaint, fontSize: 9, letterSpacing: '0.1em', padding: '3px 10px' }}>
+                FY{r.fy}
+              </th>
+            ))}
+            <th style={{ textAlign: 'right', color: T.inkFaint, fontSize: 9, letterSpacing: '0.1em', padding: '3px 10px' }}>YoY</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ label, key, fmt, isMargin }) => {
+            const lastTwo = sorted.slice(-2);
+            const yoy = lastTwo.length === 2 ? calcYoy(lastTwo[1][key], lastTwo[0][key]) : null;
+            const vals = sorted.map(r => r[key]).filter(v => v != null && v > 0);
+            const maxVal = vals.length ? Math.max(...vals) : 1;
+            return (
+              <tr key={key} style={{ borderTop: `1px solid ${T.border}` }}>
+                <td style={{ ...tdBase, color: T.inkFaint, fontSize: 9, letterSpacing: '0.1em', paddingLeft: 0 }}>{label}</td>
+                {sorted.map(r => {
+                  const v = r[key];
+                  const isLast = r.fy === sorted.at(-1)?.fy;
+                  const barH = (!isMargin && v != null && v > 0) ? Math.max(2, Math.round((v / maxVal) * 14)) : 0;
+                  const valueColor = isMargin
+                    ? (v > 0 ? T.green : v < 0 ? T.red : T.inkDim)
+                    : key === 'opIncome' || key === 'fcf'
+                      ? (v != null && v < 0 ? T.red : T.ink)
+                      : T.ink;
+                  return (
+                    <td key={r.fy} style={{
+                      ...tdBase, textAlign: 'right', position: 'relative', color: valueColor,
+                      background: isLast ? `${T.amber}0A` : 'transparent',
+                      borderLeft: isLast ? `1px solid ${T.amber}33` : 'none',
+                    }}>
+                      {barH > 0 && (
+                        <span style={{ position: 'absolute', bottom: 2, left: '50%', transform: 'translateX(-50%)', width: 3, height: barH, background: `${T.amber}55`, borderRadius: 1 }}/>
+                      )}
+                      {fmt(v)}
+                    </td>
+                  );
+                })}
+                <td style={{ ...tdBase, textAlign: 'right', fontWeight: 700,
+                  color: yoy == null ? T.inkFaint : yoy > 0 ? T.green : T.red }}>
+                  {yoy != null ? `${yoy > 0 ? '+' : ''}${yoy}%` : '–'}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function FinancialHistorySection({ stock, apiSettings, dartCorpMap, onSaveHistory }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState('');
+  const history = stock.metricsHistory || [];
+  const isKRX   = stock.currency === 'KRW' || stock.market === 'KRX' || stock.country === '한국';
+
+  const handleFetch = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = isKRX
+        ? await fetchDartFinancialHistory(stock, apiSettings, dartCorpMap)
+        : await fetchSecFinancialHistory(stock);
+      if (!data?.length) throw new Error('데이터 없음');
+      onSaveHistory(stock.id, data);
+    } catch (e) {
+      setError(e.message || '수집 실패');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Cell label="5Y FINANCIAL HISTORY" accent={T.amber} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <button onClick={handleFetch} disabled={loading}
+            style={{ ...btnSt, color: T.amber, border: `1px solid ${T.amber}`, padding: '3px 10px', fontSize: 10 }}>
+            {loading ? '수집 중...' : '↻ FETCH HISTORY'}
+          </button>
+          {error && <span style={{ fontSize: 10, color: T.red }}>{error}</span>}
+          {!error && history.length > 0 && (
+            <span style={{ fontSize: 9, color: T.inkFaint }}>
+              {history[0]?.source} · {history.length}개 연도 · FY{history.at(-1)?.fy}–FY{history[0]?.fy}
+            </span>
+          )}
+          {!error && history.length === 0 && !loading && (
+            <span style={{ fontSize: 9, color: T.inkFaint }}>
+              {isKRX ? 'DART API 키 필요 (Settings)' : 'SEC EDGAR 자동 수집'}
+            </span>
+          )}
+        </div>
+        {history.length === 0 ? (
+          <div style={{ color: T.inkFaint, fontSize: 11 }}>히스토리 없음 — FETCH HISTORY 버튼으로 수집</div>
+        ) : (
+          <HistoryTable history={history}/>
+        )}
+      </div>
+    </Cell>
+  );
+}
+
 // ─── Overview panel (wraps ScoreBreakdown + MetricsGrid with shared activeDim) ─
-function OverviewPanel({ stock }) {
+function OverviewPanel({ stock, apiSettings, dartCorpMap, onSaveHistory }) {
   const [activeDim, setActiveDim] = useState(null);
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 8, height: '100%' }}>
-      <ScoreBreakdown scores={stock.scores} activeDim={activeDim} onDimClick={setActiveDim}/>
-      <MetricsGrid metrics={stock.metrics} currency={stock.currency} activeDim={activeDim} refreshedAt={stock.refreshedAt}/>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', minHeight: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 8, flex: '0 0 auto' }}>
+        <ScoreBreakdown scores={stock.scores} activeDim={activeDim} onDimClick={setActiveDim}/>
+        <MetricsGrid metrics={stock.metrics} currency={stock.currency} activeDim={activeDim} refreshedAt={stock.refreshedAt}/>
+      </div>
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <FinancialHistorySection stock={stock} apiSettings={apiSettings} dartCorpMap={dartCorpMap} onSaveHistory={onSaveHistory}/>
+      </div>
     </div>
   );
 }
@@ -5891,6 +6181,11 @@ function App({ initialData }) {
     toast('프리모템 지표 저장 완료', 'ok');
   }, [toast]);
 
+  const handleSaveHistory = useCallback((stockId, metricsHistory) => {
+    setStocks(prev => ({ ...prev, [stockId]: { ...prev[stockId], metricsHistory } }));
+    toast(`${stockId} 5년 재무 히스토리 저장 완료 (${metricsHistory.length}개 연도)`, 'ok');
+  }, [toast]);
+
   // ── Alert actions (Phase 2) ────────────────────────────────────────────────
   const handleSavePeers = useCallback((stockId, peers) => {
     setStocks(prev => ({ ...prev, [stockId]: { ...prev[stockId], peers } }));
@@ -6138,7 +6433,7 @@ function App({ initialData }) {
 
   // ── Panel content ──────────────────────────────────────────────────────────
   const panelContent = {
-    F1: <OverviewPanel stock={stock}/>,
+    F1: <OverviewPanel stock={stock} apiSettings={apiSettings} dartCorpMap={dartCorpMap} onSaveHistory={handleSaveHistory}/>,
     F2: (
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 8, height: '100%' }}>
         <PitchPanel stock={stock} onEditPitch={setPitchEditId} onCaptureJournal={handleCaptureJournal}/>

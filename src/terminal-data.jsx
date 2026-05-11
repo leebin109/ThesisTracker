@@ -1489,6 +1489,155 @@ function formatDartDate(d) {
 }
 
 const SEC_FILING_FORMS = new Set(['10-K', '10-Q', '8-K', '20-F', '40-F', '6-K', 'S-1', 'S-3', 'DEF 14A']);
+
+// ═══════════════════════════════════════════════════════════════
+// 5-Year Financial History
+// ═══════════════════════════════════════════════════════════════
+
+const SEC_CONCEPTS = {
+  revenue:   ['Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax', 'SalesRevenueNet', 'RevenueFromContractWithCustomerIncludingAssessedTax'],
+  opIncome:  ['OperatingIncomeLoss'],
+  netIncome: ['NetIncomeLoss', 'ProfitLoss'],
+  ocf:       ['NetCashProvidedByUsedInOperatingActivities'],
+  capex:     ['PaymentsToAcquirePropertyPlantAndEquipment', 'CapitalExpenditures'],
+  eps:       ['EarningsPerShareDiluted', 'EarningsPerShareBasic'],
+};
+
+function pickAnnualFY(gaap, concepts) {
+  for (const concept of concepts) {
+    const entries = gaap[concept]?.units?.USD || [];
+    const byFY = {};
+    for (const e of entries) {
+      if (e.form !== '10-K' && e.form !== '20-F') continue;
+      const fy = Number(e.end?.slice(0, 4));
+      if (!Number.isFinite(fy)) continue;
+      if (!byFY[fy] || e.filed > byFY[fy].filed) byFY[fy] = e;
+    }
+    const sorted = Object.values(byFY).sort((a, b) => b.end.localeCompare(a.end)).slice(0, 5);
+    if (sorted.length > 0) return sorted;
+  }
+  return [];
+}
+
+async function fetchSecFinancialHistory(stock) {
+  if (!isSecEligibleStock(stock)) throw new Error('미국 상장 종목만 지원');
+  const company = await resolveSecCompany(stock);
+  const url = buildSecApiUrl(`companyfacts/CIK${company.cik}.json`);
+  const res = await fetch(url, { headers: { 'User-Agent': 'ThesisTrack research@example.com', 'Accept': 'application/json' } });
+  if (!res.ok) throw new Error(`SEC companyfacts HTTP ${res.status}`);
+  const data = await res.json();
+  const gaap = data?.facts?.['us-gaap'] || {};
+
+  const revArr   = pickAnnualFY(gaap, SEC_CONCEPTS.revenue);
+  const opArr    = pickAnnualFY(gaap, SEC_CONCEPTS.opIncome);
+  const netArr   = pickAnnualFY(gaap, SEC_CONCEPTS.netIncome);
+  const ocfArr   = pickAnnualFY(gaap, SEC_CONCEPTS.ocf);
+  const capexArr = pickAnnualFY(gaap, SEC_CONCEPTS.capex);
+  const epsArr   = pickAnnualFY(gaap, SEC_CONCEPTS.eps);
+
+  const years = [...new Set(revArr.map(e => Number(e.end?.slice(0, 4))))].sort((a, b) => b - a).slice(0, 5);
+  if (!years.length) throw new Error('연간 재무 데이터 없음');
+
+  const getVal = (arr, fy) => arr.find(e => Number(e.end?.slice(0, 4)) === fy)?.val ?? null;
+  const toM = v => v != null ? Math.round(v / 1e6) : null;
+
+  return years.map(fy => {
+    const rev  = getVal(revArr, fy);
+    const op   = getVal(opArr, fy);
+    const net  = getVal(netArr, fy);
+    const ocf  = getVal(ocfArr, fy);
+    const cpx  = getVal(capexArr, fy);
+    const fcf  = (ocf != null && cpx != null) ? ocf - Math.abs(cpx) : null;
+    const eps  = getVal(epsArr, fy);
+    return {
+      fy, source: 'SEC',
+      revenue:  toM(rev),
+      opIncome: toM(op),
+      netIncome: toM(net),
+      ocf: toM(ocf),
+      capex: cpx != null ? Math.round(Math.abs(cpx) / 1e6) : null,
+      fcf: toM(fcf),
+      eps: eps != null ? Math.round(eps * 100) / 100 : null,
+      opMargin: (rev && op) ? Math.round(op / rev * 1000) / 10 : null,
+      unit: 'M', currency: 'USD',
+    };
+  });
+}
+
+async function fetchDartFinancialHistory(stock, apiSettings, dartCorpMap) {
+  const key = apiSettings?.openDartKey;
+  if (!key) throw new Error('DART API 키 없음 (Settings에서 입력)');
+  const entry = getDartCorpEntry(stock, dartCorpMap);
+  if (!entry?.corpCode) throw new Error('DART 기업코드 없음');
+  const corpCode = entry.corpCode;
+
+  const currentYear = new Date().getFullYear();
+  const fetchYear = async (year) => {
+    for (const fsDiv of ['CFS', 'OFS']) {
+      for (const endpoint of ['fnlttSinglAcntAll', 'fnlttSinglAcnt']) {
+        try {
+          const params = new URLSearchParams({ crtfc_key: key, corp_code: corpCode, bsns_year: String(year), reprt_code: '11011', fs_div: fsDiv });
+          const res = await fetch(buildOpenDartApiUrl(endpoint, params));
+          if (!res.ok) continue;
+          const data = await res.json();
+          if (data.status === '000' && Array.isArray(data.list) && data.list.length) return { rows: data.list, year };
+        } catch {}
+      }
+    }
+    return null;
+  };
+
+  const [r1, r2] = await Promise.all([fetchYear(currentYear - 1), fetchYear(currentYear - 3)]);
+
+  const extractFromResult = (result) => {
+    if (!result) return [];
+    const { rows, year } = result;
+    const revRow  = findDartRow(rows, ['ifrs-full_Revenue','ifrs-full_SalesRevenue'], ['매출액','수익(매출액)']);
+    const opRow   = findDartRow(rows, ['dart_OperatingIncomeLoss','ifrs-full_ProfitLossFromOperatingActivities'], ['영업이익']);
+    const netRow  = findDartRow(rows, ['ifrs-full_ProfitLoss'], ['당기순이익']);
+    const ocfRow  = findDartRow(rows, ['ifrs-full_CashFlowsFromUsedInOperatingActivities','dart_CashFlowsFromOperatingActivities'], ['영업활동현금흐름']);
+    const cpxRow  = findDartRow(rows, ['ifrs-full_PurchaseOfPropertyPlantAndEquipment'], ['유형자산의 취득','유형자산취득']);
+    const epsRow  = findDartRow(rows, ['ifrs-full_BasicEarningsLossPerShare'], ['기본주당이익','주당순이익']);
+
+    const getAmts = (row) => [
+      getDartAmt(row),
+      getPrevDartAmt(row),
+      row ? toNumber(row.bfefrmtrm_amount) : NaN,
+    ];
+    const [rev0,rev1,rev2]   = getAmts(revRow);
+    const [op0,op1,op2]      = getAmts(opRow);
+    const [net0,net1,net2]   = getAmts(netRow);
+    const [ocf0,ocf1,ocf2]   = getAmts(ocfRow);
+    const [cpx0,cpx1,cpx2]   = getAmts(cpxRow);
+    const [eps0,eps1,eps2]   = getAmts(epsRow);
+
+    const toH = v => Number.isFinite(v) ? Math.round(v / 1e8) : null;
+    const mkFCF = (ocf, cpx) => (Number.isFinite(ocf) && Number.isFinite(cpx)) ? toH(ocf + cpx) : null;
+
+    return [
+      { fy: year,   rev: rev0, op: op0, net: net0, ocf: ocf0, cpx: cpx0, eps: eps0 },
+      { fy: year-1, rev: rev1, op: op1, net: net1, ocf: ocf1, cpx: cpx1, eps: eps1 },
+      { fy: year-2, rev: rev2, op: op2, net: net2, ocf: ocf2, cpx: cpx2, eps: eps2 },
+    ].filter(r => Number.isFinite(r.rev)).map(r => ({
+      fy: r.fy, source: 'DART',
+      revenue:  toH(r.rev),
+      opIncome: toH(r.op),
+      netIncome: toH(r.net),
+      ocf: toH(r.ocf),
+      capex: Number.isFinite(r.cpx) ? Math.round(Math.abs(r.cpx) / 1e8) : null,
+      fcf: mkFCF(r.ocf, r.cpx),
+      eps: Number.isFinite(r.eps) ? Math.round(r.eps) : null,
+      opMargin: (Number.isFinite(r.rev) && Number.isFinite(r.op) && r.rev !== 0) ? Math.round(r.op / r.rev * 1000) / 10 : null,
+      unit: '억원', currency: 'KRW',
+    }));
+  };
+
+  const seen = new Set();
+  return [...extractFromResult(r1), ...extractFromResult(r2)]
+    .filter(r => { if (seen.has(r.fy)) return false; seen.add(r.fy); return true; })
+    .sort((a, b) => b.fy - a.fy)
+    .slice(0, 5);
+}
 let secTickerMapPromise = null;
 
 function normalizeSecTicker(symbol) {
@@ -1811,4 +1960,5 @@ Object.assign(window, {
   fetchOpenDartDisclosures, fetchSecFilings, fetchYahooNewsExperimental, fetchGoogleNewsRss,
   fetchAlertsForStock, makeAlertId, pruneAlerts,
   fetchYahooChartOhlc, toYahooSymbol, fetchMacroIndicators,
+  fetchSecFinancialHistory, fetchDartFinancialHistory,
 });
