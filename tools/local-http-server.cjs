@@ -164,7 +164,60 @@ function proxySec(req, res, url) {
   proxyReq.end();
 }
 
-function proxyYahoo(req, res, url) {
+const YAHOO_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+let _yahooCrumb = null;
+
+async function getYahooCrumb() {
+  if (_yahooCrumb && Date.now() < _yahooCrumb.expiresAt) return _yahooCrumb;
+  try {
+    const consentRes = await fetch('https://fc.yahoo.com/', {
+      headers: { 'User-Agent': YAHOO_UA, 'Accept-Language': 'en-US,en;q=0.9' },
+      redirect: 'follow',
+    });
+    const rawCookie = consentRes.headers.get('set-cookie') || '';
+    const cookie = rawCookie.split(',').map(c => c.trim().split(';')[0]).filter(Boolean).join('; ');
+
+    const crumbRes = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb', {
+      headers: { 'User-Agent': YAHOO_UA, 'Cookie': cookie },
+    });
+    if (!crumbRes.ok) return null;
+    const crumb = (await crumbRes.text()).trim();
+    if (!crumb || crumb.startsWith('<')) return null;
+
+    _yahooCrumb = { crumb, cookie, expiresAt: Date.now() + 55 * 60 * 1000 };
+    return _yahooCrumb;
+  } catch {
+    return null;
+  }
+}
+
+function yahooHeaders(cookie) {
+  return {
+    'User-Agent': YAHOO_UA,
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Referer': 'https://finance.yahoo.com/',
+    'Origin': 'https://finance.yahoo.com',
+    ...(cookie ? { 'Cookie': cookie } : {}),
+  };
+}
+
+async function fetchYahooWithFallback(targetUrl, crumbInfo) {
+  let res = await fetch(targetUrl, { headers: yahooHeaders(crumbInfo?.cookie) });
+  if (res.status === 401 || res.status === 403) {
+    _yahooCrumb = null;
+    const fresh = await getYahooCrumb();
+    if (!fresh) return res;
+    const sep = targetUrl.includes('?') ? '&' : '?';
+    res = await fetch(`${targetUrl}${sep}crumb=${encodeURIComponent(fresh.crumb)}`, {
+      headers: yahooHeaders(fresh.cookie),
+    });
+  }
+  return res;
+}
+
+async function proxyYahoo(req, res, url) {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'access-control-allow-origin': '*',
@@ -181,67 +234,54 @@ function proxyYahoo(req, res, url) {
     return;
   }
 
-  let targetPath = '';
-  const chartMatch = url.pathname.match(/^\/api\/yahoo\/chart\/(.+)$/);
-  if (chartMatch) {
-    const symbol = decodeURIComponent(chartMatch[1] || '');
-    if (!symbol || symbol.includes('/') || symbol.length > 40) {
-      writeJson(res, 400, { status: 'LOCAL_PROXY_ERROR', message: 'Invalid Yahoo symbol' });
-      return;
+  const suffix = url.pathname.slice('/api/yahoo/'.length);
+  const qs = url.searchParams.toString();
+
+  let upstreamUrl;
+  try {
+    const crumbInfo = await getYahooCrumb();
+    const crumbSuffix = crumbInfo ? `${qs ? '&' : '?'}crumb=${encodeURIComponent(crumbInfo.crumb)}` : '';
+
+    if (suffix.startsWith('chart/')) {
+      const sym = suffix.slice('chart/'.length);
+      if (!sym || sym.length > 40 || sym.includes('/')) return writeJson(res, 400, { error: 'invalid symbol' });
+      upstreamUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}${qs ? '?' + qs : ''}${crumbSuffix}`;
+
+    } else if (suffix === 'search' || suffix.startsWith('search')) {
+      upstreamUrl = `https://query1.finance.yahoo.com/v1/finance/search${qs ? '?' + qs : ''}${crumbSuffix}`;
+
+    } else if (suffix === 'quote' || suffix.startsWith('quote')) {
+      upstreamUrl = `https://query1.finance.yahoo.com/v7/finance/quote${qs ? '?' + qs : ''}${crumbSuffix}`;
+
+    } else if (suffix.startsWith('quoteSummary/')) {
+      const sym = suffix.slice('quoteSummary/'.length);
+      if (!sym || sym.length > 40 || sym.includes('/')) return writeJson(res, 400, { error: 'invalid symbol' });
+      upstreamUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}${qs ? '?' + qs : ''}${crumbSuffix}`;
+
+    } else if (suffix.startsWith('timeseries/')) {
+      const sym = suffix.slice('timeseries/'.length);
+      if (!sym || sym.length > 40 || sym.includes('/')) return writeJson(res, 400, { error: 'invalid symbol' });
+      // Use raw search string to preserve literal commas in 'type' param
+      const rawQs = url.search ? url.search.slice(1) : '';
+      const rawCs = crumbInfo ? `${rawQs ? '&' : '?'}crumb=${encodeURIComponent(crumbInfo.crumb)}` : '';
+      upstreamUrl = `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(sym)}${rawQs ? '?' + rawQs : ''}${rawCs}`;
+
+    } else {
+      return writeJson(res, 404, { error: `unknown yahoo path: ${suffix}` });
     }
-    const allowed = new URLSearchParams();
-    for (const key of ['range', 'interval', 'includePrePost', 'events']) {
-      const value = url.searchParams.get(key);
-      if (value !== null) allowed.set(key, value);
-    }
-    targetPath = `/v8/finance/chart/${encodeURIComponent(symbol)}?${allowed.toString()}`;
-  } else if (url.pathname === '/api/yahoo/search') {
-    const q = String(url.searchParams.get('q') || '').trim();
-    if (!q || q.length > 80) {
-      writeJson(res, 400, { status: 'LOCAL_PROXY_ERROR', message: 'Invalid Yahoo search query' });
-      return;
-    }
-    const allowed = new URLSearchParams();
-    allowed.set('q', q);
-    allowed.set('quotesCount', String(Math.min(20, Math.max(0, Number(url.searchParams.get('quotesCount')) || 10))));
-    allowed.set('newsCount', String(Math.min(30, Math.max(0, Number(url.searchParams.get('newsCount')) || 0))));
-    targetPath = `/v1/finance/search?${allowed.toString()}`;
-  } else {
-    writeJson(res, 404, { status: 'LOCAL_PROXY_ERROR', message: 'Unknown Yahoo endpoint' });
-    return;
+
+    const upstream = await fetchYahooWithFallback(upstreamUrl, crumbInfo);
+    const body = await upstream.text();
+    res.writeHead(upstream.status, {
+      'content-type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+      'access-control-allow-origin': '*',
+    });
+    res.end(body);
+
+  } catch (err) {
+    writeJson(res, 502, { status: 'LOCAL_PROXY_ERROR', message: err.message });
   }
-
-  const proxyReq = https.request({
-    hostname: 'query1.finance.yahoo.com',
-    path: targetPath,
-    method: 'GET',
-    headers: {
-      accept: 'application/json,*/*',
-      'user-agent': 'Mozilla/5.0 ThesisTrack local Yahoo chart proxy',
-    },
-  }, (proxyRes) => {
-    const chunks = [];
-    proxyRes.on('data', chunk => chunks.push(chunk));
-    proxyRes.on('end', () => {
-      res.writeHead(proxyRes.statusCode || 502, {
-        'content-type': proxyRes.headers['content-type'] || 'application/json; charset=utf-8',
-        'cache-control': 'no-store',
-        'access-control-allow-origin': '*',
-      });
-      res.end(Buffer.concat(chunks));
-    });
-  });
-
-  proxyReq.setTimeout(20000, () => {
-    proxyReq.destroy(new Error('Yahoo proxy timeout'));
-  });
-  proxyReq.on('error', (err) => {
-    writeJson(res, 502, {
-      status: 'LOCAL_PROXY_ERROR',
-      message: err?.message || 'Yahoo proxy failed',
-    });
-  });
-  proxyReq.end();
 }
 
 const server = http.createServer((req, res) => {
@@ -254,11 +294,7 @@ const server = http.createServer((req, res) => {
     proxySec(req, res, url);
     return;
   }
-  if (url.pathname.startsWith('/api/yahoo/chart/')) {
-    proxyYahoo(req, res, url);
-    return;
-  }
-  if (url.pathname === '/api/yahoo/search') {
+  if (url.pathname.startsWith('/api/yahoo/')) {
     proxyYahoo(req, res, url);
     return;
   }

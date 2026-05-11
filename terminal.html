@@ -1946,20 +1946,21 @@ async function fetchYahooTimeSeries(symbol) {
   const types = [
     'annualTotalRevenue', 'annualOperatingIncome', 'annualNetIncome', 'annualDilutedEPS',
     'annualStockholdersEquity', 'annualCurrentAssets', 'annualCurrentLiabilities',
-    'annualLongTermDebt', 'annualCurrentDebt',
+    'annualLongTermDebt', 'annualTotalDebt',
     'annualOperatingCashFlow', 'annualCapitalExpenditure',
   ].join(',');
   const period2 = Math.floor(Date.now() / 1000);
-  const params = new URLSearchParams({ type: types, period1: '0', period2: String(period2) });
+  // Use manual query string to keep commas literal (not %2C) for Yahoo compatibility
+  const qs = `type=${types}&period1=0&period2=${period2}`;
   const url = isProxiedOrigin()
-    ? `/api/yahoo/timeseries/${encodeURIComponent(symbol)}?${params}`
-    : `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(symbol)}?${params}`;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data?.timeseries?.result ?? null;
-  } catch { return null; }
+    ? `/api/yahoo/timeseries/${encodeURIComponent(symbol)}?${qs}`
+    : `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(symbol)}?${qs}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`timeseries HTTP ${res.status}`);
+  const data = await res.json();
+  const result = data?.timeseries?.result;
+  if (!result) throw new Error('timeseries 응답 구조 오류');
+  return result; // may be [] if no data
 }
 
 function parseTimeSeriesStatements(results) {
@@ -1974,7 +1975,7 @@ function parseTimeSeriesStatements(results) {
     annualCurrentAssets:      'totalCurrentAssets',
     annualCurrentLiabilities: 'totalCurrentLiabilities',
     annualLongTermDebt:       'longTermDebt',
-    annualCurrentDebt:        'shortLongTermDebt',
+    annualTotalDebt:          'shortLongTermDebt',
     annualOperatingCashFlow:  'totalCashFromOperatingActivities',
     annualCapitalExpenditure: 'capitalExpenditures',
   };
@@ -2035,10 +2036,16 @@ async function fetchYahooStatements(symbol) {
   }
   // quoteSummary v10 does not support statement modules for non-US markets (TSE, LSE, etc.)
   // Fall back to the fundamentals-timeseries endpoint which Yahoo Finance website uses internally
-  const tsResults = await fetchYahooTimeSeries(symbol);
-  const parsed = parseTimeSeriesStatements(tsResults);
-  if (parsed) return parsed;
-  throw new Error('Yahoo statements 모두 실패');
+  let tsReason = '알 수 없음';
+  try {
+    const tsResults = await fetchYahooTimeSeries(symbol);
+    const parsed = parseTimeSeriesStatements(tsResults);
+    if (parsed) return parsed;
+    tsReason = `데이터 없음 (${tsResults.length}개 타입 수신)`;
+  } catch (e) {
+    tsReason = e.message;
+  }
+  throw new Error(`Yahoo statements 모두 실패 (${tsReason})`);
 }
 
 async function fetchYahooEarnings(symbol) {

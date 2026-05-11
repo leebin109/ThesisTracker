@@ -116,7 +116,12 @@ module.exports = async function handler(req, res) {
         if (!sym || sym.length > 40 || sym.includes('/')) {
           return res.status(400).json({ error: 'invalid symbol' });
         }
-        const url = `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(sym)}${qs ? '?' + qs : ''}${crumbSuffix}`;
+        // Build query with literal commas in 'type' param — URLSearchParams encodes them as %2C
+        // which Yahoo's timeseries endpoint may not accept. req.query values are already decoded.
+        const { type: tsType, ...tsRest } = rest;
+        const tsQs = [tsType ? `type=${tsType}` : '', new URLSearchParams(tsRest).toString()].filter(Boolean).join('&');
+        const tsCs = crumbInfo ? `${tsQs ? '&' : '?'}crumb=${encodeURIComponent(crumbInfo.crumb)}` : '';
+        const url = `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(sym)}${tsQs ? '?' + tsQs : ''}${tsCs}`;
         upstream = await fetchYahoo(url, crumbInfo);
 
       } else {
