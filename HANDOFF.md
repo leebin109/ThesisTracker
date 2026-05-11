@@ -131,6 +131,10 @@ overall = zToScore(zComp)       ← 0~100 백분위
     - Current Ratio = 유동자산 / 유동부채 × 100
     - Rev Growth = (금기 − 전기) / 전기 × 100
   - US 종목은 `financialData`가 정상 반환되므로 기존 경로 그대로 유지.
+- **2026-05-11 (PriceChart 크래시 — 훅 개수 불일치)**:
+  - **원인**: `PriceChart` 컴포넌트(`terminal-components.jsx`)에서 `useMemo`(ma20/ma60/ma120) 3개가 early return(`if (!data.length && !valid.length) return ...`) 이후에 위치. 차트 데이터가 없을 때 훅 6개, 있을 때 훅 9개로 렌더 간 개수가 달라져 "Rendered more hooks than during the previous render" 에러로 앱 전체가 복구 화면으로 전환됨.
+  - **수정**: `calcMA`, `sourceData`, 3개 `useMemo`를 early return 위로 이동. 데이터 유무와 관계없이 항상 9개 훅이 동일 순서로 호출됨.
+  - **주의**: React 훅은 조건문·early return 이전에 모두 선언해야 함. early return이 추가될 때마다 그 아래 훅 유무 확인 필요.
 - **2026-05-11 (Yahoo quoteSummary 400 오류 수정)**:
   - **원인**: `fetchYahooQuoteSummary`에 6개 모듈을 한꺼번에 요청 → Yahoo Finance v10이 TSE/LSE 등 비US 종목에서 statement 모듈(`incomeStatementHistory` 등)을 지원하지 않으면 요청 전체를 **HTTP 400**으로 거부. 결과: summary 전체 null → Fetch History 클릭 시 "Yahoo quoteSummary HTTP 400" 에러 + 메인 지표도 전부 "–".
   - **수정**: 모듈 요청을 두 함수로 분리:
