@@ -4341,9 +4341,9 @@ PER ${f(m.per,'x')} | PBR ${f(m.pbr,'x')} | ROE ${f(m.roe,'%')} | FCF마진 ${f(
 한국어로 간결하고 정확하게 답변하세요.`;
   };
 
-  // localhost → 로컬 프록시 경유 (CORS 우회), 외부 URL → 직접 접근
-  const ollamaBase = () => isProxiedOrigin() ? '' : ollamaUrl.replace(/\/$/, '');
-  const ollamaPath = (path) => isProxiedOrigin() ? `/api/ollama${path}` : `${ollamaUrl.replace(/\/$/, '')}${path}`;
+  // localhost:* → 로컬 프록시 경유 (CORS 우회), 그 외 → 직접 접근
+  const isLocal = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+  const ollamaPath = (p) => isLocal ? `/api/ollama${p}` : `${ollamaUrl.replace(/\/$/, '')}${p}`;
 
   // ── Ollama: 연결 테스트 ──────────────────────────────────────────────────
   const testOllama = async () => {
