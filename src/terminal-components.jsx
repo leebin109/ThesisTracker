@@ -111,7 +111,7 @@ const Cell = ({ label, children, accent, style }) => (
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8, height: 22, padding: '0 10px',
         borderBottom: `1px solid ${T.borderSoft}`, background: T.surface2,
-        fontSize: 9.5, fontWeight: 700, letterSpacing: '0.12em',
+        fontSize: 10.5, fontWeight: 700, letterSpacing: '0.12em',
         color: accent || T.inkFaint, textTransform: 'uppercase',
         flex: '0 0 auto',
       }}>
@@ -125,7 +125,7 @@ const Cell = ({ label, children, accent, style }) => (
 
 const Stat = ({ label, value, sub, color, align = 'left' }) => (
   <div style={{ textAlign: align, minWidth: 0 }}>
-    <div style={{ fontSize: 9.5, color: T.inkFaint, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 3 }}>
+    <div style={{ fontSize: 10.5, color: T.inkFaint, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 3 }}>
       {label}
     </div>
     <div style={{ fontSize: 16, fontWeight: 700, color: color || T.ink, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>
@@ -153,7 +153,7 @@ const ScoreRing = ({ score, size = 64, accent = T.amber, label = 'SCORE' }) => {
         <div style={{ fontSize: size * 0.32, fontWeight: 700, color: T.ink, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
           {Number.isFinite(sc) ? sc : '–'}
         </div>
-        <div style={{ fontSize: 7.5, color: T.inkFaint, letterSpacing: '0.15em', marginTop: 2 }}>{label}</div>
+        <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.15em', marginTop: 2 }}>{label}</div>
       </div>
     </div>
   );
@@ -260,7 +260,7 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
   const tipStyle = {
     position: 'absolute', top: 8, background: T.surface,
     border: `1px solid ${T.border}`, padding: '5px 9px',
-    fontSize: 9.5, fontFamily: T.font, lineHeight: 1.65,
+    fontSize: 11, fontFamily: T.font, lineHeight: 1.65,
     pointerEvents: 'none', zIndex: 10, whiteSpace: 'nowrap',
   };
 
@@ -285,13 +285,13 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
     return (
       <g>
         <line x1={pad.l} x2={pad.l + cw} y1={offsetY} y2={offsetY} stroke={T.border} strokeWidth="0.8"/>
-        <text x={pad.l - 6} y={offsetY + 9} textAnchor="end" fontSize="8" fill={T.inkFaint} fontFamily={T.font}>{label}</text>
+        <text x={pad.l - 6} y={offsetY + 9} textAnchor="end" fontSize="9.5" fill={T.inkFaint} fontFamily={T.font}>{label}</text>
         {tks.map((v, i) => {
           const y = offsetY + subH - ((v - minVal) / range) * subH;
           return (
             <g key={i}>
               <line x1={pad.l} x2={pad.l + cw} y1={y} y2={y} stroke={T.border} strokeWidth="0.4" strokeDasharray="2 3" opacity="0.5"/>
-              <text x={pad.l - 4} y={y + 3} textAnchor="end" fontSize="7.5" fill={T.inkFaint} fontFamily={T.font}>{v.toFixed(0)}</text>
+              <text x={pad.l - 4} y={y + 3} textAnchor="end" fontSize="9" fill={T.inkFaint} fontFamily={T.font}>{v.toFixed(0)}</text>
             </g>
           );
         })}
@@ -664,7 +664,7 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
         <span style={{ fontSize: 12, color: T.inkFaint, lineHeight: 1 }}>⌕</span>
         <span style={{ fontSize: 10.5, color: T.inkFaint, letterSpacing: '0.03em', fontFamily: T.font }}>
           종목 검색 &nbsp;
-          <span style={{ opacity: 0.55 }}>— <kbd style={{ ...kbdStyle, fontSize: 9 }}>/</kbd> 를 누르면 바로 활성화</span>
+          <span style={{ opacity: 0.55 }}>— <kbd style={{ ...kbdStyle, fontSize: 10.5 }}>/</kbd> 를 누르면 바로 활성화</span>
         </span>
       </button>
 
@@ -672,7 +672,7 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
 
       {/* Right side status */}
       {providerStatus && (
-        <span title={providerStatus.text} style={{ color: statusColor, fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', flex: '0 0 auto' }}>
+        <span title={providerStatus.text} style={{ color: statusColor, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', flex: '0 0 auto' }}>
           ● {providerStatus.label || 'DATA'}
         </span>
       )}
@@ -684,7 +684,7 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
             background: alertCount > 0 ? T.amber : 'transparent',
             border: `1px solid ${alertCount > 0 ? T.amber : T.border}`,
             color: alertCount > 0 ? '#000' : T.inkDim,
-            fontFamily: T.font, fontSize: 10, fontWeight: alertCount > 0 ? 800 : 500,
+            fontFamily: T.font, fontSize: 11, fontWeight: alertCount > 0 ? 800 : 500,
             cursor: 'pointer', padding: '3px 10px', letterSpacing: '0.08em',
             display: 'flex', alignItems: 'center', gap: 6, flex: '0 0 auto',
           }}>
@@ -692,14 +692,14 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
           {alertCount > 0 && (
             <span style={{
               background: '#000', color: T.amber, borderRadius: 8, padding: '1px 6px',
-              fontSize: 9, fontWeight: 800, minWidth: 16, textAlign: 'center',
+              fontSize: 10, fontWeight: 800, minWidth: 16, textAlign: 'center',
             }}>{alertCount > 99 ? '99+' : alertCount}</span>
           )}
         </button>
       )}
       {onSettings && (
         <button onClick={onSettings} style={{ background: 'transparent', border: `1px solid ${T.border}`,
-          color: T.inkDim, fontFamily: T.font, fontSize: 10, cursor: 'pointer',
+          color: T.inkDim, fontFamily: T.font, fontSize: 11, cursor: 'pointer',
           padding: '3px 10px', letterSpacing: '0.08em' }}>
           API
         </button>
@@ -712,6 +712,10 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
       </div>
       <style>{`
         @keyframes tt-pulse { 0% { transform: scale(1); opacity: 0.7; } 100% { transform: scale(2.5); opacity: 0; } }
+        button:disabled, button[disabled] { opacity: 0.38 !important; cursor: not-allowed !important; }
+        button:not(:disabled):hover { filter: brightness(1.15); }
+        :focus-visible { outline: 2px solid #FF9500; outline-offset: 2px; border-radius: 2px; }
+        input:focus-visible { outline: 2px solid #FF950066; outline-offset: 0; }
       `}</style>
     </div>
   );
@@ -719,7 +723,7 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
 
 const kbdStyle = {
   display: 'inline-block', padding: '1px 5px', background: T.surface2,
-  border: `1px solid ${T.border}`, borderRadius: 2, fontSize: 10, fontFamily: T.font, color: T.inkDim, margin: '0 2px',
+  border: `1px solid ${T.border}`, borderRadius: 2, fontSize: 11, fontFamily: T.font, color: T.inkDim, margin: '0 2px',
 };
 
 const Pulse = () => (
@@ -782,13 +786,13 @@ const HeroStrip = ({ stock, onRefresh, refreshing }) => {
             {stock.symbol} · {stock.market} · {stock.currency}
           </span>
           <span style={{ fontSize: 13, flex: '0 0 auto' }}>{stock.flag || ''}</span>
-          <span style={{ fontSize: 9, padding: '2px 6px', border: `1px solid ${T.amber}`,
+          <span style={{ fontSize: 10.5, padding: '2px 6px', border: `1px solid ${T.amber}`,
             color: T.amber, fontWeight: 700, letterSpacing: '0.1em', flex: '0 0 auto' }}>
             {(stock.recommendation || 'Watch').toUpperCase()}
           </span>
           {onRefresh && (
             <button onClick={() => onRefresh(stock.id)} disabled={refreshing}
-              style={{ marginLeft: 4, padding: '2px 8px', fontSize: 9, fontFamily: T.font,
+              style={{ marginLeft: 4, padding: '2px 8px', fontSize: 10.5, fontFamily: T.font,
                 background: 'transparent', border: `1px solid ${T.border}`,
                 color: refreshing ? T.inkFaint : T.cyan, cursor: refreshing ? 'default' : 'pointer',
                 letterSpacing: '0.08em', flex: '0 0 auto' }}>
@@ -814,7 +818,7 @@ const HeroStrip = ({ stock, onRefresh, refreshing }) => {
         />
       </div>
       <div style={{ paddingLeft: 18, paddingRight: 18, borderRight: `1px solid ${T.borderSoft}` }}>
-        <div style={{ fontSize: 9.5, color: T.inkFaint, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>
+        <div style={{ fontSize: 10.5, color: T.inkFaint, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>
           Bull · Base · Bear
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontVariantNumeric: 'tabular-nums' }}>
@@ -838,7 +842,7 @@ const HeroStrip = ({ stock, onRefresh, refreshing }) => {
         />
       </div>
       <div style={{ paddingLeft: 18 }}>
-        <div style={{ fontSize: 9.5, color: T.inkFaint, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>
+        <div style={{ fontSize: 10.5, color: T.inkFaint, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>
           Score Trend · 12M
         </div>
         <Spark data={stock.scoreHistory || []} width={140} height={26} color={T.amber}/>
@@ -857,7 +861,7 @@ const PitchHeadline = ({ text, onEdit }) => (
     padding: '10px 20px', background: T.bg, borderBottom: `1px solid ${T.border}`,
     display: 'flex', alignItems: 'center', gap: 12, minWidth: 0,
   }}>
-    <div style={{ fontSize: 9, color: T.amber, letterSpacing: '0.18em', fontWeight: 700,
+    <div style={{ fontSize: 10, color: T.amber, letterSpacing: '0.18em', fontWeight: 700,
       writingMode: 'vertical-rl', transform: 'rotate(180deg)', flex: '0 0 auto' }}>PITCH</div>
     <div style={{ width: 2, alignSelf: 'stretch', background: T.amber, boxShadow: `0 0 8px ${T.amber}88`, flex: '0 0 auto' }}/>
     <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 16, fontWeight: 500, color: T.ink,
@@ -868,7 +872,7 @@ const PitchHeadline = ({ text, onEdit }) => (
     </div>
     {onEdit && (
       <button onClick={onEdit} style={{ background: 'transparent', border: `1px solid ${T.border}`,
-        color: T.inkDim, fontFamily: T.font, fontSize: 9, cursor: 'pointer',
+        color: T.inkDim, fontFamily: T.font, fontSize: 10.5, cursor: 'pointer',
         padding: '4px 10px', letterSpacing: '0.1em', whiteSpace: 'nowrap' }}>
         EDIT PITCH
       </button>

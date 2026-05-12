@@ -305,7 +305,7 @@ function WatchlistPanel({ stocks, watchlistIds, activeId, watchlists, activeWatc
     border: 'none', borderRight: `1px solid ${T.borderSoft}`,
     borderBottom: `2px solid ${active ? T.amber : 'transparent'}`,
     color: active ? T.amber : T.inkDim,
-    fontFamily: T.font, fontSize: 9, padding: '3px 7px', cursor: 'pointer',
+    fontFamily: T.font, fontSize: 10.5, padding: '3px 7px', cursor: 'pointer',
     whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0,
   });
   return (
@@ -319,8 +319,8 @@ function WatchlistPanel({ stocks, watchlistIds, activeId, watchlists, activeWatc
               onDoubleClick={() => onRenameWatchlist(wl.id)}>
               {wl.name}
               {watchlists.length > 1 && (
-                <span onClick={e => { e.stopPropagation(); onDeleteWatchlist(wl.id); }}
-                  style={{ opacity: 0.5, fontSize: 9, lineHeight: 1, marginLeft: 1 }}>×</span>
+                <button onClick={e => { e.stopPropagation(); if (window.confirm(`"${wl.name}" 워치리스트를 삭제하시겠습니까?`)) onDeleteWatchlist(wl.id); }}
+                  style={{ opacity: 0.6, fontSize: 11, lineHeight: 1, marginLeft: 2, background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', padding: '0 2px' }}>×</button>
               )}
             </button>
           ))}
@@ -357,7 +357,7 @@ function WatchlistPanel({ stocks, watchlistIds, activeId, watchlists, activeWatc
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
-                  <span style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.06em', flex: '0 0 auto' }}>{s.symbol}</span>
+                  <span style={{ fontSize: 10.5, color: T.inkFaint, letterSpacing: '0.06em', flex: '0 0 auto' }}>{s.symbol}</span>
                   <span style={{ fontSize: 10.5, color: T.inkDim, fontVariantNumeric: 'tabular-nums' }}>
                     {s.currency === 'KRW' ? `₩${fmtPx(s.price, 'KRW')}` : `$${fmtPx(s.price, s.currency)}`}
                   </span>
@@ -442,12 +442,12 @@ function ScoreBreakdown({ scores, activeDim, onDimClick }) {
                   <span style={{ fontSize: 10.5, fontVariantNumeric: 'tabular-nums' }}>
                     <span style={{ fontWeight: 700, color: flagCount === 0 ? T.green : flagCount <= 2 ? T.yellow : T.red }}>{flagCount}</span>
                     <span style={{ color: T.inkFaint, fontWeight: 400 }}>/{flagMax} flags</span>
-                    <span style={{ color: T.inkFaint, fontWeight: 400, fontSize: 9, marginLeft: 6 }}>{w}%</span>
+                    <span style={{ color: T.inkFaint, fontWeight: 400, fontSize: 10.5, marginLeft: 6 }}>{w}%</span>
                   </span>
                 ) : (
                   <span style={{ fontSize: 10.5, fontWeight: 700, color: d.color, fontVariantNumeric: 'tabular-nums' }}>
                     {Number.isFinite(v) ? v : '–'} <span style={{ color: T.inkFaint, fontWeight: 400 }}>/ 100</span>
-                    <span style={{ color: T.inkFaint, fontWeight: 400, fontSize: 9, marginLeft: 6 }}>{w}%</span>
+                    <span style={{ color: T.inkFaint, fontWeight: 400, fontSize: 10.5, marginLeft: 6 }}>{w}%</span>
                   </span>
                 )}
               </div>
@@ -488,7 +488,7 @@ function ScoreBreakdown({ scores, activeDim, onDimClick }) {
           );
         })()}
         {activeDim && (
-          <div style={{ fontSize: 9, color: T.inkFaint, textAlign: 'center', marginTop: 2 }}>클릭하면 필터 해제</div>
+          <div style={{ fontSize: 10, color: T.inkFaint, textAlign: 'center', marginTop: 2 }}>클릭하면 필터 해제</div>
         )}
       </div>
     </Cell>
@@ -586,7 +586,7 @@ function ScriptPanel({ stocks, watchlistIds }) {
     setResults(matched);
   };
 
-  const thSt = { padding: '5px 8px', color: T.inkFaint, fontSize: 9, letterSpacing: '0.08em', textAlign: 'left', borderBottom: `1px solid ${T.border}`, fontWeight: 600 };
+  const thSt = { padding: '5px 8px', color: T.inkFaint, fontSize: 10.5, letterSpacing: '0.08em', textAlign: 'left', borderBottom: `1px solid ${T.border}`, fontWeight: 600 };
   const tdSt = { padding: '5px 8px', fontSize: 11, borderBottom: `1px solid ${T.borderSoft}` };
 
   return (
@@ -604,7 +604,7 @@ function ScriptPanel({ stocks, watchlistIds }) {
           spellCheck={false}
           style={{ width: '100%', minHeight: 72, background: '#060d1a', border: `1px solid ${error ? T.red : T.border}`, color: '#4ade80', fontFamily: 'monospace', fontSize: 13, padding: '10px 12px', borderRadius: 4, resize: 'vertical', boxSizing: 'border-box', outline: 'none', lineHeight: 1.5 }}/>
         {error && <div style={{ color: T.red, fontSize: 10, marginTop: 4 }}>구문 오류: {error}</div>}
-        <div style={{ fontSize: 9, color: T.inkFaint, marginTop: 6, lineHeight: 1.9 }}>
+        <div style={{ fontSize: 10, color: T.inkFaint, marginTop: 6, lineHeight: 1.9 }}>
           <span style={{ color: T.amber }}>필드</span>: per · pbr · roe · opMargin · fcfMargin · debtRatio · currentRatio · revGrowth · epsGrowth · netMargin · evEbitda · score · piotroski · price
           {'  '}
           <span style={{ color: T.amber }}>연산자</span>: {'<  >  <=  >=  ==  !=  and (&&)  or (||)  not (!)  ( )'}
@@ -929,7 +929,7 @@ function ToolsPanel({ stock, stocks, watchlistIds }) {
             style={{
               background: tab === t ? `${T.amber}18` : 'transparent',
               border: 'none', borderBottom: `2px solid ${tab === t ? T.amber : 'transparent'}`,
-              color: tab === t ? T.amber : T.inkFaint, fontFamily: T.font, fontSize: 10,
+              color: tab === t ? T.amber : T.inkFaint, fontFamily: T.font, fontSize: 12,
               fontWeight: tab === t ? 700 : 500, letterSpacing: '0.1em',
               padding: '6px 16px', cursor: 'pointer',
             }}>{t}</button>
@@ -995,7 +995,7 @@ function MacroPanel({ stock, stocks, watchlistIds }) {
     return Math.round(impact * 100) / 100;
   }, [data, stress]);
 
-  const thSt = { padding: '5px 10px', color: T.inkFaint, fontSize: 9, letterSpacing: '0.08em', textAlign: 'left', borderBottom: `1px solid ${T.border}`, fontWeight: 600 };
+  const thSt = { padding: '5px 10px', color: T.inkFaint, fontSize: 10.5, letterSpacing: '0.08em', textAlign: 'left', borderBottom: `1px solid ${T.border}`, fontWeight: 600 };
   const tdSt = { padding: '6px 10px', fontSize: 11, borderBottom: `1px solid ${T.borderSoft}` };
   const inSt = { background: T.surface, border: `1px solid ${T.border}`, color: T.ink, fontFamily: T.font, fontSize: 11, padding: '4px 7px', borderRadius: 3 };
 
@@ -1043,13 +1043,13 @@ function MacroPanel({ stock, stocks, watchlistIds }) {
         <Cell label="STRESS TEST · 매크로 변화 시 예상 주가 영향" accent={T.amber}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
             <div>
-              <div style={{ fontSize: 9, color: T.inkFaint, marginBottom: 3 }}>지표 선택</div>
+              <div style={{ fontSize: 10, color: T.inkFaint, marginBottom: 3 }}>지표 선택</div>
               <select value={stress.sym} onChange={e => setStress(p => ({ ...p, sym: e.target.value }))} style={{ ...inSt }}>
                 {data.macros.filter(m => m.corr != null).map(m => <option key={m.sym} value={m.sym}>{m.label}</option>)}
               </select>
             </div>
             <div>
-              <div style={{ fontSize: 9, color: T.inkFaint, marginBottom: 3 }}>변화폭 (%)</div>
+              <div style={{ fontSize: 10, color: T.inkFaint, marginBottom: 3 }}>변화폭 (%)</div>
               <input type="range" min={-30} max={30} step={1} value={stress.delta} onChange={e => setStress(p => ({ ...p, delta: Number(e.target.value) }))} style={{ width: 140 }}/>
               <span style={{ fontSize: 11, color: T.ink, marginLeft: 8 }}>{stress.delta > 0 ? '+' : ''}{stress.delta}%</span>
             </div>
@@ -1060,7 +1060,7 @@ function MacroPanel({ stock, stocks, watchlistIds }) {
               {stressImpact == null ? '–' : `${stressImpact >= 0 ? '+' : ''}${stressImpact.toFixed(2)}%`}
             </span>
           </div>
-          <div style={{ fontSize: 9, color: T.inkFaint, marginTop: 6 }}>* 과거 상관관계 기반 통계적 추정치. 미래 수익률을 보장하지 않습니다.</div>
+          <div style={{ fontSize: 10, color: T.inkFaint, marginTop: 6 }}>* 과거 상관관계 기반 통계적 추정치. 미래 수익률을 보장하지 않습니다.</div>
         </Cell>
       )}
     </div>
@@ -1107,7 +1107,7 @@ function BacktestPanel({ stocks, watchlistIds, trades, onAddTrade, onDeleteTrade
     setForm(p => ({ ...p, price: '', shares: '', note: '' }));
   };
 
-  const thSt = { padding: '4px 8px', color: T.inkFaint, fontSize: 9, letterSpacing: '0.08em', textAlign: 'left', borderBottom: `1px solid ${T.border}`, fontWeight: 600 };
+  const thSt = { padding: '4px 8px', color: T.inkFaint, fontSize: 10.5, letterSpacing: '0.08em', textAlign: 'left', borderBottom: `1px solid ${T.border}`, fontWeight: 600 };
   const tdSt = { padding: '5px 8px', fontSize: 11, borderBottom: `1px solid ${T.borderSoft}` };
 
   return (
@@ -1115,28 +1115,28 @@ function BacktestPanel({ stocks, watchlistIds, trades, onAddTrade, onDeleteTrade
       <Cell label="PAPER TRADING · 가상 거래 기록" accent={T.cyan}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px 100px 1fr auto', gap: 6, alignItems: 'end', padding: '0 0 8px' }}>
           <div>
-            <div style={{ fontSize: 9, color: T.inkFaint, marginBottom: 3 }}>SYMBOL</div>
+            <div style={{ fontSize: 10, color: T.inkFaint, marginBottom: 3 }}>SYMBOL</div>
             <select value={form.stockId} onChange={e => setF('stockId', e.target.value)} style={{ ...inSt }}>
               {watchlistIds.map(id => <option key={id} value={id}>{stocks[id]?.symbol || id}</option>)}
             </select>
           </div>
           <div>
-            <div style={{ fontSize: 9, color: T.inkFaint, marginBottom: 3 }}>ACTION</div>
+            <div style={{ fontSize: 10, color: T.inkFaint, marginBottom: 3 }}>ACTION</div>
             <select value={form.action} onChange={e => setF('action', e.target.value)} style={{ ...inSt }}>
               <option value="BUY">BUY</option>
               <option value="SELL">SELL</option>
             </select>
           </div>
           <div>
-            <div style={{ fontSize: 9, color: T.inkFaint, marginBottom: 3 }}>DATE</div>
+            <div style={{ fontSize: 10, color: T.inkFaint, marginBottom: 3 }}>DATE</div>
             <input type="date" value={form.date} onChange={e => setF('date', e.target.value)} style={{ ...inSt }}/>
           </div>
           <div>
-            <div style={{ fontSize: 9, color: T.inkFaint, marginBottom: 3 }}>PRICE</div>
+            <div style={{ fontSize: 10, color: T.inkFaint, marginBottom: 3 }}>PRICE</div>
             <input type="number" value={form.price} onChange={e => setF('price', e.target.value)} style={{ ...inSt }} placeholder="0.00"/>
           </div>
           <div>
-            <div style={{ fontSize: 9, color: T.inkFaint, marginBottom: 3 }}>SHARES</div>
+            <div style={{ fontSize: 10, color: T.inkFaint, marginBottom: 3 }}>SHARES</div>
             <input type="number" value={form.shares} onChange={e => setF('shares', e.target.value)} style={{ ...inSt }} placeholder="0"/>
           </div>
           <button onClick={handleSubmit} style={btnSt(T.cyan)}>ADD</button>
@@ -1238,15 +1238,15 @@ function HistoryTable({ history }) {
       <table style={{ borderCollapse: 'collapse', fontSize: 10.5, width: '100%' }}>
         <thead>
           <tr>
-            <th style={{ textAlign: 'left', color: T.inkFaint, fontSize: 9, letterSpacing: '0.1em', padding: '3px 10px 3px 0', minWidth: 72 }}>
+            <th style={{ textAlign: 'left', color: T.inkFaint, fontSize: 10.5, letterSpacing: '0.1em', padding: '3px 10px 3px 0', minWidth: 72 }}>
               ({unit})
             </th>
             {sorted.map(r => (
-              <th key={r.fy} style={{ textAlign: 'right', color: T.inkFaint, fontSize: 9, letterSpacing: '0.1em', padding: '3px 10px' }}>
+              <th key={r.fy} style={{ textAlign: 'right', color: T.inkFaint, fontSize: 10.5, letterSpacing: '0.1em', padding: '3px 10px' }}>
                 FY{r.fy}
               </th>
             ))}
-            <th style={{ textAlign: 'right', color: T.inkFaint, fontSize: 9, letterSpacing: '0.1em', padding: '3px 10px' }}>YoY</th>
+            <th style={{ textAlign: 'right', color: T.inkFaint, fontSize: 10.5, letterSpacing: '0.1em', padding: '3px 10px' }}>YoY</th>
           </tr>
         </thead>
         <tbody>
@@ -1257,7 +1257,7 @@ function HistoryTable({ history }) {
             const maxVal = vals.length ? Math.max(...vals) : 1;
             return (
               <tr key={key} style={{ borderTop: `1px solid ${T.border}` }}>
-                <td style={{ ...tdBase, color: T.inkFaint, fontSize: 9, letterSpacing: '0.1em', paddingLeft: 0 }}>{label}</td>
+                <td style={{ ...tdBase, color: T.inkFaint, fontSize: 10.5, letterSpacing: '0.1em', paddingLeft: 0 }}>{label}</td>
                 {sorted.map(r => {
                   const v = r[key];
                   const isLast = r.fy === sorted.at(-1)?.fy;
@@ -1336,12 +1336,12 @@ function FinancialHistorySection({ stock, apiSettings, dartCorpMap, onSaveHistor
           </button>
           {error && <span style={{ fontSize: 10, color: T.red }}>{error}</span>}
           {!error && history.length > 0 && (
-            <span style={{ fontSize: 9, color: T.inkFaint }}>
+            <span style={{ fontSize: 10, color: T.inkFaint }}>
               {history[0]?.source} · {history.length}개 연도 · FY{history.at(-1)?.fy}–FY{history[0]?.fy}
             </span>
           )}
           {!error && history.length === 0 && !loading && (
-            <span style={{ fontSize: 9, color: T.inkFaint }}>{sourceHint}</span>
+            <span style={{ fontSize: 10, color: T.inkFaint }}>{sourceHint}</span>
           )}
         </div>
         {history.length === 0 ? (
@@ -1384,14 +1384,14 @@ function InsiderSection({ stock, onSaveInsiders }) {
           </button>
           {error && <span style={{ fontSize: 10, color: T.red }}>{error}</span>}
           {!error && trades.length > 0 && (
-            <span style={{ fontSize: 9, color: T.inkFaint }}>
+            <span style={{ fontSize: 10, color: T.inkFaint }}>
               {trades.length}건
               {buys  > 0 && <span style={{ color: T.green  }}> · BUY {buys}</span>}
               {sells > 0 && <span style={{ color: T.red    }}> · SELL {sells}</span>}
             </span>
           )}
           {!error && trades.length === 0 && !loading && (
-            <span style={{ fontSize: 9, color: T.inkFaint }}>
+            <span style={{ fontSize: 10, color: T.inkFaint }}>
               {isEligible ? 'SEC Form 4 자동 수집 (API 키 불필요)' : '미국 상장 종목만 지원'}
             </span>
           )}
@@ -1407,7 +1407,7 @@ function InsiderSection({ stock, onSaveInsiders }) {
                 <tr>
                   {['DATE', 'INSIDER', 'TITLE', 'TYPE', 'SHARES', 'PRICE', 'VALUE'].map(h => (
                     <th key={h} style={{
-                      padding: '4px 8px', color: T.inkFaint, fontSize: 9, letterSpacing: '0.08em',
+                      padding: '4px 8px', color: T.inkFaint, fontSize: 10.5, letterSpacing: '0.08em',
                       textAlign: ['SHARES','PRICE','VALUE'].includes(h) ? 'right' : 'left',
                       borderBottom: `1px solid ${T.border}`, whiteSpace: 'nowrap',
                     }}>{h}</th>
@@ -2243,7 +2243,7 @@ function DcfMiniModeler({ stock }) {
     padding: '3px 6px', width: '100%',
   };
   const rowSt = { display: 'flex', flexDirection: 'column', gap: 3 };
-  const lbSt = { fontSize: 9, color: T.inkFaint, letterSpacing: '0.1em' };
+  const lbSt = { fontSize: 10.5, color: T.inkFaint, letterSpacing: '0.1em' };
 
   return (
     <Cell label="DCF MINI MODEL · 8Y PROJECTION" accent={T.cyan} style={{ height: '100%', overflow: 'auto' }}>
@@ -2254,12 +2254,12 @@ function DcfMiniModeler({ stock }) {
           <div style={rowSt}>
             <span style={lbSt}>BASE FCF ({unitLabel})</span>
             <input value={fcfStr} onChange={e => setFcfStr(e.target.value)} style={inSt} placeholder="e.g. 50000"/>
-            {autoFcf != null && <span style={{ fontSize: 9, color: T.inkFaint }}>히스토리: {Math.round(autoFcf).toLocaleString()}</span>}
+            {autoFcf != null && <span style={{ fontSize: 10, color: T.inkFaint }}>히스토리: {Math.round(autoFcf).toLocaleString()}</span>}
           </div>
           <div style={rowSt}>
             <span style={lbSt}>SHARES (M)</span>
             <input value={sharesStr} onChange={e => setSharesStr(e.target.value)} style={inSt} placeholder="e.g. 5969"/>
-            {autoShares != null && <span style={{ fontSize: 9, color: T.inkFaint }}>자동: {autoShares.toLocaleString()}M</span>}
+            {autoShares != null && <span style={{ fontSize: 10, color: T.inkFaint }}>자동: {autoShares.toLocaleString()}M</span>}
           </div>
           <div style={rowSt}>
             <span style={lbSt}>NET DEBT ({unitLabel})</span>
@@ -2414,7 +2414,7 @@ function PeersPanel({ stock, stocks, watchlistIds, onSelect, onSavePeers, onAddP
       {/* Peer selector (edit mode) */}
       {editing && (
         <div style={{ padding: '10px 14px', borderBottom: `1px solid ${T.borderSoft}`, background: T.surface }}>
-          <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 8 }}>
+          <div style={{ fontSize: 10, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 8 }}>
             PEER GROUP — 체크된 종목만 비교에 포함됩니다
             {hasExplicit && (
               <span onClick={resetToAll} style={{ marginLeft: 12, color: T.amber, cursor: 'pointer' }}>전체 초기화</span>
@@ -2695,7 +2695,7 @@ const btnSt = { background: 'transparent', fontFamily: "'JetBrains Mono', monosp
 function SettingRow({ label, children }) {
   return (
     <div>
-      <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.14em', marginBottom: 5, textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ fontSize: 10, color: T.inkFaint, letterSpacing: '0.14em', marginBottom: 5, textTransform: 'uppercase' }}>{label}</div>
       {children}
     </div>
   );
@@ -2838,12 +2838,12 @@ function SettingsDataPanel({
       <Cell label="BACKUP / CACHE" accent={T.cyan} style={{ height: '100%' }}>
         <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ background: T.surface2, border: `1px solid ${T.borderSoft}`, padding: 12 }}>
-            <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 6 }}>PROVIDER STATUS</div>
+            <div style={{ fontSize: 10, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 6 }}>PROVIDER STATUS</div>
             <div style={{ color: statusColor, fontSize: 13, fontWeight: 700 }}>{providerStatus?.text || 'Ready'}</div>
           </div>
 
           <div style={{ background: T.surface2, border: `1px solid ${T.borderSoft}`, padding: 12 }}>
-            <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 6 }}>CACHE HEALTH</div>
+            <div style={{ fontSize: 10, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 6 }}>CACHE HEALTH</div>
             <div style={{ color: T.ink, fontSize: 12, marginBottom: 8 }}>{cacheCount} entries total</div>
             {Object.entries(cacheByProvider).map(([p, { count, oldest }]) => (
               <div key={p} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: T.inkDim, marginBottom: 4 }}>
@@ -2856,7 +2856,7 @@ function SettingsDataPanel({
           </div>
 
           <div style={{ background: T.surface2, border: `1px solid ${T.borderSoft}`, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.12em' }}>EXPORT</div>
+            <div style={{ fontSize: 10, color: T.inkFaint, letterSpacing: '0.12em' }}>EXPORT</div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: T.inkDim }}>
               <input type="checkbox" checked={includeKeys} onChange={(e) => setIncludeKeys(e.target.checked)}/>
               API keys 포함
@@ -2865,7 +2865,7 @@ function SettingsDataPanel({
           </div>
 
           <div style={{ background: T.surface2, border: `1px solid ${T.borderSoft}`, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.12em' }}>IMPORT</div>
+            <div style={{ fontSize: 10, color: T.inkFaint, letterSpacing: '0.12em' }}>IMPORT</div>
             <select value={importMode} onChange={(e) => setImportMode(e.target.value)} style={{ ...inputSt, width: 160 }}>
               <option value="merge">MERGE</option>
               <option value="replace">REPLACE</option>
@@ -2920,7 +2920,7 @@ function AlertsPanel({
             <span style={{ fontWeight: 700, letterSpacing: '0.08em' }}>ALERTS ENABLED</span>
           </label>
           <div style={{ borderTop: `1px solid ${T.borderSoft}`, paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.12em' }}>SOURCES</div>
+            <div style={{ fontSize: 10, color: T.inkFaint, letterSpacing: '0.12em' }}>SOURCES</div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: T.inkDim }}>
               <input type="checkbox" checked={!!sources.dart} onChange={(e) => setSrc('dart', e.target.checked)}/>
               OpenDART (한국 공시)
@@ -2955,20 +2955,20 @@ function AlertsPanel({
             </label>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.12em' }}>DAYS BACK</div>
+            <div style={{ fontSize: 10, color: T.inkFaint, letterSpacing: '0.12em' }}>DAYS BACK</div>
             <input type="number" min="1" max="30" value={setting.daysBack ?? 7}
               onChange={(e) => onSettingsChange({ ...setting, daysBack: Math.max(1, Math.min(30, Number(e.target.value) || 7)) })}
               style={{ ...inputSt, width: '100%' }}/>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.12em' }}>GOOGLE NEWS PROXY (선택)</div>
+            <div style={{ fontSize: 10, color: T.inkFaint, letterSpacing: '0.12em' }}>GOOGLE NEWS PROXY (선택)</div>
             <input type="text" placeholder="https://corsproxy.io/?" value={setting.googleNewsProxy || ''}
               onChange={(e) => onSettingsChange({ ...setting, googleNewsProxy: e.target.value })}
               style={{ ...inputSt, width: '100%', fontFamily: 'monospace', fontSize: 10 }}/>
             <div style={{ fontSize: 9, color: T.inkFaint }}>file:// 또는 CORS 차단 시 무료 프록시 prefix 입력</div>
           </div>
           <div style={{ borderTop: `1px solid ${T.borderSoft}`, paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.12em' }}>POLLING</div>
+            <div style={{ fontSize: 10, color: T.inkFaint, letterSpacing: '0.12em' }}>POLLING</div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: T.inkDim }}>
               <input type="checkbox" checked={!!setting.autoPolling} onChange={(e) => onSettingsChange({ ...setting, autoPolling: e.target.checked })}/>
               자동 새로고침 사용
@@ -3156,7 +3156,7 @@ function ChecklistPanel({ stock, onSave }) {
             if (!items.length) return null;
             return (
               <div key={group}>
-                <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.14em', marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
+                <div style={{ fontSize: 10, color: T.inkFaint, letterSpacing: '0.14em', marginBottom: 6, display: 'flex', justifyContent: 'space-between' }}>
                   <span>{group}</span>
                   {lastDoneAt[group] && <span style={{ color: T.inkFaint, fontWeight: 400 }}>완료 {lastDoneAt[group].slice(0, 10)}</span>}
                 </div>
@@ -3482,7 +3482,7 @@ function EditPitchModal({ stock, onSave, onClose }) {
             <div style={{ display: 'grid', gridTemplateColumns: '80px repeat(4, 1fr)', gap: 8, alignItems: 'center' }}>
               <div />
               {['DRIVER', 'MULTIPLE', 'MOS %', 'PRICE'].map(h => (
-                <div key={h} style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.12em' }}>{h}</div>
+                <div key={h} style={{ fontSize: 10, color: T.inkFaint, letterSpacing: '0.12em' }}>{h}</div>
               ))}
               {scenarioKeys.map(key => (
                 <React.Fragment key={key}>
@@ -3750,6 +3750,7 @@ function App({ initialData }) {
   const [searchMode, setSearchMode]       = useState(null); // 'watchlist' | 'peer' | null
   const [settingsOpen, setSettingsOpen]   = useState(false);
   const [pitchEditId, setPitchEditId]     = useState(null);
+  const [showHelp, setShowHelp]           = useState(false);
   // tweaks-panel is a design-time tool; not used at runtime in terminal
 
   const stock = stocks[activeId] || Object.values(stocks)[0] || makeBlankStock({ id: 'EMPTY', symbol: 'EMPTY', name: 'No Stock' });
@@ -4034,7 +4035,8 @@ function App({ initialData }) {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (map[e.key]) { e.preventDefault(); setActivePanel(map[e.key]); }
       if (e.key === '/' && !searchMode) { e.preventDefault(); setSearchMode('watchlist'); }
-      if (e.key === 'Escape') { setSearchMode(null); setSettingsOpen(false); setPitchEditId(null); }
+      if (e.key === '?') { e.preventDefault(); setShowHelp(h => !h); }
+      if (e.key === 'Escape') { setSearchMode(null); setSettingsOpen(false); setPitchEditId(null); setShowHelp(false); }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -4616,6 +4618,28 @@ function App({ initialData }) {
       background: T.bg,
       overflow: 'hidden',
     }}>
+      {showHelp && (
+        <div onClick={() => setShowHelp(false)} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.surface, border: `1px solid ${T.border}`, padding: '24px 32px', minWidth: 380, maxWidth: 520, borderRadius: 4 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <span style={{ color: T.amber, fontFamily: T.font, fontSize: 12, letterSpacing: '0.18em', fontWeight: 700 }}>KEYBOARD SHORTCUTS</span>
+              <button onClick={() => setShowHelp(false)} style={{ background: 'transparent', border: 'none', color: T.inkFaint, fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>×</button>
+            </div>
+            {[
+              ['F1–F12', '패널 전환'],
+              ['/', '종목 검색'],
+              ['?', '단축키 도움말 토글'],
+              ['Esc', '검색/다이얼로그 닫기'],
+            ].map(([key, desc]) => (
+              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '5px 0', borderBottom: `1px solid ${T.borderSoft}` }}>
+                <kbd style={{ fontFamily: T.font, fontSize: 11, background: T.bg, border: `1px solid ${T.border}`, padding: '2px 8px', borderRadius: 3, color: T.inkDim, minWidth: 56, textAlign: 'center', flexShrink: 0 }}>{key}</kbd>
+                <span style={{ color: T.inkDim, fontSize: 12, fontFamily: T.font }}>{desc}</span>
+              </div>
+            ))}
+            <div style={{ marginTop: 12, color: T.inkFaint, fontSize: 10, fontFamily: T.font }}>배경 클릭 또는 Esc로 닫기</div>
+          </div>
+        </div>
+      )}
       <CommandBar
         symbol={stock.symbol}
         onSymbol={handleSymbolNav}
@@ -4631,7 +4655,7 @@ function App({ initialData }) {
       <PitchHeadline text={stock.oneLine} onEdit={() => setPitchEditId(stock.id)}/>
 
       {/* Panel selector tabs */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 0, background: T.surface, borderBottom: `1px solid ${T.border}`, height: 30, overflowX: 'auto', overflowY: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 0, background: T.surface, borderBottom: `1px solid ${T.border}`, height: 36, overflowX: 'auto', overflowY: 'hidden' }}>
         {PANEL_DEFS.map(({ k, label }) => {
           const on = activePanel === k;
           return (
@@ -4640,25 +4664,25 @@ function App({ initialData }) {
                 background: on ? `${T.amber}18` : 'transparent',
                 border: 'none', borderRight: `1px solid ${T.borderSoft}`,
                 borderBottom: `2px solid ${on ? T.amber : 'transparent'}`,
-                color: on ? T.amber : T.inkFaint, fontFamily: T.font, fontSize: 10,
+                color: on ? T.amber : T.inkFaint, fontFamily: T.font, fontSize: 12,
                 fontWeight: on ? 700 : 500, letterSpacing: '0.1em',
                 padding: '0 12px', height: '100%', cursor: 'pointer', flex: '0 0 auto',
               }}>
-              <kbd style={{ ...kbdStyle, fontSize: 9, marginRight: 5 }}>{k}</kbd>{label}
+              <kbd style={{ ...kbdStyle, fontSize: 10.5, marginRight: 5 }}>{k}</kbd>{label}
             </button>
           );
         })}
         <div style={{ flex: 1 }}/>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 14px' }}>
-          <button onClick={() => handleRemove(stock.id)}
-            style={{ background: 'transparent', border: 0, color: T.inkFaint, fontFamily: T.font, fontSize: 10, cursor: 'pointer', letterSpacing: '0.08em' }}>
+          <button onClick={() => { if (window.confirm(`"${stock.name || stock.symbol}" 을(를) 워치리스트에서 제거하시겠습니까?`)) handleRemove(stock.id); }}
+            style={{ background: 'transparent', border: 0, color: T.red, fontFamily: T.font, fontSize: 10, cursor: 'pointer', letterSpacing: '0.08em', opacity: 0.7 }}>
             REMOVE
           </button>
         </div>
       </div>
 
       {/* Main layout */}
-      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '200px 1fr', gap: 0, overflow: 'hidden' }}>
+      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '220px 1fr', gap: 0, overflow: 'hidden' }}>
         {/* Sidebar */}
         <div style={{ borderRight: `1px solid ${T.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <WatchlistPanel
