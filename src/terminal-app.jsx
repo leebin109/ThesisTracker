@@ -494,43 +494,6 @@ function ScoreBreakdown({ scores, activeDim, onDimClick }) {
   );
 }
 
-// ─── EQS Screener Panel ────────────────────────────────────────────────────────
-const SCR_FIELDS = [
-  { key: 'per',            label: 'P/E Ratio',     unit: 'x' },
-  { key: 'pbr',            label: 'P/B Ratio',     unit: 'x' },
-  { key: 'evEbitda',       label: 'EV/EBITDA',     unit: 'x' },
-  { key: 'roe',            label: 'ROE',            unit: '%' },
-  { key: 'roic',           label: 'ROIC',           unit: '%' },
-  { key: 'opMargin',       label: 'OP Margin',      unit: '%' },
-  { key: 'gpa',            label: 'GP/Assets',      unit: '%' },
-  { key: 'debtRatio',      label: 'Debt/Equity',    unit: '%' },
-  { key: 'currentRatio',   label: 'Current Ratio',  unit: '%' },
-  { key: 'revGrowth',      label: 'Rev Growth',     unit: '%' },
-  { key: 'epsGrowth',      label: 'EPS Growth',     unit: '%' },
-  { key: 'fcfMargin',      label: 'FCF Margin',     unit: '%' },
-  { key: 'overall',        label: 'Overall Score',  unit: 'pt', isScore: true },
-  { key: 'piotroskiScore', label: 'Piotroski F',    unit: '/7', isScore: true },
-];
-
-const SCR_TEMPLATES = [
-  { name: 'Quality Compounder', filters: [
-    { field: 'roe', op: '>', value: '15' }, { field: 'revGrowth', op: '>', value: '10' },
-    { field: 'debtRatio', op: '<', value: '100' }, { field: 'opMargin', op: '>', value: '15' },
-  ]},
-  { name: 'Deep Value', filters: [
-    { field: 'per', op: '<', value: '12' }, { field: 'pbr', op: '<', value: '1.5' },
-    { field: 'debtRatio', op: '<', value: '100' },
-  ]},
-  { name: 'High Momentum', filters: [
-    { field: 'revGrowth', op: '>', value: '20' }, { field: 'epsGrowth', op: '>', value: '20' },
-    { field: 'fcfMargin', op: '>', value: '5' },
-  ]},
-  { name: 'Safe & Stable', filters: [
-    { field: 'debtRatio', op: '<', value: '80' }, { field: 'currentRatio', op: '>', value: '150' },
-    { field: 'fcfMargin', op: '>', value: '5' }, { field: 'piotroskiScore', op: '>=', value: '5' },
-  ]},
-];
-
 // ─── Phase 13: Quant Script Engine (AST, eval-free) ──────────────────────────
 function qsTokenize(src) {
   const tokens = [];
@@ -1244,127 +1207,6 @@ function BacktestPanel({ stocks, watchlistIds, trades, onAddTrade, onDeleteTrade
           </table>
         )}
       </Cell>
-    </div>
-  );
-}
-
-function ScreenerPanel({ stocks, watchlistIds }) {
-  const blank = () => ({ field: 'roe', op: '>', value: '' });
-  const [filters, setFilters] = useState([blank()]);
-  const [results, setResults] = useState(null);
-
-  const universe = (watchlistIds || []).map(id => stocks[id]).filter(Boolean);
-
-  const getVal = (stock, field) => {
-    const fd = SCR_FIELDS.find(f => f.key === field);
-    return toNumber(fd?.isScore ? stock.scores?.[field] : stock.metrics?.[field]);
-  };
-
-  const runScreen = (fs) => {
-    const valid = fs.filter(f => f.field && f.op && f.value !== '' && Number.isFinite(Number(f.value)));
-    setResults(universe.filter(stock => valid.every(f => {
-      const v = getVal(stock, f.field); if (!Number.isFinite(v)) return false;
-      const t = Number(f.value);
-      return f.op === '>' ? v > t : f.op === '<' ? v < t : f.op === '>=' ? v >= t : f.op === '<=' ? v <= t : Math.abs(v - t) < 0.001;
-    })));
-  };
-
-  const upd = (i, patch) => setFilters(f => f.map((r, j) => j === i ? { ...r, ...patch } : r));
-  const ss = { background: T.surface, border: `1px solid ${T.border}`, color: T.ink, padding: '4px 8px', fontSize: 11, outline: 'none', cursor: 'pointer' };
-  const bs = { background: 'transparent', border: `1px solid ${T.border}`, color: T.inkDim, padding: '4px 12px', fontSize: 10, cursor: 'pointer', letterSpacing: '0.06em' };
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, height: '100%', overflowY: 'auto', paddingBottom: 16 }}>
-      <div>
-        <div style={{ fontSize: 11, color: T.amber, letterSpacing: '0.12em', fontWeight: 700, marginBottom: 2 }}>EQS SCREENER</div>
-        <div style={{ fontSize: 9, color: T.inkFaint }}>워치리스트 {universe.length}개 종목 대상 · 조건 모두 충족하는 종목 필터링</div>
-      </div>
-
-      <div>
-        <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.1em', marginBottom: 6 }}>PRESET SCREENS</div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {SCR_TEMPLATES.map(t => (
-            <button key={t.name} onClick={() => { setFilters(t.filters); setResults(null); }} style={{ ...bs, color: T.ink }}>
-              {t.name.toUpperCase()}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <div style={{ fontSize: 9, color: T.inkFaint, letterSpacing: '0.1em', marginBottom: 6 }}>FILTER CONDITIONS</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {filters.map((f, i) => (
-            <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <select value={f.field} onChange={e => upd(i, { field: e.target.value })} style={ss}>
-                {SCR_FIELDS.map(fd => <option key={fd.key} value={fd.key}>{fd.label} ({fd.unit})</option>)}
-              </select>
-              <select value={f.op} onChange={e => upd(i, { op: e.target.value })} style={{ ...ss, width: 54 }}>
-                {['>', '<', '>=', '<=', '='].map(op => <option key={op}>{op}</option>)}
-              </select>
-              <input type="number" value={f.value} onChange={e => upd(i, { value: e.target.value })}
-                placeholder="값" style={{ ...ss, width: 80 }} />
-              {filters.length > 1 && (
-                <button onClick={() => setFilters(f => f.filter((_, j) => j !== i))}
-                  style={{ ...bs, color: T.red, border: `1px solid ${T.red}55`, padding: '4px 8px' }}>✕</button>
-              )}
-            </div>
-          ))}
-        </div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-          {filters.length < 8 && <button onClick={() => setFilters(f => [...f, blank()])} style={bs}>+ 조건 추가</button>}
-          <button onClick={() => runScreen(filters)} style={{ ...bs, color: T.amber, border: `1px solid ${T.amber}` }}>
-            ▶ SCREEN
-          </button>
-          {results !== null && <button onClick={() => setResults(null)} style={bs}>RESET</button>}
-        </div>
-      </div>
-
-      {results !== null && (
-        <div>
-          <div style={{ fontSize: 9.5, marginBottom: 8, color: results.length ? T.green : T.inkFaint, letterSpacing: '0.08em' }}>
-            {results.length ? `✓ ${results.length} / ${universe.length} 종목 매칭` : `✗ 조건을 만족하는 종목 없음 (${universe.length}종목 중)`}
-          </div>
-          {results.map(stock => {
-            const pio = stock.scores?.piotroskiScore;
-            const overall = stock.scores?.overall;
-            const pioColor = Number.isFinite(pio) ? (pio >= 6 ? T.green : pio >= 4 ? T.yellow : T.red) : T.inkFaint;
-            const activeFields = filters.filter(f => f.field && f.value !== '');
-            return (
-              <div key={stock.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 14px', marginBottom: 5, background: T.surface, border: `1px solid ${T.border}` }}>
-                <div style={{ minWidth: 100 }}>
-                  <div style={{ fontSize: 11.5, color: T.ink, fontWeight: 700 }}>{stock.symbol}</div>
-                  <div style={{ fontSize: 9, color: T.inkFaint, marginTop: 1, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stock.name}</div>
-                </div>
-                <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                  {activeFields.slice(0, 4).map((f, i) => {
-                    const fd = SCR_FIELDS.find(fd => fd.key === f.field);
-                    const val = getVal(stock, f.field);
-                    return (
-                      <div key={i} style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: 8, color: T.inkFaint }}>{fd?.label}</div>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: T.amber, fontVariantNumeric: 'tabular-nums' }}>
-                          {Number.isFinite(val) ? (Math.abs(val) >= 100 ? Math.round(val) : val.toFixed(1)) : '–'}{fd?.unit === 'x' ? 'x' : fd?.unit === '%' ? '' : ''}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <div style={{ textAlign: 'right', borderLeft: `1px solid ${T.border}`, paddingLeft: 12 }}>
-                    <div style={{ fontSize: 8, color: T.inkFaint }}>SCORE</div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: T.amber }}>{Number.isFinite(overall) ? overall : '–'}</div>
-                  </div>
-                  {Number.isFinite(pio) && (
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 8, color: T.inkFaint }}>F-PIO</div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: pioColor }}>{pio}/7</div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }
@@ -2999,7 +2841,7 @@ function AlertsPanel({
                 fontSize: 10, lineHeight: 1.45,
               }}>
                 {!dartCoverage?.hasOpenDartKey
-                  ? 'OpenDART key missing. F11 Settings/Data에 key를 저장하세요.'
+                  ? 'OpenDART key missing. F10 Settings/Data에 key를 저장하세요.'
                   : `KRX mapping ${dartCoverage.mappedKrxCount}/${dartCoverage.krxCount}`}
                 {dartCoverage?.missingKrx?.length > 0 && (
                   <div style={{ color: T.yellow, marginTop: 3 }}>
@@ -3604,6 +3446,7 @@ function StatusBar({ stocks, watchlistIds, fetchStatus, refreshing, userEmail, s
       {userEmail && (
         <>
           {syncStatus === 'saving' && <span style={{ color: T.amber }}>SYNC↑</span>}
+          {syncStatus === 'synced' && <span style={{ color: T.cyan  }}>SYNC↓</span>}
           {syncStatus === 'error'  && <span style={{ color: T.red   }}>SYNC ERR</span>}
           <span style={{ color: T.inkFaint }}>{userEmail}</span>
           <button onClick={onLogout} style={{
@@ -3753,9 +3596,10 @@ function App({ initialData }) {
   const sbConfigured = isSupabaseConfigured();
   const [session, setSession]         = useState(null);
   const [authLoading, setAuthLoading] = useState(sbConfigured);
-  const [sbSyncStatus, setSbSyncStatus] = useState('idle'); // 'idle'|'saving'|'error'
+  const [sbSyncStatus, setSbSyncStatus] = useState('idle'); // 'idle'|'saving'|'error'|'synced'
   const remoteLoadedRef = useRef(false);
-  const sbSaveTimerRef  = useRef(null);
+  const sbSaveTimerRef      = useRef(null);
+  const isApplyingRemoteRef = useRef(false);
 
   // ── State ──────────────────────────────────────────────────────────────────
   const initial = initialData;
@@ -3852,7 +3696,7 @@ function App({ initialData }) {
   // ── Persistence ────────────────────────────────────────────────────────────
   useEffect(() => {
     saveAppState({ stocks, watchlistIds, watchlists, activeWatchlistId, activeId, apiSettings, dataCache, dartCorpMap, alerts, alertSettings, trades });
-  }, [stocks, watchlistIds, activeId, apiSettings, dataCache, dartCorpMap, alerts, alertSettings]);
+  }, [stocks, watchlistIds, watchlists, activeWatchlistId, activeId, apiSettings, dataCache, dartCorpMap, alerts, alertSettings, trades]);
 
   // ── Supabase session bootstrap ────────────────────────────────────────────
   useEffect(() => {
@@ -3869,6 +3713,41 @@ function App({ initialData }) {
     return () => subscription.unsubscribe();
   }, [sbConfigured]);
 
+  // ── Realtime subscription — receive changes pushed from other devices ────
+  useEffect(() => {
+    if (!session || !sbConfigured) return;
+    const sb = getSb();
+    const channel = sb
+      .channel(`user-data:${session.user.id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'user_data',
+        filter: `user_id=eq.${session.user.id}`,
+      }, ({ new: row }) => {
+        const p = row?.payload;
+        if (!p) return;
+        isApplyingRemoteRef.current = true;
+        if (p.stocks && typeof p.stocks === 'object') setStocks(normalizeStocksMap(p.stocks));
+        if (Array.isArray(p.watchlistIds)) setWatchlistIds(p.watchlistIds);
+        if (Array.isArray(p.watchlists)) setWatchlists(p.watchlists);
+        if (p.activeWatchlistId != null) setActiveWatchlistId(p.activeWatchlistId);
+        if (p.activeId) setActiveId(p.activeId);
+        if (p.dartCorpMap && typeof p.dartCorpMap === 'object') setDartCorpMap(p.dartCorpMap);
+        if (Array.isArray(p.alerts)) setAlerts(p.alerts);
+        if (p.alertSettings && typeof p.alertSettings === 'object') setAlertSettings(s => ({ ...s, ...p.alertSettings }));
+        if (Array.isArray(p.trades)) setTrades(p.trades);
+        setSbSyncStatus('synced');
+        // Clear guard after 3s (> 2s debounce) to prevent echo-back to Supabase
+        setTimeout(() => {
+          isApplyingRemoteRef.current = false;
+          setSbSyncStatus('idle');
+        }, 3000);
+      })
+      .subscribe();
+    return () => { sb.removeChannel(channel); };
+  }, [session, sbConfigured]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Load remote data once on first authenticated session ──────────────────
   useEffect(() => {
     if (!session || remoteLoadedRef.current) return;
@@ -3877,31 +3756,35 @@ function App({ initialData }) {
       .then(({ data, error }) => {
         if (error || !data?.payload) {
           // First login — push local state to Supabase (apiSettings/dataCache excluded: device-local only)
-          const snap = { stocks, watchlistIds, activeId, dartCorpMap, alerts, alertSettings };
+          const snap = { stocks, watchlistIds, watchlists, activeWatchlistId, activeId, dartCorpMap, alerts, alertSettings, trades };
           getSb().from('user_data').upsert({ user_id: session.user.id, payload: snap }, { onConflict: 'user_id' });
           return;
         }
         const p = data.payload;
         if (p.stocks && typeof p.stocks === 'object') setStocks(s => ({ ...normalizeStocksMap(p.stocks), ...s }));
         if (Array.isArray(p.watchlistIds)) setWatchlistIds(p.watchlistIds);
+        if (Array.isArray(p.watchlists)) setWatchlists(p.watchlists);
+        if (p.activeWatchlistId != null) setActiveWatchlistId(p.activeWatchlistId);
         if (p.activeId) setActiveId(p.activeId);
         // apiSettings: NOT synced — API keys stay device-local (localStorage only)
         // dataCache:   NOT synced — financial data cache stays device-local
         if (p.dartCorpMap && typeof p.dartCorpMap === 'object') setDartCorpMap(p.dartCorpMap);
         if (Array.isArray(p.alerts)) setAlerts(p.alerts);
         if (p.alertSettings && typeof p.alertSettings === 'object') setAlertSettings(s => ({ ...s, ...p.alertSettings }));
+        if (Array.isArray(p.trades)) setTrades(p.trades);
       });
   }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Debounced save to Supabase on every state change ──────────────────────
   useEffect(() => {
-    if (!session) return;
+    if (!session || isApplyingRemoteRef.current) return;
     clearTimeout(sbSaveTimerRef.current);
     sbSaveTimerRef.current = setTimeout(async () => {
+      if (isApplyingRemoteRef.current) return; // remote update still settling
       setSbSyncStatus('saving');
       // apiSettings excluded: API keys stay device-local (localStorage only)
       // dataCache excluded: financial data cache is large and transient
-      const snap = { stocks, watchlistIds, activeId, dartCorpMap, alerts, alertSettings };
+      const snap = { stocks, watchlistIds, watchlists, activeWatchlistId, activeId, dartCorpMap, alerts, alertSettings, trades };
       const { error } = await getSb().from('user_data').upsert(
         { user_id: session.user.id, payload: snap },
         { onConflict: 'user_id' }
@@ -3909,7 +3792,7 @@ function App({ initialData }) {
       setSbSyncStatus(error ? 'error' : 'idle');
     }, 2000);
     return () => clearTimeout(sbSaveTimerRef.current);
-  }, [session, stocks, watchlistIds, activeId, dartCorpMap, alerts, alertSettings]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [session, stocks, watchlistIds, watchlists, activeWatchlistId, activeId, dartCorpMap, alerts, alertSettings, trades]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Toast helpers ──────────────────────────────────────────────────────────
   const toast = useCallback((msg, kind = 'info', ms = 1500) => {

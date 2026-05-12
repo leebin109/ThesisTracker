@@ -24,14 +24,16 @@ Bloomberg Terminal 스타일의 주식 투자 관리 웹 애플리케이션입�
 |---|---|---|---|
 | **F1** | Overview | ✅ 완료 | 퀀트 스코어링 Breakdown (Z-Score 5팩터 + Piotroski F-Score), 핵심 지표 요약, **5Y 재무 히스토리** |
 | **F2** | Pitch | ✅ 완료 | 투자 논리(Thesis), Pre-mortem(리스크), Bull/Base/Bear 가치평가 시나리오 |
-| **F3** | Valuation | ✅ 완료 | DCF/PER/PBR 가치평가 시나리오 시뮬레이터 |
+| **F3** | Valuation | ✅ 완료 | DCF/PER/PBR 가치평가 시나리오 시뮬레이터 + **DCF Mini Modeler** (8년 FCF 프로젝션·WACC) |
 | **F4** | History | ✅ 완료 | Research Log 작성 (날짜, 메모, 링크 등) |
-| **F5** | Chart | ✅ 완료 | Yahoo Finance 기반 캔들/라인 차트, MA/Volume 오버레이 |
-| **F6** | Alerts | ✅ 완료 | 키워드 기반 Google News + OpenDART 공시 알림 자동 수집 |
+| **F5** | Chart | ✅ 완료 | Yahoo Finance 기반 캔들/라인 차트, MA/Volume/RSI/MACD/Bollinger Bands 오버레이 |
+| **F6** | Alerts | ✅ 완료 | 키워드 기반 Google News + OpenDART 공시 알림 자동 수집, 읽음 처리 |
 | **F7** | Peers | ✅ 완료 | 워치리스트 내 경쟁사/유사 기업 상대 지표 비교 (Peer Analysis) |
 | **F8** | Journal | ✅ 완료 | 매매 판단 일지 (BUY/SELL/REVIEW 캡처, 결과 기록) |
-| **F9** | Settings | ✅ 완료 | API 키 관리(FMP, Alpha, DART 등), JSON 백업/복원, 캐시 초기화 |
-| **F10** | Screen | ✅ 완료 | **EQS Screener** — 워치리스트 내 종목 조건 필터링 (프리셋 4종 + 커스텀 최대 8조건) |
+| **F9** | Script | ✅ 완료 | **AST 기반 조건식 인터프리터** — `P/E < 10 && ROE > 15` 등 커스텀 스크리닝 |
+| **F10** | Settings | ✅ 완료 | API 키 관리(DART 등), JSON 백업/복원(Export/Import), 캐시 초기화 |
+| **F11** | Backtest | ✅ 완료 | **Paper Trading** — 가상 매수/매도 내역 기록 및 포트폴리오 수익률 시뮬레이션 |
+| **F12** | Tools | ✅ 완료 | **Macro Correlation** (S&P500·금리·VIX 상관분석·Stress Test) + **WebLLM Local AI** (브라우저 내 LLM) |
 
 ## 4. 퀀트 스코어링 엔진 (Quant Engine)
 - 기존의 단순 절대평가(Absolute Threshold) 방식에서 **시장 기준점 기반 상대평가(Market Baseline-Anchored Z-Score)** 방식으로 개편 (Phase 5).
@@ -321,7 +323,7 @@ epsGrowth:    fb(pct(fin, 'earningsGrowth'),   fbEpsGrowthEy)
 ### ✅ Month 1~2 (완료): IB-Grade Risk Engine + EQS Screener
 - Piotroski F-Score (7점 간이 버전) — F1 ScoreBreakdown 표시
 - Risk Guard 5개 → 8개 확장 (유동성위기, 매출급감, 영업손실 추가)
-- F10 EQS Screener — 프리셋 4종 + 커스텀 8조건 필터
+- ~~F10 EQS Screener~~ → Phase 13 AST Script Engine(F9)으로 대체 완료
 
 ### ✅ Month 3 (완료): 5-Year Financial History
 - **SEC EDGAR 자동 수집**: 미국 종목 `/companyfacts/` XBRL → 10-K 5개년 (API 키 불필요)
@@ -329,50 +331,71 @@ epsGrowth:    fb(pct(fin, 'earningsGrowth'),   fbEpsGrowthEy)
 - **F1 HistoryTable**: Revenue / OP Income / FCF / OP Margin / EPS, YoY % 색상 코딩, 미니 바
 - **stock.metricsHistory[]** 필드 신규 도입
 
-### 🚀 Month 4 (다음): DCF Mini Modeler
-- 8년 FCF 프로젝션 + WACC + Terminal Value 자동 계산
-- F3 Valuation 패널과 연동 (Bull/Base/Bear 시나리오별 DCF)
-- metricsHistory 5년 FCF 데이터를 기반 성장률 자동 제안
+### ✅ Month 4 (완료): DCF Mini Modeler
+- 8년 FCF 프로젝션 + WACC + Terminal Value 자동 계산 (`DcfMiniModeler` 컴포넌트)
+- F3 Valuation 패널 내 DCF MODEL 탭으로 통합 (Bull/Base/Bear 시나리오)
+- DART EPS 기반 발행주식수 자동 입력 기능 포함
 
-### 🚀 Phase 8: Automation & Notifications (외부 연동 및 자동화)
-현재 수동으로 확인해야 하는 데이터와 알림을 능동적으로 사용자에게 전달합니다.
-- **Telegram / Discord Webhook 연동**: `F6 Alerts` 패널에서 설정한 알림 조건이 충족될 때, `fetch` API를 사용하여 텔레그램 봇 API로 JSON 페이로드를 전송하여 푸시 알림 구현.
-- **Service Worker 백그라운드 Fetch**: 브라우저의 Service Worker API(`navigator.serviceWorker`)를 등록하여 탭이 닫혀 있더라도 백그라운드에서 `setInterval`처럼 일정 주기로 가격 동기화를 수행하고 OS 네이티브 알림을 띄우는 기능 구현.
-- **클라우드 수동 백업 및 복원 (Export/Import)**: `IndexedDB`에 쌓인 전체 데이터를 `JSON.stringify`하여 Blob 객체로 변환한 뒤 `<a>` 태그의 `download` 속성으로 내보내기 구현. 복원은 FileReader를 통해 파싱하여 DB 덮어쓰기.
+### ✅ Phase 9 (완료): Zero-Cost Local AI (WebLLM)
+- F12 Tools → AI 탭: `AIPanel` 컴포넌트. WebLLM ESM 모듈 동적 로딩
+- 브라우저 WebGPU 기반 로컬 LLM 추론 (Llama 3.2 3B / Qwen 2.5 7B)
+- F6 뉴스 요약, F2 Pre-mortem 자동 작성 등 사용 가능
 
-### 🤖 Phase 9: Zero-Cost Local AI (WebLLM)
-**완전 무료** 철학을 지키면서 AI 기능을 터미널에 결합합니다. API 키·계정·구독 일절 없음.
-- **WebLLM 단독 도입**: 브라우저의 `WebGPU` API 기반 `@mlc-ai/web-llm` 라이브러리를 사용하여 LLM을 사용자 로컬 GPU에서 직접 구동. 외부 서버 호출 없음 — 데이터가 브라우저 밖으로 나가지 않음.
-- **권장 모델**: Llama 3.2 3B Instruct (1.8GB, 빠름) 또는 Qwen 2.5 7B (4GB, 정확도↑). 첫 실행 시 한 번만 다운로드, 이후 IndexedDB 캐시.
-- **주요 사용처**: F6 Alerts 뉴스/공시 요약, F2 PITCH Pre-mortem 자동 작성("이 thesis의 반대 논리는?"), 공시 핵심 지표 추출.
-- **BYOK 제거 사유**: "완전 무료" 철학과 충돌. Anthropic/OpenAI 키는 유료 과금 발생. `summarizeWithClaude` 함수 및 관련 Settings UI 제거 완료 (2026-05-11).
+### ✅ Phase 10 (완료): Advanced Pro-Charting & Backtesting
+- **기술적 지표**: RSI, MACD, Bollinger Bands — F5 Chart 패널 오버레이 추가
+- **Paper Trading**: `BacktestPanel` (F11) — 가상 매수/매도 기록 + 누적 수익률 시뮬레이션
 
-### 📈 Phase 10: Advanced Pro-Charting & Backtesting (전문가급 시각화)
-터미널의 가장 큰 장점인 빠르고 가벼운 자체 SVG 차트를 증권사 HTS/MTS 급으로 고도화합니다.
-- **심화 기술적 보조 지표 (RSI, MACD, Bollinger Bands)**: `terminal-components.jsx`의 `PriceChart` 컴포넌트 내부에 RSI 연산 로직(지수이동평균 EMA 활용)을 추가하고, Volume 바텀 오버레이처럼 하단에 별도의 SVG `<path>` 그룹을 생성해 렌더링.
-- **초경량 포트폴리오 시뮬레이션 (Paper Trading)**: 가상의 매수/매도 내역을 IndexedDB에 배열로 저장하고, 해당 내역의 시계열 자산 평가액을 계산하여 S&P 500 ETF(SPY)의 누적 수익률 곡선과 겹쳐서 비교하는 새로운 `F10 Backtest` 패널 추가.
+### ✅ Phase 11 (완료): Cross-Device Sync (다중 기기 동기화)
+- **Multi-Watchlist**: `{ id, name, symbols[] }` 배열로 여러 관심 그룹 관리 (WatchlistPanel)
+- **Supabase 단방향 sync**: 상태 변경 시 debounced upsert → Supabase PostgreSQL
+- ⚠️ **미완**: Supabase Realtime 구독(타 기기 변경 → 현재 탭 실시간 반영)은 미구현
 
-### 🔄 Phase 11: Cross-Device Sync (다중 기기 동기화)
-PC, 노트북, 모바일 등 여러 기기에서 동일한 터미널 경험을 끊김없이 이어갑니다.
-- **Supabase 무료 티어 실시간 동기화**: 프로젝트에 이미 추가되어 있는 `supabase-js` 클라이언트를 활성화하여 `Realtime` 구독(Subscribe) 기능 연동. 로컬 IndexedDB에 변경(Mutate)이 발생할 때마다 Supabase PostgreSQL 테이블로 비동기 업싱크(Upsync) 수행.
-- **멀티 워크스페이스 (Multi-Watchlist)**: 단일 `watchlist` 배열을 `{ id, name, symbols: [] }` 형태의 객체 배열로 구조 변경. 터미널 좌측이나 상단 탭을 통해 여러 개의 관심 그룹을 전환할 수 있도록 상태 관리(`useState`) 개편.
+### ✅ Phase 13 (완료): Custom Quant Scripting
+- `ScriptPanel` (F9): AST 기반 조건식 인터프리터 (`eval()` 없는 샌드박스)
+- `P/E < 10 && ROE > 15 && FCF > 0` 등 커스텀 표현식으로 워치리스트 필터링
 
-### 🧩 Phase 12: Alternative Data & Smart Money (대안 데이터 분석)
-재무제표와 가격 데이터를 넘어, 시장을 움직이는 진짜 '스마트 머니'의 흐름을 쫓습니다.
-- **내부자 및 의원 거래 추적**: 무료 대안 데이터 API(예: Quiver Quantitative 등)의 엔드포인트를 `fetch`로 호출하여, 특정 종목(symbol)의 SEC Form 4 내부자 매수/매도 내역을 파싱. 워치리스트나 피어 탭 내부에 뱃지(Badge) 형태의 인디케이터로 시각화.
-- **Social Sentiment (소셜 여론 분석)**: Reddit API(r/wallstreetbets)를 직접 브라우저 단에서 호출(CORS 허용 엔드포인트 또는 프록시 서버 활용)하여, 지난 24시간 동안 가장 많이 언급된 종목(Tickers)과 긍/부정 비율을 수집해 메인 대시보드에 리스트업.
+### ✅ Phase 14 (완료): Macro Correlation Engine
+- `MacroPanel` (F12 MACRO 탭): S&P500·금리·VIX·WTI·달러인덱스 1년 주봉 기반 피어슨 상관계수
+- Stress Test 슬라이더: 매크로 지표 ±% 변화 → 종목 예상 변동폭 추정
 
-### 💻 Phase 13: Custom Quant Scripting (나만의 수식 에디터)
-개발자/파워 유저를 위해 터미널 내부에 코딩 기능을 삽입하여 무한한 확장성을 부여합니다.
-- **In-App 수식 에디터 내장**: MS의 오픈소스 에디터 뷰어인 `Monaco Editor` 모듈을 패널 내부에 `<iframe>` 또는 컴포넌트 형태로 마운트.
-- **AST 기반의 안전한 조건식 인터프리터 구현**: 사용자가 입력한 `P/E < 10 && RSI < 30` 등의 문자열 수식을 자바스크립트의 안전한 파서(Parser)를 통해 Abstract Syntax Tree(AST)로 변환하여 `eval()` 없이 실행 가능하도록 샌드박스 룰 구축. 조건이 참인 종목만 화면에 필터링 표시.
+### ✅ Phase 15 (완료): Social Share & Reporting
+- **URL 공유**: `generateShareUrl(stock)` — Pitch 데이터 Base64 인코딩 → 쿼리스트링 URL 생성 + 클립보드 복사
+- **텍스트 리포트**: `downloadTextReport(stock)` — `.txt` 파일 다운로드
+- **읽기 전용 뷰어**: `ShareViewer` 컴포넌트 — 공유 URL 접근 시 팝업
 
-### 🌐 Phase 14: Macro Correlation Engine (매크로 상관관계 분석)
-단일 종목 분석을 넘어, 세계 거시경제와 내 종목이 어떤 영향을 주고받는지 통계적으로 분석합니다.
-- **상관계수 매트릭스 (Correlation Matrix)**: `terminal-data.jsx`에서 S&P500, US10Y(국채), WTI(유가) 등의 매크로 지표 과거 1년치 시계열 데이터를 캐싱. 내 워치리스트 종목들의 동일 시계열 가격 데이터와 매칭하여 피어슨 상관계수(Pearson Correlation Coefficient)를 계산하는 순수 수학 유틸리티 함수 구현.
-- **민감도 백테스팅(Stress Test)**: 사용자가 슬라이더 UI로 "달러 +5% 상승"을 세팅하면, 기존 상관계수 연산 결과를 역으로 곱하여 내 포트폴리오의 예상 변동폭(Risk)을 추정하는 시뮬레이터 기능 추가.
+---
 
-### 🎨 Phase 15: Social Share & Reporting (리포팅 및 공유)
-내가 분석한 훌륭한 결과물(Thesis)을 멋지게 포장하고 외부에 자랑할 수 있는 수단입니다.
-- **원클릭 투자 리포트 생성기**: HTML5 Canvas를 활용하는 `html2canvas`나 `dom-to-image` 라이브러리를 동적으로 로딩하여, `F2 PITCH` (마크다운 렌더링 결과)와 `F5 CHART` (SVG)를 한 장의 고해상도 PNG 이미지로 합쳐서 렌더링(Export) 및 다운로드.
-- **웹 퍼블리싱 (Web Publishing)**: `PITCH` 데이터 객체 전체를 Base64로 인코딩한 뒤, 쿼리 스트링(`?thesis=base64...`)으로 포함시켜 Vercel 배포 URL을 생성하는 버튼 클릭 이벤트 추가. 다른 사람이 이 링크를 열면 읽기 전용 뷰어(Read-only Mode)로 해당 리포트 팝업 출력.
+## 7. 미완료 기능 및 구현 우선순위 (Remaining Roadmap)
+
+### 🔴 Tier 1 — 실용성 높음, 구현 용이 (즉시 권장)
+
+#### Phase 8-A: Telegram / Discord Webhook 알림
+- **현황**: F6 Alerts가 알림을 수집하지만 브라우저를 열어야만 확인 가능
+- **구현**: F10 Settings에 Telegram Bot Token + Chat ID 입력 필드 추가. `handleRefreshAlerts` 내에서 NEW 알림 발생 시 `fetch('https://api.telegram.org/bot{TOKEN}/sendMessage', ...)` 호출
+- **난이도**: 낮음 — `fetch` 호출 하나, CORS 없음 (Telegram API는 클라이언트에서 직접 호출 가능)
+- **효과**: 앱을 열지 않아도 공시/뉴스 알림을 즉시 수신
+
+#### Phase 11-B: Supabase Realtime 구독 (양방향 sync 완성)
+- **현황**: 로컬 변경 → Supabase push는 구현됨. 반대 방향(타 기기 변경 → 현재 탭 반영)이 없음
+- **구현**: `supabase.channel('terminal').on('postgres_changes', ...).subscribe()` 추가. 변경 수신 시 `loadAppState()` 재실행
+- **난이도**: 낮음 — Supabase JS SDK가 이미 로드되어 있음
+- **효과**: PC/모바일 간 실시간 동기화 완성
+
+### 🟡 Tier 2 — 투자 의사결정에 직접 도움 (중기 권장)
+
+#### Phase 12-A: 내부자 거래 추적 (Insider Trading Tracker)
+- **구현**: [Quiver Quantitative](https://api.quiverquant.com/) 무료 API → SEC Form 4 파싱. 워치리스트 종목별 최근 내부자 매수/매도 뱃지 표시 (F7 Peers 또는 F1 Overview 사이드바)
+- **난이도**: 중간 — API 키 등록 필요, CORS 이슈 시 `/api/proxy.js`에 라우트 추가
+- **효과**: 경영진 매수는 강력한 bullish 시그널 — EQS Screener 조건식 통합 가능
+
+#### Phase 8-B: Service Worker 백그라운드 Fetch
+- **구현**: `service-worker.js` 등록 → `setInterval` 대신 `Periodic Background Sync` API 활용. 가격 조건 충족 시 `self.registration.showNotification()` 호출
+- **난이도**: 높음 — Periodic Background Sync는 HTTPS + Chrome 한정, iOS Safari 미지원
+- **효과**: 탭 닫혀도 OS 알림 수신. 단, 브라우저 호환성 제약 큼
+
+### ⚪ Tier 3 — 선택적, ROI 낮음
+
+#### Phase 12-B: Reddit Social Sentiment
+- **구현**: Reddit JSON API (`/r/wallstreetbets/search.json?q={ticker}`) 직접 호출 (CORS 허용)
+- **난이도**: 낮음 — API 구현 자체는 쉬움
+- **효과**: 노이즈 비율 매우 높음. r/WSB 특성상 단기 투기 종목 편향. 장기 투자 중심 이 터미널과 철학 불일치. **구현 가치 낮음**
