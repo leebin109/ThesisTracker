@@ -77,10 +77,20 @@ module.exports = async function handler(req, res) {
       });
 
     } else if (service === 'sec') {
-      const host = suffix.startsWith('files/') ? 'www.sec.gov' : 'data.sec.gov';
-      const url = `https://${host}/${suffix}${qs ? '?' + qs : ''}`;
-      upstream = await fetch(url, {
-        headers: { 'User-Agent': 'ThesisTrack research@example.com', 'Accept': 'application/json' },
+      let secUrl;
+      if (suffix.startsWith('files/')) {
+        secUrl = `https://www.sec.gov/${suffix}${qs ? '?' + qs : ''}`;
+      } else if (suffix.startsWith('archives/')) {
+        const archivePath = suffix.slice('archives/'.length);
+        if (archivePath.includes('..') || archivePath.includes('//')) {
+          return res.status(400).json({ error: 'Invalid path' });
+        }
+        secUrl = `https://www.sec.gov/Archives/edgar/data/${archivePath}${qs ? '?' + qs : ''}`;
+      } else {
+        secUrl = `https://data.sec.gov/${suffix}${qs ? '?' + qs : ''}`;
+      }
+      upstream = await fetch(secUrl, {
+        headers: { 'User-Agent': 'ThesisTrack research@example.com', 'Accept': 'application/json, text/xml, application/xml, */*' },
       });
 
     } else if (service === 'yahoo') {

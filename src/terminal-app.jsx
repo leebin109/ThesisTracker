@@ -113,6 +113,7 @@ function makeBlankStock(patch = {}) {
     journal: [],
     peers: [],
     metricsHistory: [],
+    insiderTrades: [],
     ...patch,
   };
 }
@@ -141,7 +142,7 @@ function normalizeStockRecord(stock, fallbackId = '') {
     note: stock?.valuation?.note || '',
   };
   next.review = { ...base.review, ...(stock?.review || {}) };
-  for (const key of ['thesis', 'catalysts', 'risks', 'numbersToWatch', 'scoreHistory', 'priceHistory', 'notes', 'preMortem', 'checklist', 'calendarEvents', 'journal', 'peers', 'metricsHistory']) {
+  for (const key of ['thesis', 'catalysts', 'risks', 'numbersToWatch', 'scoreHistory', 'priceHistory', 'notes', 'preMortem', 'checklist', 'calendarEvents', 'journal', 'peers', 'metricsHistory', 'insiderTrades']) {
     next[key] = Array.isArray(stock?.[key]) ? stock[key] : [];
   }
   return next;
@@ -1353,8 +1354,95 @@ function FinancialHistorySection({ stock, apiSettings, dartCorpMap, onSaveHistor
   );
 }
 
+// ─── Insider Trades Section ────────────────────────────────────────────────────
+function InsiderSection({ stock, onSaveInsiders }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState('');
+  const trades = stock.insiderTrades || [];
+  const isEligible = ['NASDAQ', 'NYSE', 'AMEX'].includes(stock.market) || stock.country === '미국';
+
+  const handleFetch = async () => {
+    setLoading(true); setError('');
+    try {
+      const data = await fetchInsiderTrades(stock);
+      onSaveInsiders(stock.id, data);
+    } catch (e) { setError(e.message || '수집 실패'); }
+    finally { setLoading(false); }
+  };
+
+  const fmtSh = n => n >= 1e6 ? `${(n/1e6).toFixed(2)}M` : n >= 1e3 ? `${(n/1e3).toFixed(1)}K` : String(Math.round(n));
+  const buys  = trades.filter(t => t.type === 'BUY').length;
+  const sells = trades.filter(t => t.type === 'SELL').length;
+
+  return (
+    <Cell label="INSIDER TRADES (90일, SEC Form 4)" accent={T.amber}>
+      <div style={{ padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button onClick={handleFetch} disabled={loading || !isEligible}
+            style={{ ...btnSt, color: T.amber, border: `1px solid ${T.amber}`, padding: '3px 10px', fontSize: 10 }}>
+            {loading ? '수집 중...' : '↻ FETCH INSIDERS'}
+          </button>
+          {error && <span style={{ fontSize: 10, color: T.red }}>{error}</span>}
+          {!error && trades.length > 0 && (
+            <span style={{ fontSize: 9, color: T.inkFaint }}>
+              {trades.length}건
+              {buys  > 0 && <span style={{ color: T.green  }}> · BUY {buys}</span>}
+              {sells > 0 && <span style={{ color: T.red    }}> · SELL {sells}</span>}
+            </span>
+          )}
+          {!error && trades.length === 0 && !loading && (
+            <span style={{ fontSize: 9, color: T.inkFaint }}>
+              {isEligible ? 'SEC Form 4 자동 수집 (API 키 불필요)' : '미국 상장 종목만 지원'}
+            </span>
+          )}
+        </div>
+        {trades.length === 0 ? (
+          <div style={{ color: T.inkFaint, fontSize: 11 }}>
+            {isEligible ? '거래 없음 — FETCH INSIDERS 버튼으로 최근 90일 수집' : '미국 상장 종목(NYSE/NASDAQ/AMEX)만 지원합니다.'}
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead>
+                <tr>
+                  {['DATE', 'INSIDER', 'TITLE', 'TYPE', 'SHARES', 'PRICE', 'VALUE'].map(h => (
+                    <th key={h} style={{
+                      padding: '4px 8px', color: T.inkFaint, fontSize: 9, letterSpacing: '0.08em',
+                      textAlign: ['SHARES','PRICE','VALUE'].includes(h) ? 'right' : 'left',
+                      borderBottom: `1px solid ${T.border}`, whiteSpace: 'nowrap',
+                    }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {trades.slice(0, 20).map((t, i) => (
+                  <tr key={i} style={{ borderBottom: `1px solid ${T.borderSoft}` }}>
+                    <td style={{ padding: '5px 8px', color: T.inkDim, fontSize: 10, whiteSpace: 'nowrap' }}>{t.date}</td>
+                    <td style={{ padding: '5px 8px', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.ownerName}</td>
+                    <td style={{ padding: '5px 8px', color: T.inkFaint, fontSize: 10, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {t.ownerTitle || (t.isDirector ? 'Director' : '–')}
+                    </td>
+                    <td style={{ padding: '5px 8px', color: t.type === 'BUY' ? T.green : T.red, fontWeight: 700, fontSize: 10 }}>{t.type}</td>
+                    <td style={{ padding: '5px 8px', textAlign: 'right', color: T.ink }}>{fmtSh(t.shares)}</td>
+                    <td style={{ padding: '5px 8px', textAlign: 'right', color: T.inkDim }}>
+                      {t.price != null ? `$${t.price.toFixed(2)}` : '–'}
+                    </td>
+                    <td style={{ padding: '5px 8px', textAlign: 'right', color: T.inkFaint }}>
+                      {t.value != null ? (t.value >= 1e6 ? `$${(t.value/1e6).toFixed(2)}M` : `$${(t.value/1e3).toFixed(0)}K`) : '–'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </Cell>
+  );
+}
+
 // ─── Overview panel (wraps ScoreBreakdown + MetricsGrid with shared activeDim) ─
-function OverviewPanel({ stock, apiSettings, dartCorpMap, onSaveHistory }) {
+function OverviewPanel({ stock, apiSettings, dartCorpMap, onSaveHistory, onSaveInsiders }) {
   const [activeDim, setActiveDim] = useState(null);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', overflowY: 'auto' }}>
@@ -1364,6 +1452,9 @@ function OverviewPanel({ stock, apiSettings, dartCorpMap, onSaveHistory }) {
       </div>
       <div style={{ flex: '0 0 auto' }}>
         <FinancialHistorySection stock={stock} apiSettings={apiSettings} dartCorpMap={dartCorpMap} onSaveHistory={onSaveHistory}/>
+      </div>
+      <div style={{ flex: '0 0 auto' }}>
+        <InsiderSection stock={stock} onSaveInsiders={onSaveInsiders}/>
       </div>
     </div>
   );
@@ -4159,6 +4250,11 @@ function App({ initialData }) {
     toast(`${stockId} 5년 재무 히스토리 저장 완료 (${metricsHistory.length}개 연도)`, 'ok');
   }, [toast]);
 
+  const handleSaveInsiders = useCallback((stockId, insiderTrades) => {
+    setStocks(prev => ({ ...prev, [stockId]: { ...prev[stockId], insiderTrades } }));
+    toast(`${stockId} 내부자 거래 저장 완료 (${insiderTrades.length}건)`, insiderTrades.length ? 'ok' : 'info');
+  }, [toast]);
+
   // ── Alert actions (Phase 2) ────────────────────────────────────────────────
   const handleSavePeers = useCallback((stockId, peers) => {
     setStocks(prev => ({ ...prev, [stockId]: { ...prev[stockId], peers } }));
@@ -4419,7 +4515,7 @@ function App({ initialData }) {
 
   // ── Panel content ──────────────────────────────────────────────────────────
   const panelContent = {
-    F1: <OverviewPanel stock={stock} apiSettings={apiSettings} dartCorpMap={dartCorpMap} onSaveHistory={handleSaveHistory}/>,
+    F1: <OverviewPanel stock={stock} apiSettings={apiSettings} dartCorpMap={dartCorpMap} onSaveHistory={handleSaveHistory} onSaveInsiders={handleSaveInsiders}/>,
     F2: (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, height: '100%' }}>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>

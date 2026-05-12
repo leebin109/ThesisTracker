@@ -1107,9 +1107,10 @@ function buildOpenDartApiUrl(endpoint, params) {
 
 function buildSecApiUrl(path) {
   const clean = String(path || '').replace(/^\/+/, '');
-  return isProxiedOrigin()
-    ? `/api/sec/${clean}`
-    : `https://${clean.startsWith('files/') ? 'www.sec.gov' : 'data.sec.gov'}/${clean}`;
+  if (isProxiedOrigin()) return `/api/sec/${clean}`;
+  if (clean.startsWith('files/')) return `https://www.sec.gov/${clean}`;
+  if (clean.startsWith('archives/')) return `https://www.sec.gov/Archives/edgar/data/${clean.slice('archives/'.length)}`;
+  return `https://data.sec.gov/${clean}`;
 }
 
 function buildYahooChartUrl(symbol, params) {
@@ -2014,6 +2015,77 @@ async function fetchSecFilings(stock, sinceISO) {
     });
   }
   return rows;
+}
+
+async function fetchInsiderTrades(stock) {
+  if (!isSecEligibleStock(stock)) {
+    throw new Error('내부자 거래 데이터는 미국 상장 종목(NYSE/NASDAQ/AMEX)만 지원합니다.');
+  }
+  const company = await resolveSecCompany(stock);
+  const cikNoZeros = String(Number(company.cik));
+
+  const subRes = await fetch(buildSecApiUrl(`submissions/CIK${company.cik}.json`));
+  if (!subRes.ok) throw new Error(`SEC submissions HTTP ${subRes.status}`);
+  const data = await subRes.json();
+  const recent = data?.filings?.recent || {};
+  const accessions  = recent.accessionNumber || [];
+  const forms       = recent.form || [];
+  const filingDates = recent.filingDate || [];
+  const primaryDocs = recent.primaryDocument || [];
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 90);
+
+  const form4Indices = [];
+  for (let i = 0; i < forms.length; i++) {
+    if (String(forms[i]).trim() !== '4') continue;
+    const fd = new Date(String(filingDates[i] || '').trim());
+    if (!Number.isFinite(fd.getTime()) || fd < cutoff) continue;
+    form4Indices.push(i);
+    if (form4Indices.length >= 15) break;
+  }
+
+  const trades = [];
+  await Promise.allSettled(form4Indices.map(async (idx) => {
+    const accNo = String(accessions[idx] || '').replace(/-/g, '');
+    const doc   = String(primaryDocs[idx] || '').trim();
+    if (!accNo || !doc) return;
+
+    const xmlRes = await fetch(buildSecApiUrl(`archives/${cikNoZeros}/${accNo}/${doc}`));
+    if (!xmlRes.ok) return;
+    const xmlText = await xmlRes.text();
+
+    const xmlDoc = new DOMParser().parseFromString(xmlText, 'text/xml');
+    if (xmlDoc.querySelector('parsererror')) return;
+
+    const ownerName  = xmlDoc.querySelector('rptOwnerName')?.textContent?.trim() || '–';
+    const ownerTitle = xmlDoc.querySelector('officerTitle')?.textContent?.trim() || '';
+    const isDirector = xmlDoc.querySelector('isDirector')?.textContent?.trim() === '1';
+    const isOfficer  = xmlDoc.querySelector('isOfficer')?.textContent?.trim() === '1';
+
+    for (const row of xmlDoc.querySelectorAll('nonDerivativeTransaction')) {
+      const code = row.querySelector('transactionCode')?.textContent?.trim();
+      if (!['P', 'S'].includes(code)) continue;
+      const shares = parseFloat(row.querySelector('transactionShares value')?.textContent);
+      const price  = parseFloat(row.querySelector('transactionPricePerShare value')?.textContent);
+      const txDate = row.querySelector('transactionDate value')?.textContent?.trim()
+                  || String(filingDates[idx] || '').trim();
+      if (!Number.isFinite(shares) || shares <= 0) continue;
+      trades.push({
+        date: txDate,
+        ownerName,
+        ownerTitle,
+        isOfficer,
+        isDirector,
+        type:   code === 'P' ? 'BUY' : 'SELL',
+        shares,
+        price:  Number.isFinite(price) && price > 0 ? price : null,
+        value:  Number.isFinite(price) && price > 0 ? shares * price : null,
+      });
+    }
+  }));
+
+  return trades.sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
 async function fetchYahooNewsExperimental(symbol, nameQuery) {

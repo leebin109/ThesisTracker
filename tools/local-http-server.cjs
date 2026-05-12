@@ -118,6 +118,14 @@ function proxySec(req, res, url) {
   if (url.pathname === '/api/sec/files/company_tickers.json') {
     hostname = 'www.sec.gov';
     targetPath = '/files/company_tickers.json';
+  } else if (url.pathname.startsWith('/api/sec/archives/')) {
+    const archiveSuffix = url.pathname.slice('/api/sec/archives/'.length);
+    if (archiveSuffix.includes('..') || archiveSuffix.includes('//')) {
+      writeJson(res, 400, { status: 'LOCAL_PROXY_ERROR', message: 'Invalid path' });
+      return;
+    }
+    hostname = 'www.sec.gov';
+    targetPath = `/Archives/edgar/data/${archiveSuffix}`;
   } else {
     const match = url.pathname.match(/^\/api\/sec\/submissions\/(CIK\d{10}\.json)$/);
     if (match) {
@@ -136,7 +144,7 @@ function proxySec(req, res, url) {
     path: targetPath,
     method: 'GET',
     headers: {
-      accept: 'application/json,*/*',
+      accept: 'application/json, text/xml, application/xml, */*',
       'user-agent': secUserAgent,
     },
   }, (proxyRes) => {
@@ -144,7 +152,7 @@ function proxySec(req, res, url) {
     proxyRes.on('data', chunk => chunks.push(chunk));
     proxyRes.on('end', () => {
       res.writeHead(proxyRes.statusCode || 502, {
-        'content-type': proxyRes.headers['content-type'] || 'application/json; charset=utf-8',
+        'content-type': proxyRes.headers['content-type'] || 'text/plain; charset=utf-8',
         'cache-control': 'no-store',
         'access-control-allow-origin': '*',
       });
