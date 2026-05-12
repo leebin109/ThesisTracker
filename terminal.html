@@ -3700,9 +3700,9 @@ const PANEL_DEFS = [
   { k: 'F7', label: 'PEERS', short: 'PEER' },
   { k: 'F8', label: 'JOURNAL', short: 'JRN' },
   { k: 'F9', label: 'SCRIPT', short: 'SCR' },
-  { k: 'F10', label: 'SETTINGS', short: 'DATA' },
-  { k: 'F11', label: 'TRADE', short: 'TRD' },
-  { k: 'F12', label: 'TOOLS', short: 'TOOL' },
+  { k: 'F10', label: 'TRADE', short: 'TRD' },
+  { k: 'F11', label: 'TOOLS', short: 'TOOL' },
+  { k: 'F12', label: 'SETTINGS', short: 'SET' },
 ];
 
 const BACKUP_SCHEMA_VERSION = 2;
@@ -6709,7 +6709,7 @@ function AlertsPanel({
                 fontSize: 10, lineHeight: 1.45,
               }}>
                 {!dartCoverage?.hasOpenDartKey
-                  ? 'OpenDART key missing. F10 Settings/Data에 key를 저장하세요.'
+                  ? 'OpenDART key missing. F12 Settings에 key를 저장하세요.'
                   : `KRX mapping ${dartCoverage.mappedKrxCount}/${dartCoverage.krxCount}`}
                 {dartCoverage?.missingKrx?.length > 0 && (
                   <div style={{ color: T.yellow, marginTop: 3 }}>
@@ -8362,6 +8362,12 @@ function App({ initialData }) {
       <ScriptPanel stocks={stocks} watchlistIds={watchlistIds}/>
     ),
     F10: (
+      <BacktestPanel stocks={stocks} watchlistIds={watchlistIds} trades={trades} onAddTrade={handleAddTrade} onDeleteTrade={handleDeleteTrade}/>
+    ),
+    F11: (
+      <ToolsPanel stock={stock} stocks={stocks} watchlistIds={watchlistIds}/>
+    ),
+    F12: (
       <SettingsDataPanel
         apiSettings={apiSettings}
         dartCorpMap={dartCorpMap}
@@ -8375,12 +8381,6 @@ function App({ initialData }) {
         onImportBackup={handleImportBackup}
         onReloadDartMap={() => loadLocalDartMap(true)}
       />
-    ),
-    F11: (
-      <BacktestPanel stocks={stocks} watchlistIds={watchlistIds} trades={trades} onAddTrade={handleAddTrade} onDeleteTrade={handleDeleteTrade}/>
-    ),
-    F12: (
-      <ToolsPanel stock={stock} stocks={stocks} watchlistIds={watchlistIds}/>
     ),
   };
 
@@ -8421,7 +8421,7 @@ function App({ initialData }) {
         symbol={stock.symbol}
         onSymbol={handleSymbolNav}
         onSearch={() => setSearchMode('watchlist')}
-        onSettings={() => setActivePanel('F10')}
+        onSettings={() => setActivePanel('F12')}
         refreshing={refreshing}
         providerStatus={providerStatus}
         alertCount={alerts.filter(a => a.status === 'new').length}
@@ -8432,25 +8432,28 @@ function App({ initialData }) {
       <PitchHeadline text={stock.oneLine} onEdit={() => setPitchEditId(stock.id)}/>
 
       {/* Panel selector tabs */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 0, background: T.surface, borderBottom: `1px solid ${T.border}`, height: 36, overflowX: 'auto', overflowY: 'hidden' }}>
-        {PANEL_DEFS.map(({ k, label }) => {
-          const on = activePanel === k;
-          return (
-            <button key={k} onClick={() => setActivePanel(k)}
-              style={{
-                background: on ? `${T.amber}18` : 'transparent',
-                border: 'none', borderRight: `1px solid ${T.borderSoft}`,
-                borderBottom: `2px solid ${on ? T.amber : 'transparent'}`,
-                color: on ? T.amber : T.inkFaint, fontFamily: T.font, fontSize: 12,
-                fontWeight: on ? 700 : 500, letterSpacing: '0.1em',
-                padding: '0 12px', height: '100%', cursor: 'pointer', flex: '0 0 auto',
-              }}>
-              <kbd style={{ ...kbdStyle, fontSize: 10.5, marginRight: 5 }}>{k}</kbd>{label}
-            </button>
-          );
-        })}
-        <div style={{ flex: 1 }}/>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 14px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', background: T.surface, borderBottom: `1px solid ${T.border}`, height: 36, flexShrink: 0 }}>
+        {/* 탭 목록 — 독립적으로 가로 스크롤 */}
+        <div style={{ display: 'flex', flex: 1, overflowX: 'auto', overflowY: 'hidden', height: '100%' }}>
+          {PANEL_DEFS.map(({ k, label }) => {
+            const on = activePanel === k;
+            return (
+              <button key={k} onClick={() => setActivePanel(k)}
+                style={{
+                  background: on ? `${T.amber}18` : 'transparent',
+                  border: 'none', borderRight: `1px solid ${T.borderSoft}`,
+                  borderBottom: `2px solid ${on ? T.amber : 'transparent'}`,
+                  color: on ? T.amber : T.inkFaint, fontFamily: T.font, fontSize: 12,
+                  fontWeight: on ? 700 : 500, letterSpacing: '0.1em',
+                  padding: '0 12px', height: '100%', cursor: 'pointer', flex: '0 0 auto',
+                }}>
+                <kbd style={{ ...kbdStyle, fontSize: 10.5, marginRight: 5 }}>{k}</kbd>{label}
+              </button>
+            );
+          })}
+        </div>
+        {/* REMOVE — 항상 우측 고정 */}
+        <div style={{ flexShrink: 0, borderLeft: `1px solid ${T.border}`, padding: '0 14px', height: '100%', display: 'flex', alignItems: 'center' }}>
           <button onClick={() => { if (window.confirm(`"${stock.name || stock.symbol}" 을(를) 워치리스트에서 제거하시겠습니까?`)) handleRemove(stock.id); }}
             style={{ background: 'transparent', border: 0, color: T.red, fontFamily: T.font, fontSize: 10, cursor: 'pointer', letterSpacing: '0.08em', opacity: 0.7 }}>
             REMOVE
