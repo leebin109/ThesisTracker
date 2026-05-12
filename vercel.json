@@ -3,7 +3,7 @@
     { "source": "/api/opendart/:path*", "destination": "/api/proxy?service=opendart&path=:path*" },
     { "source": "/api/sec/:path*",      "destination": "/api/proxy?service=sec&path=:path*" },
     { "source": "/api/yahoo/:path*",    "destination": "/api/proxy?service=yahoo&path=:path*" },
-    { "source": "/(.*)",                "destination": "/terminal.html" }
+    { "source": "/((?!api/).*)",        "destination": "/terminal.html" }
   ],
   "headers": [
     {

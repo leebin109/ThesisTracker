@@ -71,7 +71,9 @@ module.exports = async function handler(req, res) {
   let upstream;
   try {
     if (service === 'opendart') {
-      const url = `https://opendart.fss.or.kr/api/${suffix}${qs ? '?' + qs : ''}`;
+      // suffix is the bare endpoint name (no .json) — OpenDART selects JSON output via the .json extension
+      const ep = suffix.replace(/\.json$/, '');
+      const url = `https://opendart.fss.or.kr/api/${ep}.json${qs ? '?' + qs : ''}`;
       upstream = await fetch(url, {
         headers: { 'User-Agent': 'ThesisTrack/1.0', 'Accept': 'application/json' },
       });

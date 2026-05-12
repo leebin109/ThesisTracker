@@ -2391,8 +2391,10 @@ function isProxiedOrigin() {
 
 function buildOpenDartApiUrl(endpoint, params) {
   const q = params instanceof URLSearchParams ? params.toString() : new URLSearchParams(params).toString();
+  // Proxied path omits .json — Vercel treats trailing extensions as static-file requests
+  // and skips the rewrite, so the proxy server appends .json when forwarding upstream.
   return isProxiedOrigin()
-    ? `/api/opendart/${endpoint}.json?${q}`
+    ? `/api/opendart/${endpoint}?${q}`
     : `https://opendart.fss.or.kr/api/${endpoint}.json?${q}`;
 }
 

@@ -19,7 +19,7 @@ const contentTypes = {
   '.svg': 'image/svg+xml',
 };
 
-const openDartEndpoints = new Set(['fnlttSinglAcntAll', 'fnlttSinglAcnt', 'list']);
+const openDartEndpoints = new Set(['fnlttSinglAcntAll', 'fnlttSinglAcnt', 'list', 'stockInfo']);
 
 function writePlain(res, status, text) {
   res.writeHead(status, {
@@ -55,7 +55,8 @@ function proxyOpenDart(req, res, url) {
     return;
   }
 
-  const match = url.pathname.match(/^\/api\/opendart\/([A-Za-z0-9_]+)\.json$/);
+  // Accept both /api/opendart/<endpoint> and legacy /api/opendart/<endpoint>.json
+  const match = url.pathname.match(/^\/api\/opendart\/([A-Za-z0-9_]+)(?:\.json)?$/);
   const endpoint = match?.[1];
   if (!endpoint || !openDartEndpoints.has(endpoint)) {
     writeJson(res, 404, { status: 'LOCAL_PROXY_ERROR', message: 'Unknown OpenDART endpoint' });
