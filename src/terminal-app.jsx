@@ -61,6 +61,8 @@ const PANEL_DEFS = [
   { k: 'F10', label: 'SETTINGS', short: 'DATA' },
   { k: 'F11', label: 'TRADE', short: 'TRD' },
   { k: 'F12', label: 'MACRO', short: 'MCR' },
+  { k: 'F13', label: 'SCRIPT', short: 'SCR' },
+  { k: 'F14', label: 'AI', short: 'AI' },
 ];
 
 const BACKUP_SCHEMA_VERSION = 2;
@@ -530,6 +532,402 @@ const SCR_TEMPLATES = [
     { field: 'fcfMargin', op: '>', value: '5' }, { field: 'piotroskiScore', op: '>=', value: '5' },
   ]},
 ];
+
+// ─── Phase 13: Quant Script Engine (AST, eval-free) ──────────────────────────
+function qsTokenize(src) {
+  const tokens = [];
+  let i = 0;
+  while (i < src.length) {
+    if (/\s/.test(src[i])) { i++; continue; }
+    if (/\d/.test(src[i]) || (src[i] === '-' && /\d/.test(src[i+1] || '') &&
+        (!tokens.length || ['OP','AND','OR','NOT','LPAREN'].includes(tokens[tokens.length-1].t)))) {
+      let n = src[i] === '-' ? (i++, '-') : '';
+      while (i < src.length && /[\d.]/.test(src[i])) n += src[i++];
+      tokens.push({ t: 'NUM', v: parseFloat(n) }); continue;
+    }
+    if (/[a-zA-Z_]/.test(src[i])) {
+      let w = '';
+      while (i < src.length && /[a-zA-Z_0-9]/.test(src[i])) w += src[i++];
+      const kw = { and: 'AND', or: 'OR', not: 'NOT', AND: 'AND', OR: 'OR', NOT: 'NOT' }[w];
+      tokens.push(kw ? { t: kw } : { t: 'ID', v: w }); continue;
+    }
+    if (src.startsWith('<=', i)) { tokens.push({ t: 'OP', v: '<=' }); i += 2; continue; }
+    if (src.startsWith('>=', i)) { tokens.push({ t: 'OP', v: '>=' }); i += 2; continue; }
+    if (src.startsWith('!=', i)) { tokens.push({ t: 'OP', v: '!=' }); i += 2; continue; }
+    if (src.startsWith('==', i)) { tokens.push({ t: 'OP', v: '==' }); i += 2; continue; }
+    if (src.startsWith('&&', i)) { tokens.push({ t: 'AND' }); i += 2; continue; }
+    if (src.startsWith('||', i)) { tokens.push({ t: 'OR' }); i += 2; continue; }
+    const m = { '<': 'OP', '>': 'OP', '(': 'LPAREN', ')': 'RPAREN', '!': 'NOT' }[src[i]];
+    if (m) tokens.push(m === 'OP' ? { t: 'OP', v: src[i] } : { t: m });
+    i++;
+  }
+  return tokens;
+}
+
+function qsParse(tokens) {
+  let p = 0;
+  const peek = () => tokens[p];
+  const eat  = () => tokens[p++];
+  const parseOr  = () => { let l = parseAnd(); while (peek()?.t === 'OR')  { eat(); l = { t: 'OR',  l, r: parseAnd() }; } return l; };
+  const parseAnd = () => { let l = parseNot(); while (peek()?.t === 'AND') { eat(); l = { t: 'AND', l, r: parseNot() }; } return l; };
+  const parseNot = () => { if (peek()?.t === 'NOT') { eat(); return { t: 'NOT', e: parseCmp() }; } return parseCmp(); };
+  const parseCmp = () => { const l = parseAtom(); if (peek()?.t === 'OP') { const op = eat().v; return { t: 'CMP', op, l, r: parseAtom() }; } return l; };
+  const parseAtom = () => {
+    const tok = peek();
+    if (!tok) throw new Error('Unexpected end of input');
+    if (tok.t === 'NUM')   { eat(); return { t: 'NUM', v: tok.v }; }
+    if (tok.t === 'ID')    { eat(); return { t: 'ID',  v: tok.v }; }
+    if (tok.t === 'LPAREN') { eat(); const e = parseOr(); if (peek()?.t !== 'RPAREN') throw new Error('Missing )'); eat(); return e; }
+    throw new Error(`Unexpected token: ${tok.t}`);
+  };
+  return parseOr();
+}
+
+const QS_FIELDS = {
+  per: s => s.metrics?.per, pbr: s => s.metrics?.pbr, roe: s => s.metrics?.roe,
+  opMargin: s => s.metrics?.opMargin, fcfMargin: s => s.metrics?.fcfMargin,
+  debtRatio: s => s.metrics?.debtRatio, currentRatio: s => s.metrics?.currentRatio,
+  revGrowth: s => s.metrics?.revGrowth, epsGrowth: s => s.metrics?.epsGrowth,
+  netMargin: s => s.metrics?.netMargin, opIncomeGrowth: s => s.metrics?.opIncomeGrowth,
+  evEbitda: s => s.metrics?.evEbitda,
+  score: s => s.scores?.overall, piotroski: s => s.scores?.piotroski, price: s => s.price,
+};
+
+function qsEval(node, stock) {
+  switch (node.t) {
+    case 'NUM': return node.v;
+    case 'ID': { const fn = QS_FIELDS[node.v]; if (!fn) throw new Error(`Unknown field: ${node.v}`); const v = fn(stock); return (v != null && Number.isFinite(Number(v))) ? Number(v) : null; }
+    case 'CMP': { const l = qsEval(node.l, stock), r = qsEval(node.r, stock); if (l == null || r == null) return false; return node.op==='<'?l<r:node.op==='>'?l>r:node.op==='<='?l<=r:node.op==='>='?l>=r:node.op==='=='?l===r:l!==r; }
+    case 'AND': return !!qsEval(node.l, stock) && !!qsEval(node.r, stock);
+    case 'OR':  return !!qsEval(node.l, stock) || !!qsEval(node.r, stock);
+    case 'NOT': return !qsEval(node.e, stock);
+    default: return false;
+  }
+}
+function qsRun(src, stock) { try { return qsEval(qsParse(qsTokenize(src.trim())), stock) === true; } catch { return false; } }
+
+function ScriptPanel({ stocks, watchlistIds }) {
+  const EXAMPLES = [
+    { label: 'Quality Value',    code: 'per < 15 and roe > 20 and debtRatio < 100' },
+    { label: 'Growth',          code: 'revGrowth > 15 and epsGrowth > 10 and opMargin > 10' },
+    { label: 'Safe Compounder', code: 'score > 60 and debtRatio < 80 and fcfMargin > 5' },
+    { label: 'Deep Value',      code: 'per < 10 and pbr < 1 and currentRatio > 150' },
+  ];
+  const [code, setCode]       = useState(EXAMPLES[0].code);
+  const [error, setError]     = useState('');
+  const [results, setResults] = useState(null);
+
+  const run = () => {
+    if (!code.trim()) { setResults(null); return; }
+    try { qsParse(qsTokenize(code.trim())); setError(''); } catch (e) { setError(e.message); return; }
+    const matched = watchlistIds.map(id => stocks[id]).filter(Boolean).filter(s => qsRun(code, s));
+    setResults(matched);
+  };
+
+  const thSt = { padding: '5px 8px', color: T.inkFaint, fontSize: 9, letterSpacing: '0.08em', textAlign: 'left', borderBottom: `1px solid ${T.border}`, fontWeight: 600 };
+  const tdSt = { padding: '5px 8px', fontSize: 11, borderBottom: `1px solid ${T.borderSoft}` };
+
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto' }}>
+      <Cell label="SCRIPT FILTER — 조건식으로 워치리스트 종목 필터링 (eval 없는 AST 인터프리터)" accent={T.cyan}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+          {EXAMPLES.map(ex => (
+            <button key={ex.label} onClick={() => { setCode(ex.code); setError(''); setResults(null); }}
+              style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.inkDim, fontFamily: T.font, fontSize: 9, padding: '3px 8px', borderRadius: 3, cursor: 'pointer' }}>
+              {ex.label}
+            </button>
+          ))}
+        </div>
+        <textarea value={code} onChange={e => { setCode(e.target.value); setError(''); setResults(null); }}
+          spellCheck={false}
+          style={{ width: '100%', minHeight: 72, background: '#060d1a', border: `1px solid ${error ? T.red : T.border}`, color: '#4ade80', fontFamily: 'monospace', fontSize: 13, padding: '10px 12px', borderRadius: 4, resize: 'vertical', boxSizing: 'border-box', outline: 'none', lineHeight: 1.5 }}/>
+        {error && <div style={{ color: T.red, fontSize: 10, marginTop: 4 }}>구문 오류: {error}</div>}
+        <div style={{ fontSize: 9, color: T.inkFaint, marginTop: 6, lineHeight: 1.9 }}>
+          <span style={{ color: T.amber }}>필드</span>: per · pbr · roe · opMargin · fcfMargin · debtRatio · currentRatio · revGrowth · epsGrowth · netMargin · evEbitda · score · piotroski · price
+          {'  '}
+          <span style={{ color: T.amber }}>연산자</span>: {'<  >  <=  >=  ==  !=  and (&&)  or (||)  not (!)  ( )'}
+        </div>
+        <button onClick={run}
+          style={{ marginTop: 8, background: 'transparent', border: `1px solid ${T.cyan}`, color: T.cyan, fontFamily: T.font, fontSize: 10, padding: '5px 18px', borderRadius: 3, cursor: 'pointer', letterSpacing: '0.08em' }}>
+          ▶ RUN
+        </button>
+      </Cell>
+
+      {results !== null && (
+        <Cell label={`RESULTS — ${results.length} / ${watchlistIds.length}개 매칭`} accent={T.amber}>
+          {results.length === 0 ? (
+            <div style={{ color: T.inkFaint, fontSize: 11, padding: 8 }}>조건에 맞는 종목 없음</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead><tr>
+                {['SYMBOL','NAME','PER','PBR','ROE %','FCF Mgn %','D/E %','Rev G %','SCORE'].map(h => <th key={h} style={thSt}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {results.map(s => {
+                  const m = s.metrics || {};
+                  const f = v => (v != null && Number.isFinite(Number(v))) ? Number(v).toFixed(1) : '–';
+                  return (
+                    <tr key={s.id}>
+                      <td style={{ ...tdSt, color: T.amber, fontWeight: 700 }}>{s.symbol}</td>
+                      <td style={{ ...tdSt, color: T.ink, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</td>
+                      <td style={{ ...tdSt, color: T.inkDim }}>{f(m.per)}</td>
+                      <td style={{ ...tdSt, color: T.inkDim }}>{f(m.pbr)}</td>
+                      <td style={{ ...tdSt, color: Number(m.roe) > 15 ? T.green : T.inkDim }}>{f(m.roe)}</td>
+                      <td style={{ ...tdSt, color: Number(m.fcfMargin) > 5 ? T.green : T.inkDim }}>{f(m.fcfMargin)}</td>
+                      <td style={{ ...tdSt, color: Number(m.debtRatio) > 200 ? T.red : T.inkDim }}>{f(m.debtRatio)}</td>
+                      <td style={{ ...tdSt, color: Number(m.revGrowth) > 0 ? T.green : T.red }}>{f(m.revGrowth)}</td>
+                      <td style={{ ...tdSt, color: T.amber, fontWeight: 600 }}>{Number.isFinite(s.scores?.overall) ? `${Math.round(s.scores.overall)}pt` : '–'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </Cell>
+      )}
+    </div>
+  );
+}
+
+// ─── Phase 9: WebLLM Local AI (F14) ──────────────────────────────────────────
+const LLM_MODELS = [
+  { id: 'Llama-3.2-3B-Instruct-q4f16_1-MLC', label: 'Llama 3.2 3B (1.8GB, 빠름)' },
+  { id: 'Qwen2.5-7B-Instruct-q4f16_1-MLC',  label: 'Qwen 2.5 7B (4GB, 정확도↑)' },
+];
+
+function AIPanel({ stock }) {
+  const [engine, setEngine]       = useState(null);
+  const [loading, setLoading]     = useState(false);
+  const [progress, setProgress]   = useState('');
+  const [modelId, setModelId]     = useState(LLM_MODELS[0].id);
+  const [messages, setMessages]   = useState([]);
+  const [input, setInput]         = useState('');
+  const [generating, setGenerating] = useState(false);
+  const gpuSupported = typeof navigator !== 'undefined' && !!navigator.gpu;
+
+  const loadModel = async () => {
+    if (!gpuSupported) return;
+    setLoading(true); setProgress('WebLLM ESM 모듈 로딩 중...');
+    try {
+      const { CreateMLCEngine } = await import('https://esm.run/@mlc-ai/web-llm');
+      setProgress('모델 다운로드 중... (최초 1회, 이후 IndexedDB 캐시됨)');
+      const eng = await CreateMLCEngine(modelId, {
+        initProgressCallback: p => setProgress(typeof p === 'string' ? p : (p?.text || JSON.stringify(p))),
+      });
+      setEngine(eng);
+      setProgress('');
+      setMessages([{ role: 'assistant', content: `${LLM_MODELS.find(m => m.id === modelId)?.label} 준비 완료. 현재 종목: ${stock.symbol} (${stock.name})에 대해 질문하세요.` }]);
+    } catch (e) {
+      setProgress(`오류: ${e.message}`);
+    }
+    setLoading(false);
+  };
+
+  const sysPrompt = () => {
+    const m = stock.metrics || {};
+    const f = (v, u = '') => (v != null && Number.isFinite(Number(v))) ? `${Number(v).toFixed(2)}${u}` : 'N/A';
+    return `당신은 주식 투자 분석 AI입니다. eval() 없이 순수 로컬에서 실행됩니다.
+현재 종목: ${stock.symbol} (${stock.name}, ${stock.currency}, 가격: ${f(stock.price)})
+PER ${f(m.per,'x')} | PBR ${f(m.pbr,'x')} | ROE ${f(m.roe,'%')} | FCF마진 ${f(m.fcfMargin,'%')} | 부채비율 ${f(m.debtRatio,'%')} | 매출성장 ${f(m.revGrowth,'%')} | 퀀트스코어 ${stock.scores?.overall != null ? Math.round(stock.scores.overall)+'pt' : 'N/A'}
+투자논거: ${stock.thesis || stock.oneLine || '없음'}
+한국어로 간결하고 정확하게 답변하세요.`;
+  };
+
+  const send = async (userMsg) => {
+    if (!engine || generating) return;
+    const msg = (userMsg || input).trim();
+    if (!msg) return;
+    setInput('');
+    const history = [...messages, { role: 'user', content: msg }];
+    setMessages(history);
+    setGenerating(true);
+    try {
+      const res = await engine.chat.completions.create({
+        messages: [{ role: 'system', content: sysPrompt() }, ...history],
+        temperature: 0.7, max_tokens: 512,
+      });
+      setMessages(prev => [...prev, { role: 'assistant', content: res.choices?.[0]?.message?.content || '응답 없음' }]);
+    } catch (e) {
+      setMessages(prev => [...prev, { role: 'assistant', content: `오류: ${e.message}` }]);
+    }
+    setGenerating(false);
+  };
+
+  const QUICK = [
+    { label: '리스크 분석',       msg: `${stock.symbol}의 투자 리스크 3가지를 분석해줘.` },
+    { label: 'Pre-mortem 반대논거', msg: `${stock.symbol} 투자 thesis가 틀릴 수 있는 시나리오와 반대 논거를 제시해줘.` },
+    { label: '지표 종합 해석',    msg: `${stock.symbol}의 현재 재무지표를 종합적으로 해석하고 투자 매력도를 평가해줘.` },
+    { label: '한줄 요약',         msg: `${stock.symbol}을 투자자 관점에서 한 문장으로 요약해줘.` },
+  ];
+
+  const inSt = { background: T.surface, border: `1px solid ${T.border}`, color: T.ink, fontFamily: T.font, fontSize: 11, padding: '7px 10px', borderRadius: 3, flex: 1, outline: 'none' };
+
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <Cell label="LOCAL AI — @mlc-ai/web-llm (WebGPU · 데이터 외부 전송 없음 · 완전 무료)" accent={T.cyan}>
+        {!gpuSupported ? (
+          <div style={{ color: T.red, fontSize: 11, padding: '4px 0' }}>
+            이 브라우저는 WebGPU를 지원하지 않습니다. Chrome 113+ 또는 Edge 113+에서 실행하세요.
+          </div>
+        ) : !engine ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontSize: 10, color: T.inkFaint, lineHeight: 1.7 }}>
+              로컬 GPU에서 LLM을 직접 실행합니다. 최초 1회 모델 다운로드 후 IndexedDB에 캐시됩니다. API 키·구독 불필요.
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <select value={modelId} onChange={e => setModelId(e.target.value)}
+                style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.ink, fontFamily: T.font, fontSize: 11, padding: '5px 8px', borderRadius: 3 }}>
+                {LLM_MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+              </select>
+              <button onClick={loadModel} disabled={loading}
+                style={{ background: 'transparent', border: `1px solid ${T.cyan}`, color: T.cyan, fontFamily: T.font, fontSize: 10, padding: '6px 16px', borderRadius: 3, cursor: loading ? 'wait' : 'pointer', letterSpacing: '0.08em' }}>
+                {loading ? 'LOADING...' : '↻ 모델 로드 시작'}
+              </button>
+            </div>
+            {progress && <div style={{ fontSize: 10, color: T.inkFaint, wordBreak: 'break-all' }}>{progress}</div>}
+          </div>
+        ) : (
+          <div style={{ color: T.green, fontSize: 10 }}>● {LLM_MODELS.find(m => m.id === modelId)?.label} 준비 완료</div>
+        )}
+      </Cell>
+
+      {engine && (
+        <>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flexShrink: 0 }}>
+            {QUICK.map(q => (
+              <button key={q.label} onClick={() => send(q.msg)} disabled={generating}
+                style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.inkDim, fontFamily: T.font, fontSize: 9, padding: '4px 10px', borderRadius: 3, cursor: 'pointer', letterSpacing: '0.06em' }}>
+                {q.label}
+              </button>
+            ))}
+          </div>
+          <Cell label={`AI CHAT · ${stock.symbol}`} accent={T.amber} style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingBottom: 8, minHeight: 0 }}>
+              {messages.map((m, i) => (
+                <div key={i} style={{
+                  background: m.role === 'user' ? `${T.amber}14` : T.surface,
+                  border: `1px solid ${m.role === 'user' ? T.amber + '50' : T.border}`,
+                  borderRadius: 4, padding: '8px 12px', fontSize: 11, color: T.ink, lineHeight: 1.65,
+                  alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '90%',
+                }}>
+                  <span style={{ fontSize: 9, color: m.role === 'user' ? T.amber : T.cyan, fontWeight: 700, marginRight: 6 }}>
+                    {m.role === 'user' ? 'YOU' : 'AI'}
+                  </span>
+                  {m.content}
+                </div>
+              ))}
+              {generating && <div style={{ color: T.inkFaint, fontSize: 10, padding: '4px 0' }}>생성 중...</div>}
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexShrink: 0, borderTop: `1px solid ${T.border}`, paddingTop: 8 }}>
+              <input value={input} onChange={e => setInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+                placeholder="질문을 입력하세요 (Enter로 전송)"
+                style={inSt}/>
+              <button onClick={() => send()} disabled={generating || !input.trim()}
+                style={{ background: 'transparent', border: `1px solid ${T.amber}`, color: T.amber, fontFamily: T.font, fontSize: 10, padding: '0 14px', borderRadius: 3, cursor: 'pointer', letterSpacing: '0.08em' }}>
+                SEND
+              </button>
+            </div>
+          </Cell>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Phase 15: Share & Export helpers ────────────────────────────────────────
+function generateShareUrl(stock) {
+  const payload = {
+    symbol: stock.symbol, name: stock.name, currency: stock.currency, flag: stock.flag,
+    oneLine: stock.oneLine, recommendation: stock.recommendation,
+    thesis: stock.thesis, catalysts: stock.catalysts, risks: stock.risks,
+    preMortem: stock.preMortem, valuation: stock.valuation,
+    metrics: stock.metrics, scores: stock.scores, price: stock.price,
+  };
+  try { return `${location.origin}${location.pathname}?share=${btoa(unescape(encodeURIComponent(JSON.stringify(payload))))}`; }
+  catch { return null; }
+}
+
+function downloadTextReport(stock) {
+  const m = stock.metrics || {};
+  const f = (v, d = 1, u = '') => (v != null && Number.isFinite(Number(v))) ? `${Number(v).toFixed(d)}${u}` : 'N/A';
+  const line = s => s;
+  const section = t => [``, `[${t}]`];
+  const listItems = arr => Array.isArray(arr) && arr.length
+    ? arr.map((x, i) => `  ${i+1}. ${typeof x === 'string' ? x : x.text || ''}`)
+    : ['  (없음)'];
+  const lines = [
+    `INVESTMENT THESIS REPORT — ${stock.symbol}`,
+    `Generated: ${new Date().toLocaleDateString('ko-KR')} ${new Date().toLocaleTimeString('ko-KR')}`,
+    '='.repeat(60),
+    ...section('OVERVIEW'),
+    `  Symbol   : ${stock.symbol}`,
+    `  Name     : ${stock.name}`,
+    `  Currency : ${stock.currency}  Price: ${f(stock.price,2)}`,
+    `  Rating   : ${stock.recommendation || '–'}`,
+    `  One-liner: ${stock.oneLine || '–'}`,
+    ...section('KEY METRICS'),
+    `  PER ${f(m.per,1,'x')}  PBR ${f(m.pbr,1,'x')}  ROE ${f(m.roe,1,'%')}  OP Margin ${f(m.opMargin,1,'%')}`,
+    `  FCF Margin ${f(m.fcfMargin,1,'%')}  Debt/Eq ${f(m.debtRatio,1,'%')}  Cur Ratio ${f(m.currentRatio,1,'%')}`,
+    `  Rev Growth ${f(m.revGrowth,1,'%')}  EPS Growth ${f(m.epsGrowth,1,'%')}  EV/EBITDA ${f(m.evEbitda,1,'x')}`,
+    `  Quant Score: ${stock.scores?.overall != null ? Math.round(stock.scores.overall)+'pt' : 'N/A'}`,
+    ...section('THESIS'),
+    ...(stock.thesis ? stock.thesis.split('\n').map(l => `  ${l}`) : ['  (없음)']),
+    ...section('CATALYSTS'),
+    ...listItems(stock.catalysts),
+    ...section('RISKS'),
+    ...listItems(stock.risks),
+    ...section('VALUATION'),
+    `  Bear: ${stock.valuation?.bear?.price || '–'} / Base: ${stock.valuation?.base?.price || '–'} / Bull: ${stock.valuation?.bull?.price || '–'}`,
+    ``, '='.repeat(60), `ThesisTrack Terminal — https://github.com/leebin109/ThesisTracker`,
+  ];
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `${stock.symbol}_thesis_${new Date().toISOString().slice(0,10)}.txt` });
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+function ShareViewer({ data, onClose }) {
+  const m = data.metrics || {};
+  const f = (v, d = 1, u = '') => (v != null && Number.isFinite(Number(v))) ? `${Number(v).toFixed(d)}${u}` : '–';
+  const { recLabel } = window;
+  const rec = { text: data.recommendation || '–', color: T.inkFaint };
+  const ovSt = { position: 'fixed', inset: 0, background: '#000c', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 };
+  const boxSt = { background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, width: '100%', maxWidth: 800, maxHeight: '90vh', overflowY: 'auto', padding: 28, fontFamily: T.font };
+  const tagSt = { display: 'inline-block', background: `${T.amber}20`, border: `1px solid ${T.amber}40`, color: T.amber, fontSize: 9, padding: '2px 7px', borderRadius: 3, letterSpacing: '0.08em', marginBottom: 8 };
+  return (
+    <div style={ovSt} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={boxSt}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+          <div>
+            <div style={tagSt}>READ-ONLY SHARED REPORT</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: T.amber }}>{data.symbol}</div>
+            <div style={{ fontSize: 13, color: T.inkDim }}>{data.name} · {data.currency} {f(data.price,2)}</div>
+            <div style={{ fontSize: 11, color: T.inkFaint, marginTop: 4 }}>{data.oneLine}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: T.inkFaint, fontSize: 18, cursor: 'pointer' }}>×</button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 8, marginBottom: 16 }}>
+          {[['PER',f(m.per,1,'x')],['PBR',f(m.pbr,1,'x')],['ROE',f(m.roe,1,'%')],['FCF Mgn',f(m.fcfMargin,1,'%')],['Score',data.scores?.overall!=null?Math.round(data.scores.overall)+'pt':'–']].map(([k,v])=>(
+            <div key={k} style={{ background: T.surface, border:`1px solid ${T.border}`, borderRadius:4, padding:'8px 10px' }}>
+              <div style={{ fontSize:9, color:T.inkFaint, marginBottom:3 }}>{k}</div>
+              <div style={{ fontSize:14, fontWeight:700, color:T.ink }}>{v}</div>
+            </div>
+          ))}
+        </div>
+        {data.thesis && <><div style={{ fontSize:10, color:T.amber, fontWeight:700, marginBottom:6 }}>THESIS</div><div style={{ fontSize:11, color:T.inkDim, lineHeight:1.7, marginBottom:16, whiteSpace:'pre-wrap' }}>{data.thesis}</div></>}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
+          {[['CATALYSTS', data.catalysts],['RISKS', data.risks]].map(([title, arr])=>(
+            <div key={title}>
+              <div style={{ fontSize:10, color:title==='CATALYSTS'?T.green:T.red, fontWeight:700, marginBottom:6 }}>{title}</div>
+              {Array.isArray(arr)&&arr.length ? arr.map((x,i)=><div key={i} style={{ fontSize:11, color:T.inkDim, marginBottom:4 }}>• {typeof x==='string'?x:x.text||''}</div>) : <div style={{ fontSize:11, color:T.inkFaint }}>없음</div>}
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop:16, fontSize:9, color:T.inkFaint, borderTop:`1px solid ${T.border}`, paddingTop:10 }}>ThesisTrack Terminal — 읽기 전용 공유 리포트</div>
+      </div>
+    </div>
+  );
+}
 
 // ─── Macro Correlation (F12) ──────────────────────────────────────────────────
 const MACRO_TICKERS = [
@@ -3344,6 +3742,7 @@ function App({ initialData }) {
   const [watchlists, setWatchlists]       = useState(initial.watchlists);
   const [activeWatchlistId, setActiveWatchlistId] = useState(initial.activeWatchlistId);
   const [trades, setTrades]               = useState(initial.trades || []);
+  const [shareViewerData, setShareViewerData] = useState(null);
   const [activeId, setActiveId]           = useState(initial.activeId);
   const [apiSettings, setApiSettings]     = useState(initial.apiSettings);
   const [dataCache, setDataCache]         = useState(initial.dataCache);
@@ -3416,6 +3815,16 @@ function App({ initialData }) {
   useEffect(() => { stocksRef.current = stocks; }, [stocks]);
   useEffect(() => { watchlistIdsRef.current = watchlistIds; }, [watchlistIds]);
   useEffect(() => { activeWatchlistIdRef.current = activeWatchlistId; }, [activeWatchlistId]);
+
+  // ── URL share param detection ──────────────────────────────────────────────
+  useEffect(() => {
+    const param = new URLSearchParams(window.location.search).get('share');
+    if (!param) return;
+    try {
+      const json = decodeURIComponent(escape(atob(param)));
+      setShareViewerData(JSON.parse(json));
+    } catch { /* malformed */ }
+  }, []);
 
   // ── Persistence ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -4106,11 +4515,23 @@ function App({ initialData }) {
   const panelContent = {
     F1: <OverviewPanel stock={stock} apiSettings={apiSettings} dartCorpMap={dartCorpMap} onSaveHistory={handleSaveHistory}/>,
     F2: (
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 8, height: '100%' }}>
-        <PitchPanel stock={stock} onEditPitch={setPitchEditId} onCaptureJournal={handleCaptureJournal}/>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <QualityPanel stock={stock}/>
-          <PreMortemPanel stock={stock} onSave={handleSavePreMortem}/>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, height: '100%' }}>
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+          <button onClick={() => { const url = generateShareUrl(stock); navigator.clipboard?.writeText(url).catch(()=>{}); window.open(url, '_blank'); }}
+            style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.amber, fontFamily: T.font, fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', padding: '4px 12px', cursor: 'pointer' }}>
+            SHARE LINK
+          </button>
+          <button onClick={() => downloadTextReport(stock)}
+            style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.inkFaint, fontFamily: T.font, fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', padding: '4px 12px', cursor: 'pointer' }}>
+            TEXT REPORT
+          </button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 8, flex: 1, minHeight: 0 }}>
+          <PitchPanel stock={stock} onEditPitch={setPitchEditId} onCaptureJournal={handleCaptureJournal}/>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <QualityPanel stock={stock}/>
+            <PreMortemPanel stock={stock} onSave={handleSavePreMortem}/>
+          </div>
         </div>
       </div>
     ),
@@ -4179,6 +4600,12 @@ function App({ initialData }) {
     ),
     F12: (
       <MacroPanel stock={stock} stocks={stocks} watchlistIds={watchlistIds}/>
+    ),
+    F13: (
+      <ScriptPanel stocks={stocks} watchlistIds={watchlistIds}/>
+    ),
+    F14: (
+      <AIPanel stock={stock}/>
     ),
   };
 
@@ -4272,6 +4699,9 @@ function App({ initialData }) {
       )}
       {pitchEditId && stocks[pitchEditId] && (
         <EditPitchModal stock={stocks[pitchEditId]} onSave={handleSavePitch} onClose={() => setPitchEditId(null)}/>
+      )}
+      {shareViewerData && (
+        <ShareViewer data={shareViewerData} onClose={() => setShareViewerData(null)}/>
       )}
 
       <ToastContainer toasts={toasts}/>
