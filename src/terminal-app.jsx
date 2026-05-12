@@ -651,64 +651,126 @@ function ScriptPanel({ stocks, watchlistIds }) {
   );
 }
 
-// ─── Phase 9: WebLLM Local AI (F14) ──────────────────────────────────────────
+// ─── Phase 9: Local AI — Ollama + WebLLM ─────────────────────────────────────
 const LLM_MODELS = [
   { id: 'Llama-3.2-3B-Instruct-q4f16_1-MLC', label: 'Llama 3.2 3B (1.8GB, 빠름)' },
   { id: 'Qwen2.5-7B-Instruct-q4f16_1-MLC',  label: 'Qwen 2.5 7B (4GB, 정확도↑)' },
 ];
+const OLLAMA_MODELS = [
+  { id: 'llama3.1:8b',  label: 'Llama 3.1 8B (권장, ~5GB VRAM)' },
+  { id: 'mistral',      label: 'Mistral 7B (~4.5GB VRAM)' },
+  { id: 'phi4-mini',    label: 'Phi-4 Mini (~3GB VRAM, 코딩 강점)' },
+  { id: 'gemma2:9b',    label: 'Gemma 2 9B (~5.5GB VRAM)' },
+  { id: 'qwen2.5:7b',   label: 'Qwen 2.5 7B (~4.5GB VRAM)' },
+];
 
 function AIPanel({ stock }) {
-  const [engine, setEngine]       = useState(null);
-  const [loading, setLoading]     = useState(false);
-  const [progress, setProgress]   = useState('');
-  const [modelId, setModelId]     = useState(LLM_MODELS[0].id);
-  const [messages, setMessages]   = useState([]);
-  const [input, setInput]         = useState('');
-  const [generating, setGenerating] = useState(false);
-  const gpuSupported = typeof navigator !== 'undefined' && !!navigator.gpu;
+  const [backend, setBackend]       = useState('ollama');
 
-  const loadModel = async () => {
-    if (!gpuSupported) return;
-    setLoading(true); setProgress('WebLLM ESM 모듈 로딩 중...');
-    try {
-      const { CreateMLCEngine } = await import('https://esm.run/@mlc-ai/web-llm');
-      setProgress('모델 다운로드 중... (최초 1회, 이후 IndexedDB 캐시됨)');
-      const eng = await CreateMLCEngine(modelId, {
-        initProgressCallback: p => setProgress(typeof p === 'string' ? p : (p?.text || JSON.stringify(p))),
-      });
-      setEngine(eng);
-      setProgress('');
-      setMessages([{ role: 'assistant', content: `${LLM_MODELS.find(m => m.id === modelId)?.label} 준비 완료. 현재 종목: ${stock.symbol} (${stock.name})에 대해 질문하세요.` }]);
-    } catch (e) {
-      setProgress(`오류: ${e.message}`);
-    }
-    setLoading(false);
-  };
+  // WebLLM state
+  const [engine, setEngine]         = useState(null);
+  const [webllmLoading, setWebllmLoading] = useState(false);
+  const [progress, setProgress]     = useState('');
+  const [modelId, setModelId]       = useState(LLM_MODELS[0].id);
+
+  // Ollama state
+  const [ollamaUrl, setOllamaUrl]   = useState('http://localhost:11434');
+  const [ollamaModel, setOllamaModel] = useState('llama3.1:8b');
+  const [ollamaReady, setOllamaReady] = useState(false);
+  const [ollamaError, setOllamaError] = useState('');
+  const [ollamaTesting, setOllamaTesting] = useState(false);
+  const [availableModels, setAvailableModels] = useState([]);
+
+  // Shared state
+  const [messages, setMessages]     = useState([]);
+  const [input, setInput]           = useState('');
+  const [generating, setGenerating] = useState(false);
+
+  const gpuSupported = typeof navigator !== 'undefined' && !!navigator.gpu;
+  const isReady = backend === 'webllm' ? !!engine : ollamaReady;
 
   const sysPrompt = () => {
     const m = stock.metrics || {};
     const f = (v, u = '') => (v != null && Number.isFinite(Number(v))) ? `${Number(v).toFixed(2)}${u}` : 'N/A';
-    return `당신은 주식 투자 분석 AI입니다. eval() 없이 순수 로컬에서 실행됩니다.
+    return `당신은 주식 투자 분석 AI입니다. 로컬에서 실행됩니다.
 현재 종목: ${stock.symbol} (${stock.name}, ${stock.currency}, 가격: ${f(stock.price)})
 PER ${f(m.per,'x')} | PBR ${f(m.pbr,'x')} | ROE ${f(m.roe,'%')} | FCF마진 ${f(m.fcfMargin,'%')} | 부채비율 ${f(m.debtRatio,'%')} | 매출성장 ${f(m.revGrowth,'%')} | 퀀트스코어 ${stock.scores?.overall != null ? Math.round(stock.scores.overall)+'pt' : 'N/A'}
 투자논거: ${stock.thesis || stock.oneLine || '없음'}
 한국어로 간결하고 정확하게 답변하세요.`;
   };
 
+  // ── Ollama: 연결 테스트 ──────────────────────────────────────────────────
+  const testOllama = async () => {
+    setOllamaTesting(true); setOllamaError(''); setOllamaReady(false);
+    try {
+      const base = ollamaUrl.replace(/\/$/, '');
+      const res = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const names = (data.models || []).map(m => m.name);
+      setAvailableModels(names);
+      const exact = names.find(n => n === ollamaModel || n.startsWith(ollamaModel.split(':')[0] + ':'));
+      if (!exact && names.length > 0) {
+        setOllamaError(`"${ollamaModel}" 없음. 설치됨: ${names.slice(0,4).join(', ')}${names.length > 4 ? ` 외 ${names.length - 4}개` : ''}`);
+      } else {
+        setOllamaReady(true);
+        setMessages([{ role: 'assistant', content: `Ollama (${ollamaModel}) 연결 완료.\n현재 종목: ${stock.symbol} (${stock.name})에 대해 질문하세요.` }]);
+      }
+    } catch (e) {
+      setOllamaError(`연결 실패: ${e.message}\nOllama가 실행 중인지 확인: ollama serve`);
+    }
+    setOllamaTesting(false);
+  };
+
+  // ── WebLLM: 모델 로드 ────────────────────────────────────────────────────
+  const loadWebLLM = async () => {
+    if (!gpuSupported) return;
+    setWebllmLoading(true); setProgress('WebLLM ESM 모듈 로딩 중...');
+    try {
+      const { CreateMLCEngine } = await import('https://esm.run/@mlc-ai/web-llm');
+      setProgress('모델 다운로드 중... (최초 1회, 이후 IndexedDB 캐시됨)');
+      const eng = await CreateMLCEngine(modelId, {
+        initProgressCallback: p => setProgress(typeof p === 'string' ? p : (p?.text || JSON.stringify(p))),
+      });
+      setEngine(eng); setProgress('');
+      setMessages([{ role: 'assistant', content: `${LLM_MODELS.find(m => m.id === modelId)?.label} 준비 완료.\n${stock.symbol} (${stock.name})에 대해 질문하세요.` }]);
+    } catch (e) { setProgress(`오류: ${e.message}`); }
+    setWebllmLoading(false);
+  };
+
+  // ── 공통 전송 ────────────────────────────────────────────────────────────
   const send = async (userMsg) => {
-    if (!engine || generating) return;
     const msg = (userMsg || input).trim();
-    if (!msg) return;
+    if (!msg || generating || !isReady) return;
     setInput('');
     const history = [...messages, { role: 'user', content: msg }];
     setMessages(history);
     setGenerating(true);
     try {
-      const res = await engine.chat.completions.create({
-        messages: [{ role: 'system', content: sysPrompt() }, ...history],
-        temperature: 0.7, max_tokens: 512,
-      });
-      setMessages(prev => [...prev, { role: 'assistant', content: res.choices?.[0]?.message?.content || '응답 없음' }]);
+      let content;
+      const sys = { role: 'system', content: sysPrompt() };
+      if (backend === 'webllm' && engine) {
+        const res = await engine.chat.completions.create({
+          messages: [sys, ...history], temperature: 0.7, max_tokens: 512,
+        });
+        content = res.choices?.[0]?.message?.content || '응답 없음';
+      } else {
+        const base = ollamaUrl.replace(/\/$/, '');
+        const res = await fetch(`${base}/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: ollamaModel,
+            messages: [sys, ...history],
+            stream: false,
+            options: { temperature: 0.7, num_predict: 512 },
+          }),
+        });
+        if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
+        const data = await res.json();
+        content = data.choices?.[0]?.message?.content || '응답 없음';
+      }
+      setMessages(prev => [...prev, { role: 'assistant', content }]);
     } catch (e) {
       setMessages(prev => [...prev, { role: 'assistant', content: `오류: ${e.message}` }]);
     }
@@ -716,49 +778,106 @@ PER ${f(m.per,'x')} | PBR ${f(m.pbr,'x')} | ROE ${f(m.roe,'%')} | FCF마진 ${f(
   };
 
   const QUICK = [
-    { label: '리스크 분석',       msg: `${stock.symbol}의 투자 리스크 3가지를 분석해줘.` },
-    { label: 'Pre-mortem 반대논거', msg: `${stock.symbol} 투자 thesis가 틀릴 수 있는 시나리오와 반대 논거를 제시해줘.` },
-    { label: '지표 종합 해석',    msg: `${stock.symbol}의 현재 재무지표를 종합적으로 해석하고 투자 매력도를 평가해줘.` },
-    { label: '한줄 요약',         msg: `${stock.symbol}을 투자자 관점에서 한 문장으로 요약해줘.` },
+    { label: '리스크 분석',        msg: `${stock.symbol}의 투자 리스크 3가지를 분석해줘.` },
+    { label: 'Pre-mortem 반대논거', msg: `${stock.symbol} 투자 thesis가 틀릴 수 있는 시나리오를 제시해줘.` },
+    { label: '지표 종합 해석',     msg: `${stock.symbol}의 재무지표를 종합적으로 해석하고 투자 매력도를 평가해줘.` },
+    { label: '한줄 요약',          msg: `${stock.symbol}을 투자자 관점에서 한 문장으로 요약해줘.` },
   ];
 
   const inSt = { background: T.surface, border: `1px solid ${T.border}`, color: T.ink, fontFamily: T.font, fontSize: 11, padding: '7px 10px', borderRadius: 3, flex: 1, outline: 'none' };
+  const tabBtn = (active) => ({
+    background: active ? `${T.cyan}18` : 'transparent',
+    border: 'none', borderBottom: `2px solid ${active ? T.cyan : 'transparent'}`,
+    color: active ? T.cyan : T.inkFaint, fontFamily: T.font, fontSize: 11,
+    fontWeight: active ? 700 : 400, padding: '5px 14px', cursor: 'pointer', letterSpacing: '0.08em',
+  });
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <Cell label="LOCAL AI — @mlc-ai/web-llm (WebGPU · 데이터 외부 전송 없음 · 완전 무료)" accent={T.cyan}>
-        {!gpuSupported ? (
-          <div style={{ color: T.red, fontSize: 11, padding: '4px 0' }}>
-            이 브라우저는 WebGPU를 지원하지 않습니다. Chrome 113+ 또는 Edge 113+에서 실행하세요.
-          </div>
-        ) : !engine ? (
+      {/* Backend selector */}
+      <Cell label="LOCAL AI — 데이터 외부 전송 없음 · 완전 무료" accent={T.cyan}>
+        <div style={{ display: 'flex', borderBottom: `1px solid ${T.border}`, marginBottom: 10 }}>
+          <button style={tabBtn(backend === 'ollama')} onClick={() => setBackend('ollama')}>Ollama (권장)</button>
+          <button style={tabBtn(backend === 'webllm')} onClick={() => setBackend('webllm')}>WebLLM (브라우저)</button>
+        </div>
+
+        {/* ── Ollama setup ── */}
+        {backend === 'ollama' && !ollamaReady && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ fontSize: 10, color: T.inkFaint, lineHeight: 1.7 }}>
-              로컬 GPU에서 LLM을 직접 실행합니다. 최초 1회 모델 다운로드 후 IndexedDB에 캐시됩니다. API 키·구독 불필요.
+              Ollama 설치 후 <span style={{ color: T.cyan, fontFamily: 'monospace' }}>ollama serve</span> 를 실행하세요.
+              그 다음 원하는 모델을 다운로드: <span style={{ color: T.amber, fontFamily: 'monospace' }}>ollama pull llama3.1:8b</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <input value={ollamaUrl} onChange={e => setOllamaUrl(e.target.value)}
+                placeholder="http://localhost:11434"
+                style={{ ...inSt, flex: '0 0 200px', fontSize: 11 }}/>
+              <select value={ollamaModel} onChange={e => setOllamaModel(e.target.value)}
+                style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.ink, fontFamily: T.font, fontSize: 11, padding: '7px 8px', borderRadius: 3 }}>
+                {OLLAMA_MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                {availableModels.filter(n => !OLLAMA_MODELS.find(m => n.startsWith(m.id.split(':')[0]))).map(n => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+              <button onClick={testOllama} disabled={ollamaTesting}
+                style={{ background: 'transparent', border: `1px solid ${T.cyan}`, color: T.cyan, fontFamily: T.font, fontSize: 11, padding: '6px 16px', borderRadius: 3, cursor: 'pointer', letterSpacing: '0.08em' }}>
+                {ollamaTesting ? '연결 중...' : '연결 테스트'}
+              </button>
+            </div>
+            {ollamaError && (
+              <div style={{ fontSize: 10, color: T.red, whiteSpace: 'pre-line', lineHeight: 1.6 }}>{ollamaError}</div>
+            )}
+            <div style={{ fontSize: 10, color: T.inkFaint, lineHeight: 1.7, borderTop: `1px solid ${T.border}`, paddingTop: 6 }}>
+              <span style={{ color: T.inkDim }}>설치 방법</span> → <a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer" style={{ color: T.cyan }}>ollama.com/download</a>
+              {'  '}|{'  '}
+              <span style={{ fontFamily: 'monospace', color: T.amber }}>ollama run llama3.1:8b</span> (자동 다운로드+실행)
+            </div>
+          </div>
+        )}
+        {backend === 'ollama' && ollamaReady && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ color: T.green, fontSize: 11 }}>● Ollama ({ollamaModel}) 연결됨</span>
+            <button onClick={() => { setOllamaReady(false); setMessages([]); }}
+              style={{ background: 'transparent', border: `1px solid ${T.border}`, color: T.inkFaint, fontFamily: T.font, fontSize: 10, padding: '3px 10px', borderRadius: 3, cursor: 'pointer' }}>
+              재설정
+            </button>
+          </div>
+        )}
+
+        {/* ── WebLLM setup ── */}
+        {backend === 'webllm' && !engine && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {!gpuSupported && (
+              <div style={{ color: T.red, fontSize: 11 }}>WebGPU 미지원 브라우저. Chrome 113+ 사용 필요.</div>
+            )}
+            <div style={{ fontSize: 10, color: T.inkFaint, lineHeight: 1.7 }}>
+              브라우저 내 WebGPU로 실행. 최초 1회 모델 다운로드 후 IndexedDB 캐시. Ollama보다 느림.
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <select value={modelId} onChange={e => setModelId(e.target.value)}
                 style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.ink, fontFamily: T.font, fontSize: 11, padding: '5px 8px', borderRadius: 3 }}>
                 {LLM_MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
               </select>
-              <button onClick={loadModel} disabled={loading}
-                style={{ background: 'transparent', border: `1px solid ${T.cyan}`, color: T.cyan, fontFamily: T.font, fontSize: 10, padding: '6px 16px', borderRadius: 3, cursor: loading ? 'wait' : 'pointer', letterSpacing: '0.08em' }}>
-                {loading ? 'LOADING...' : '↻ 모델 로드 시작'}
+              <button onClick={loadWebLLM} disabled={webllmLoading || !gpuSupported}
+                style={{ background: 'transparent', border: `1px solid ${T.cyan}`, color: T.cyan, fontFamily: T.font, fontSize: 11, padding: '6px 16px', borderRadius: 3, cursor: 'pointer', letterSpacing: '0.08em' }}>
+                {webllmLoading ? 'LOADING...' : '↻ 모델 로드'}
               </button>
             </div>
             {progress && <div style={{ fontSize: 10, color: T.inkFaint, wordBreak: 'break-all' }}>{progress}</div>}
           </div>
-        ) : (
-          <div style={{ color: T.green, fontSize: 10 }}>● {LLM_MODELS.find(m => m.id === modelId)?.label} 준비 완료</div>
+        )}
+        {backend === 'webllm' && engine && (
+          <div style={{ color: T.green, fontSize: 11 }}>● {LLM_MODELS.find(m => m.id === modelId)?.label} 준비 완료</div>
         )}
       </Cell>
 
-      {engine && (
+      {/* ── Chat area (공통) ── */}
+      {isReady && (
         <>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flexShrink: 0 }}>
             {QUICK.map(q => (
               <button key={q.label} onClick={() => send(q.msg)} disabled={generating}
-                style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.inkDim, fontFamily: T.font, fontSize: 9, padding: '4px 10px', borderRadius: 3, cursor: 'pointer', letterSpacing: '0.06em' }}>
+                style={{ background: T.surface, border: `1px solid ${T.border}`, color: T.inkDim, fontFamily: T.font, fontSize: 10, padding: '4px 10px', borderRadius: 3, cursor: 'pointer', letterSpacing: '0.06em' }}>
                 {q.label}
               </button>
             ))}
@@ -771,8 +890,9 @@ PER ${f(m.per,'x')} | PBR ${f(m.pbr,'x')} | ROE ${f(m.roe,'%')} | FCF마진 ${f(
                   border: `1px solid ${m.role === 'user' ? T.amber + '50' : T.border}`,
                   borderRadius: 4, padding: '8px 12px', fontSize: 11, color: T.ink, lineHeight: 1.65,
                   alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '90%',
+                  whiteSpace: 'pre-wrap',
                 }}>
-                  <span style={{ fontSize: 9, color: m.role === 'user' ? T.amber : T.cyan, fontWeight: 700, marginRight: 6 }}>
+                  <span style={{ fontSize: 10, color: m.role === 'user' ? T.amber : T.cyan, fontWeight: 700, marginRight: 6 }}>
                     {m.role === 'user' ? 'YOU' : 'AI'}
                   </span>
                   {m.content}
@@ -786,7 +906,7 @@ PER ${f(m.per,'x')} | PBR ${f(m.pbr,'x')} | ROE ${f(m.roe,'%')} | FCF마진 ${f(
                 placeholder="질문을 입력하세요 (Enter로 전송)"
                 style={inSt}/>
               <button onClick={() => send()} disabled={generating || !input.trim()}
-                style={{ background: 'transparent', border: `1px solid ${T.amber}`, color: T.amber, fontFamily: T.font, fontSize: 10, padding: '0 14px', borderRadius: 3, cursor: 'pointer', letterSpacing: '0.08em' }}>
+                style={{ background: 'transparent', border: `1px solid ${T.amber}`, color: T.amber, fontFamily: T.font, fontSize: 11, padding: '0 14px', borderRadius: 3, cursor: 'pointer', letterSpacing: '0.08em' }}>
                 SEND
               </button>
             </div>
