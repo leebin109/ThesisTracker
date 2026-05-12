@@ -7624,14 +7624,21 @@ function App({ initialData }) {
     getSb().from('user_data').select('payload').eq('user_id', session.user.id).single()
       .then(({ data, error }) => {
         if (error || !data?.payload) {
-          // First login — push local state to Supabase (apiSettings/dataCache excluded: device-local only)
-          const snap = { stocks, watchlistIds, watchlists, activeWatchlistId, activeId, dartCorpMap, alerts, alertSettings, trades };
+          // 신규 사용자 — 빈 상태로 시작 (로컬 데이터를 덮어쓰지 않음)
+          // 기존 로컬 데이터가 있다면 StatusBar의 "로컬 데이터 가져오기" 버튼으로 마이그레이션 가능
+          const snap = { stocks: {}, watchlistIds: [], watchlists: [], activeWatchlistId: null, activeId: null, dartCorpMap: {}, alerts: [], alertSettings: {}, trades: [] };
           getSb().from('user_data').upsert({ user_id: session.user.id, payload: snap }, { onConflict: 'user_id' });
+          setStocks({});
+          setWatchlistIds([]);
+          setWatchlists([]);
+          setActiveWatchlistId(null);
+          setActiveId(null);
           return;
         }
+        // 기존 사용자 — 원격 데이터로 완전히 교체 (로컬 데이터 무시)
         const p = data.payload;
-        if (p.stocks && typeof p.stocks === 'object') setStocks(s => ({ ...normalizeStocksMap(p.stocks), ...s }));
-        if (Array.isArray(p.watchlistIds)) setWatchlistIds(p.watchlistIds);
+        if (p.stocks && typeof p.stocks === 'object') setStocks(normalizeStocksMap(p.stocks));
+        setWatchlistIds(Array.isArray(p.watchlistIds) ? p.watchlistIds : []);
         if (Array.isArray(p.watchlists)) setWatchlists(p.watchlists);
         if (p.activeWatchlistId != null) setActiveWatchlistId(p.activeWatchlistId);
         if (p.activeId) setActiveId(p.activeId);
@@ -7639,7 +7646,7 @@ function App({ initialData }) {
         // dataCache:   NOT synced — financial data cache stays device-local
         if (p.dartCorpMap && typeof p.dartCorpMap === 'object') setDartCorpMap(p.dartCorpMap);
         if (Array.isArray(p.alerts)) setAlerts(p.alerts);
-        if (p.alertSettings && typeof p.alertSettings === 'object') setAlertSettings(s => ({ ...s, ...p.alertSettings }));
+        if (p.alertSettings && typeof p.alertSettings === 'object') setAlertSettings(p.alertSettings);
         if (Array.isArray(p.trades)) setTrades(p.trades);
       });
   }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
