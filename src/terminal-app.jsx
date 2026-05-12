@@ -868,6 +868,8 @@ function ChartPanel({ stock, onRefresh, refreshing, fetchStatus, period: periodP
   const [ohlcData, setOhlcData] = useState(null);
   const [chartLoading, setChartLoading] = useState(false);
   const [chartErr, setChartErr] = useState('');
+  const [indicators, setIndicators] = useState({ ma20: true, ma60: true, ma120: true, volume: true, bb: false, rsi: false, macd: false });
+  const toggleInd = key => setIndicators(prev => ({ ...prev, [key]: !prev[key] }));
 
   const sym = toYahooSymbol(stock);
   const periodDef = CHART_PERIODS.find(p => p.label === period) || CHART_PERIODS[1];
@@ -893,6 +895,16 @@ function ChartPanel({ stock, onRefresh, refreshing, fetchStatus, period: periodP
     cursor: 'pointer', letterSpacing: '0.08em',
   });
 
+  const IND_DEFS = [
+    { key: 'ma20',   label: 'MA20',   color: T.amber   },
+    { key: 'ma60',   label: 'MA60',   color: T.cyan    },
+    { key: 'ma120',  label: 'MA120',  color: T.magenta },
+    { key: 'volume', label: 'VOL',    color: T.inkFaint },
+    { key: 'bb',     label: 'BB',     color: '#a78bfa'  },
+    { key: 'rsi',    label: 'RSI',    color: T.yellow  },
+    { key: 'macd',   label: 'MACD',   color: T.green   },
+  ];
+
   return (
     <Cell label={`PRICE CHART · ${period}`} accent={T.amber} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
@@ -906,6 +918,17 @@ function ChartPanel({ stock, onRefresh, refreshing, fetchStatus, period: periodP
         {chartLoading && <span style={{ color: T.amber, fontSize: 9.5 }}>⟳</span>}
         {chartErr && <span style={{ color: T.red, fontSize: 9.5 }} title={chartErr}>ERR</span>}
       </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '3px 12px', borderBottom: `1px solid ${T.borderSoft}`, background: T.surface2, flexShrink: 0, flexWrap: 'wrap' }}>
+        {IND_DEFS.map(({ key, label, color }) => (
+          <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 3, cursor: 'pointer', userSelect: 'none' }}>
+            <input type="checkbox" checked={!!indicators[key]} onChange={() => toggleInd(key)}
+              style={{ accentColor: color, cursor: 'pointer' }}/>
+            <span style={{ fontSize: 9, color: indicators[key] ? color : T.inkFaint, letterSpacing: '0.06em', fontFamily: T.font }}>
+              {label}
+            </span>
+          </label>
+        ))}
+      </div>
       {fetchStatus && (
         <div style={{ padding: '4px 12px', fontSize: 10.5, color: T.amber, background: `${T.amber}10`, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
           ⟳ {fetchStatus}
@@ -917,6 +940,7 @@ function ChartPanel({ stock, onRefresh, refreshing, fetchStatus, period: periodP
           ohlcData={ohlcData || []}
           chartType={chartType}
           accent={T.amber}
+          indicators={indicators}
         />
       </div>
       <div style={{ padding: '0 12px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
@@ -1372,6 +1396,208 @@ function SliderRow({ label, value, min, max, step, onChange }) {
   );
 }
 
+// ─── F3 tabbed wrapper ───────────────────────────────────────────────────────
+function F3Panel({ stock, onEdit }) {
+  const [tab, setTab] = useState('VAL');
+  const tabBtnSt = active => ({
+    background: 'transparent',
+    border: `1px solid ${active ? T.amber : T.border}`,
+    color: active ? T.amber : T.inkFaint,
+    fontFamily: T.font, fontSize: 9.5, cursor: 'pointer',
+    padding: '2px 10px', letterSpacing: '0.08em',
+  });
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px',
+        background: T.surface2, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+        <button style={tabBtnSt(tab === 'VAL')} onClick={() => setTab('VAL')}>VALUATION</button>
+        <button style={tabBtnSt(tab === 'DCF')} onClick={() => setTab('DCF')}>DCF MODEL</button>
+      </div>
+      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        {tab === 'VAL' ? (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, height: '100%' }}>
+            <ValuationPanel stock={stock} onEdit={onEdit}/>
+            <ScenarioSim stock={stock}/>
+          </div>
+        ) : (
+          <DcfMiniModeler stock={stock}/>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── DCF Mini Modeler ─────────────────────────────────────────────────────────
+function DcfMiniModeler({ stock }) {
+  const history = Array.isArray(stock.metricsHistory) ? stock.metricsHistory : [];
+  const currency = stock.currency || 'USD';
+  const isKrw = currency === 'KRW';
+  const isJpy = currency === 'JPY';
+  const unitLabel = isKrw ? '억원' : isJpy ? 'M JPY' : 'M USD';
+  const curSymbol = isKrw ? '₩' : isJpy ? '¥' : '$';
+
+  const autoFcf = history[0]?.fcf ?? null;
+
+  const autoGrowth = useMemo(() => {
+    if (history.length < 2) return null;
+    const newest = history[0]?.fcf;
+    const oldest = history[history.length - 1]?.fcf;
+    if (!newest || !oldest || oldest <= 0 || newest <= 0) return null;
+    const yrs = history.length - 1;
+    return Math.round((Math.pow(newest / oldest, 1 / yrs) - 1) * 1000) / 10;
+  }, [history]);
+
+  const [fcfStr, setFcfStr] = useState(autoFcf != null ? String(Math.round(autoFcf)) : '');
+  const [sharesStr, setSharesStr] = useState('');
+  const [netDebtStr, setNetDebtStr] = useState('0');
+  const [termG, setTermG] = useState(3);
+  const [scenarios, setScenarios] = useState({
+    bear: { growth: 5,  wacc: 12 },
+    base: { growth: 12, wacc: 10 },
+    bull: { growth: 20, wacc: 9  },
+  });
+
+  useEffect(() => {
+    if (autoFcf != null) setFcfStr(String(Math.round(autoFcf)));
+    else setFcfStr('');
+  }, [stock.id]);
+
+  const setScen = (key, field, val) =>
+    setScenarios(prev => ({ ...prev, [key]: { ...prev[key], [field]: val } }));
+
+  const calcDcf = (fcf0, g, wacc, tg, yrs = 8) => {
+    if (!Number.isFinite(fcf0) || fcf0 <= 0) return null;
+    if (wacc <= tg) return null;
+    let pv = 0, fcfY = fcf0;
+    for (let i = 1; i <= yrs; i++) {
+      fcfY *= 1 + g / 100;
+      pv += fcfY / Math.pow(1 + wacc / 100, i);
+    }
+    const tv = (fcfY * (1 + tg / 100)) / ((wacc - tg) / 100);
+    return pv + tv / Math.pow(1 + wacc / 100, yrs);
+  };
+
+  const fcfNum = parseFloat(fcfStr) || 0;
+  const sharesNum = parseFloat(sharesStr) || 0;
+  const netDebtNum = parseFloat(netDebtStr) || 0;
+  const cur = Number(stock.price) || 0;
+
+  const results = useMemo(() => {
+    return [
+      { key: 'bear', label: 'BEAR', color: T.red    },
+      { key: 'base', label: 'BASE', color: T.amber  },
+      { key: 'bull', label: 'BULL', color: T.green  },
+    ].map(({ key, label, color }) => {
+      const { growth, wacc } = scenarios[key];
+      const ev = calcDcf(fcfNum, growth, wacc, termG);
+      const equity = ev !== null ? ev - netDebtNum : null;
+      let perShare = null;
+      if (equity !== null && sharesNum > 0) {
+        perShare = isKrw ? (equity * 100) / sharesNum : equity / sharesNum;
+      }
+      const upside = perShare !== null && cur > 0 ? (perShare - cur) / cur * 100 : null;
+      return { key, label, color, growth, wacc, ev, equity, perShare, upside };
+    });
+  }, [fcfNum, sharesNum, netDebtNum, termG, scenarios, cur, isKrw]);
+
+  const fmt = v => v == null || !Number.isFinite(v) ? '–'
+    : v >= 1e6 ? (v / 1e6).toFixed(1) + (isKrw ? '조' : 'T')
+    : v >= 1e3 ? (v / 1e3).toFixed(1) + (isKrw ? '兆' : 'B')
+    : v.toFixed(0);
+  const fmtPs = v => v == null || !Number.isFinite(v) ? '–'
+    : `${curSymbol}${Number(v).toLocaleString('en-US', { maximumFractionDigits: isKrw ? 0 : 2 })}`;
+
+  const inSt = {
+    background: T.surface2, border: `1px solid ${T.border}`,
+    color: T.ink, fontFamily: T.font, fontSize: 11,
+    padding: '3px 6px', width: '100%',
+  };
+  const rowSt = { display: 'flex', flexDirection: 'column', gap: 3 };
+  const lbSt = { fontSize: 9, color: T.inkFaint, letterSpacing: '0.1em' };
+
+  return (
+    <Cell label="DCF MINI MODEL · 8Y PROJECTION" accent={T.cyan} style={{ height: '100%', overflow: 'auto' }}>
+      <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+        {/* Inputs row */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
+          <div style={rowSt}>
+            <span style={lbSt}>BASE FCF ({unitLabel})</span>
+            <input value={fcfStr} onChange={e => setFcfStr(e.target.value)} style={inSt} placeholder="e.g. 50000"/>
+            {autoFcf != null && <span style={{ fontSize: 9, color: T.inkFaint }}>히스토리: {Math.round(autoFcf).toLocaleString()}</span>}
+          </div>
+          <div style={rowSt}>
+            <span style={lbSt}>SHARES (M)</span>
+            <input value={sharesStr} onChange={e => setSharesStr(e.target.value)} style={inSt} placeholder="e.g. 5969"/>
+          </div>
+          <div style={rowSt}>
+            <span style={lbSt}>NET DEBT ({unitLabel})</span>
+            <input value={netDebtStr} onChange={e => setNetDebtStr(e.target.value)} style={inSt} placeholder="0"/>
+          </div>
+          <div style={rowSt}>
+            <span style={lbSt}>TERMINAL G %</span>
+            <input type="number" min={0} max={5} step={0.5} value={termG}
+              onChange={e => setTermG(Number(e.target.value))} style={inSt}/>
+          </div>
+        </div>
+
+        {/* Scenario inputs */}
+        <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr 1fr 1fr', gap: 4, fontSize: 10 }}>
+          <div/>
+          {[{k:'bear',c:T.red},{k:'base',c:T.amber},{k:'bull',c:T.green}].map(({k,c}) => (
+            <div key={k} style={{ color: c, fontWeight: 700, letterSpacing: '0.12em', textAlign: 'center', paddingBottom: 3, borderBottom: `1px solid ${c}40` }}>
+              {k.toUpperCase()}
+            </div>
+          ))}
+          <span style={{ color: T.inkFaint }}>GROWTH %</span>
+          {[{k:'bear'},{k:'base'},{k:'bull'}].map(({k}) => (
+            <input key={k} type="number" min={-30} max={60} step={1}
+              value={scenarios[k].growth}
+              onChange={e => setScen(k, 'growth', Number(e.target.value))}
+              style={{ ...inSt, textAlign: 'center' }}/>
+          ))}
+          <span style={{ color: T.inkFaint }}>WACC %</span>
+          {[{k:'bear'},{k:'base'},{k:'bull'}].map(({k}) => (
+            <input key={k} type="number" min={1} max={30} step={0.5}
+              value={scenarios[k].wacc}
+              onChange={e => setScen(k, 'wacc', Number(e.target.value))}
+              style={{ ...inSt, textAlign: 'center' }}/>
+          ))}
+        </div>
+
+        {/* Results */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+          {results.map(({ key, label, color, ev, perShare, upside }) => (
+            <div key={key} style={{ background: T.surface2, border: `1px solid ${color}33`, padding: '10px 12px' }}>
+              <div style={{ fontSize: 9, color, fontWeight: 700, letterSpacing: '0.14em', marginBottom: 6 }}>{label}</div>
+              <div style={{ fontSize: 9.5, color: T.inkFaint, marginBottom: 2 }}>EV ({unitLabel})</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.ink, fontVariantNumeric: 'tabular-nums', marginBottom: 6 }}>
+                {fmt(ev)}
+              </div>
+              <div style={{ fontSize: 9.5, color: T.inkFaint, marginBottom: 2 }}>Per Share</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color, fontVariantNumeric: 'tabular-nums', marginBottom: 4 }}>
+                {fmtPs(perShare)}
+              </div>
+              {upside !== null && (
+                <div style={{ fontSize: 10, color: upside >= 0 ? T.green : T.red }}>
+                  {sign(upside)}{upside.toFixed(1)}% upside
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Footer hint */}
+        <div style={{ fontSize: 9, color: T.inkFaint, lineHeight: 1.6, borderTop: `1px solid ${T.border}`, paddingTop: 6 }}>
+          {history.length > 0 && `FY${history[0]?.fy} FCF: ${Math.round(history[0]?.fcf ?? 0).toLocaleString()} ${unitLabel}`}
+          {autoGrowth !== null && ` · 5Y FCF CAGR: ${sign(autoGrowth)}${autoGrowth}%/yr`}
+          {!history.length && ' · ↻ F1 패널에서 FETCH HISTORY 후 FCF 자동 입력 가능'}
+          {sharesNum === 0 && ' · Shares 입력 시 Per Share 계산'}
+        </div>
+      </div>
+    </Cell>
+  );
+}
 
 // ─── Peer comparison ─────────────────────────────────────────────────────────
 function PeersPanel({ stock, stocks, watchlistIds, onSelect, onSavePeers, onAddPeer }) {
@@ -3451,12 +3677,7 @@ function App({ initialData }) {
         </div>
       </div>
     ),
-    F3: (
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        <ValuationPanel stock={stock} onEdit={setPitchEditId}/>
-        <ScenarioSim stock={stock}/>
-      </div>
-    ),
+    F3: <F3Panel stock={stock} onEdit={setPitchEditId}/>,
     F4: (
       <div style={{ height: '100%' }}>
         <HistoryPanel stock={stock} onAddNote={handleAddResearchNote} onSaveReview={handleSaveReview}/>
