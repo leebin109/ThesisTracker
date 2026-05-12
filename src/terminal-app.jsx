@@ -57,12 +57,10 @@ const PANEL_DEFS = [
   { k: 'F6', label: 'ALERTS', short: 'ALRT' },
   { k: 'F7', label: 'PEERS', short: 'PEER' },
   { k: 'F8', label: 'JOURNAL', short: 'JRN' },
-  { k: 'F9', label: 'SCREEN', short: 'SCR' },
+  { k: 'F9', label: 'SCRIPT', short: 'SCR' },
   { k: 'F10', label: 'SETTINGS', short: 'DATA' },
   { k: 'F11', label: 'TRADE', short: 'TRD' },
-  { k: 'F12', label: 'MACRO', short: 'MCR' },
-  { k: 'F13', label: 'SCRIPT', short: 'SCR' },
-  { k: 'F14', label: 'AI', short: 'AI' },
+  { k: 'F12', label: 'TOOLS', short: 'TOOL' },
 ];
 
 const BACKUP_SCHEMA_VERSION = 2;
@@ -954,6 +952,31 @@ function weeklyReturns(closes) {
   const r = [];
   for (let i = 1; i < closes.length; i++) if (closes[i - 1] > 0) r.push((closes[i] - closes[i - 1]) / closes[i - 1]);
   return r;
+}
+
+function ToolsPanel({ stock, stocks, watchlistIds }) {
+  const [tab, setTab] = useState('MACRO');
+  const tabs = ['MACRO', 'AI'];
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 0 }}>
+      <div style={{ display: 'flex', borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+        {tabs.map(t => (
+          <button key={t} onClick={() => setTab(t)}
+            style={{
+              background: tab === t ? `${T.amber}18` : 'transparent',
+              border: 'none', borderBottom: `2px solid ${tab === t ? T.amber : 'transparent'}`,
+              color: tab === t ? T.amber : T.inkFaint, fontFamily: T.font, fontSize: 10,
+              fontWeight: tab === t ? 700 : 500, letterSpacing: '0.1em',
+              padding: '6px 16px', cursor: 'pointer',
+            }}>{t}</button>
+        ))}
+      </div>
+      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        {tab === 'MACRO' && <MacroPanel stock={stock} stocks={stocks} watchlistIds={watchlistIds}/>}
+        {tab === 'AI'    && <AIPanel stock={stock}/>}
+      </div>
+    </div>
+  );
 }
 
 function MacroPanel({ stock, stocks, watchlistIds }) {
@@ -4578,7 +4601,7 @@ function App({ initialData }) {
       <JournalPanel stock={stock} onCapture={handleCaptureJournal} onUpdate={handleUpdateJournal}/>
     ),
     F9: (
-      <ScreenerPanel stocks={stocks} watchlistIds={watchlistIds}/>
+      <ScriptPanel stocks={stocks} watchlistIds={watchlistIds}/>
     ),
     F10: (
       <SettingsDataPanel
@@ -4599,13 +4622,7 @@ function App({ initialData }) {
       <BacktestPanel stocks={stocks} watchlistIds={watchlistIds} trades={trades} onAddTrade={handleAddTrade} onDeleteTrade={handleDeleteTrade}/>
     ),
     F12: (
-      <MacroPanel stock={stock} stocks={stocks} watchlistIds={watchlistIds}/>
-    ),
-    F13: (
-      <ScriptPanel stocks={stocks} watchlistIds={watchlistIds}/>
-    ),
-    F14: (
-      <AIPanel stock={stock}/>
+      <ToolsPanel stock={stock} stocks={stocks} watchlistIds={watchlistIds}/>
     ),
   };
 
