@@ -1163,7 +1163,7 @@ async function fetchOpenDartStatements(corpCode, apiSettings) {
         const res = await fetch(buildOpenDartApiUrl(endpoint, params));
         if (!res.ok) { errors.push(`${endpoint}/${fsDiv} HTTP ${res.status}`); continue; }
         const text = await res.text();
-        if (text.trimStart().startsWith('<')) { errors.push(`${endpoint}/${fsDiv}: API 키 오류 (HTML 응답) — 키 확인 필요`); continue; }
+        if (text.trimStart().startsWith('<')) { errors.push(`${endpoint}/${fsDiv}: 프록시 미작동 (HTML 수신: "${text.trim().slice(0, 50).replace(/\s+/g, ' ')}")`); continue; }
         const data = JSON.parse(text);
         assertOpenDartResponse(data, endpoint);
         if (Array.isArray(data.list) && data.list.length) {
