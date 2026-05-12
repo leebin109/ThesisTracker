@@ -4362,7 +4362,8 @@ PER ${f(m.per,'x')} | PBR ${f(m.pbr,'x')} | ROE ${f(m.roe,'%')} | FCF마진 ${f(
         setMessages([{ role: 'assistant', content: `Ollama (${ollamaModel}) 연결 완료.\n현재 종목: ${stock.symbol} (${stock.name})에 대해 질문하세요.` }]);
       }
     } catch (e) {
-      setOllamaError(`연결 실패: ${e.message}\nOllama가 실행 중인지 확인: ollama serve`);
+      const isOffline = e.message === 'Failed to fetch' || e.name === 'AbortError' || e.message.includes('fetch');
+      setOllamaError(isOffline ? 'offline' : `오류: ${e.message}`);
     }
     setOllamaTesting(false);
   };
@@ -4469,7 +4470,19 @@ PER ${f(m.per,'x')} | PBR ${f(m.pbr,'x')} | ROE ${f(m.roe,'%')} | FCF마진 ${f(
               </button>
             </div>
             {ollamaError && (
-              <div style={{ fontSize: 10, color: T.red, whiteSpace: 'pre-line', lineHeight: 1.6 }}>{ollamaError}</div>
+              ollamaError === 'offline' ? (
+                <div style={{ background: `${T.yellow}15`, border: `1px solid ${T.yellow}44`, borderRadius: 3, padding: '8px 12px', lineHeight: 1.8 }}>
+                  <div style={{ fontSize: 11, color: T.yellow, fontWeight: 700, marginBottom: 4 }}>⚠ Ollama가 꺼져 있습니다</div>
+                  <div style={{ fontSize: 10, color: T.inkDim }}>
+                    시작 메뉴에서 <span style={{ color: T.amber, fontFamily: 'monospace' }}>Ollama</span> 를 검색해 실행하세요.
+                  </div>
+                  <div style={{ fontSize: 10, color: T.inkFaint, marginTop: 4 }}>
+                    또는 터미널에서: <span style={{ fontFamily: 'monospace', color: T.cyan }}>ollama serve</span>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 10, color: T.red, whiteSpace: 'pre-line', lineHeight: 1.6 }}>{ollamaError}</div>
+              )
             )}
             <div style={{ fontSize: 10, color: T.inkFaint, lineHeight: 1.7, borderTop: `1px solid ${T.border}`, paddingTop: 6 }}>
               <span style={{ color: T.inkDim }}>설치 방법</span> → <a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer" style={{ color: T.cyan }}>ollama.com/download</a>
