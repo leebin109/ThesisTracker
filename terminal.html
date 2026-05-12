@@ -5004,25 +5004,30 @@ function DcfMiniModeler({ stock }) {
 
   const autoFcf = history[0]?.fcf ?? null;
 
-  // Derive shares outstanding (M) from DART EPS or implied via PER+price
+  // Derive shares outstanding (M) — priority: history EPS → PER fallback
   const autoShares = (() => {
     const h = history[0];
     if (!h) return null;
     const net = h.netIncome;
     if (!Number.isFinite(net) || net <= 0) return null;
-    // DART provides eps in 원 for KRW stocks; netIncome in 억원
+    // KRW (DART): eps in 원, netIncome in 억원 → shares_M = net*1e8 / eps / 1e6 = net*100/eps
     if (isKrw && Number.isFinite(h.eps) && h.eps > 0) {
       const s = Math.round(net * 100 / h.eps);
       if (s > 0) return s;
     }
-    // Fallback: implied EPS from PER and current price
+    // Non-KRW with direct EPS (SEC EDGAR: eps in USD, netIncome in M USD)
+    if (!isKrw && Number.isFinite(h.eps) && h.eps > 0) {
+      const s = Math.round(net / h.eps);  // M USD / USD = M shares
+      if (s > 0) return s;
+    }
+    // Fallback: implied EPS from PER and current price (works for Yahoo non-US stocks)
     const per = Number(stock.metrics?.per);
     const price = Number(stock.price);
     if (Number.isFinite(per) && per > 0 && Number.isFinite(price) && price > 0) {
       const epsD = price / per;
       const s = isKrw
-        ? Math.round(net * 100 / epsD)  // 억원 * 1e8 / 원 / 1e6 = 억원*100/원
-        : Math.round(net / epsD);        // M USD / USD = M shares
+        ? Math.round(net * 100 / epsD)
+        : Math.round(net / epsD);
       if (s > 0) return s;
     }
     return null;
