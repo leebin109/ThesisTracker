@@ -773,29 +773,32 @@ function MetricsGrid({ metrics, currency, activeDim, refreshedAt }) {
     {
       label: 'STABILITY', color: T.cyan,
       items: [
-        { key: 'debtRatio',    label: 'DEBT/EQ',   fmt: v => safeFixed(v, 0) + '%' },
-        { key: 'currentRatio', label: 'CUR RATIO', fmt: v => safeFixed(v, 0) + '%' },
+        { key: 'debtRatio',    label: 'DEBT/EQ',    fmt: v => safeFixed(v, 0) + '%' },
+        { key: 'currentRatio', label: 'CUR RATIO',  fmt: v => safeFixed(v, 0) + '%' },
+        { key: 'netMargin',    label: 'NET MARGIN', fmt: v => safeFixed(v, 1) + '%' },
       ],
     },
     {
       label: 'GROWTH', color: T.green,
       items: [
-        { key: 'revGrowth', label: 'REV GROWTH', fmt: v => safeFixed(v, 1) + '%' },
-        { key: 'epsGrowth', label: 'EPS GROWTH', fmt: v => safeFixed(v, 1) + '%' },
+        { key: 'revGrowth',      label: 'REV GROWTH', fmt: v => safeFixed(v, 1) + '%' },
+        { key: 'epsGrowth',      label: 'EPS GROWTH', fmt: v => safeFixed(v, 1) + '%' },
+        { key: 'opIncomeGrowth', label: 'OP INC GR',  fmt: v => safeFixed(v, 1) + '%' },
       ],
     },
     {
       label: 'VALUATION', color: T.yellow,
       items: [
-        { key: 'per', label: 'PER', fmt: v => safeFixed(v, 1) + 'x' },
-        { key: 'pbr', label: 'PBR', fmt: v => safeFixed(v, 1) + 'x' },
+        { key: 'per',     label: 'PER',      fmt: v => safeFixed(v, 1) + 'x' },
+        { key: 'pbr',     label: 'PBR',      fmt: v => safeFixed(v, 1) + 'x' },
+        { key: 'evEbitda', label: 'EV/EBITDA', fmt: v => safeFixed(v, 1) + 'x' },
       ],
     },
   ];
   const colorFor = (key, v) => {
     if (!Number.isFinite(Number(v))) return T.ink;
     const n = Number(v);
-    if (['revGrowth','epsGrowth','roe','opMargin','fcfMargin'].includes(key)) return n >= 0 ? T.green : T.red;
+    if (['revGrowth','epsGrowth','roe','opMargin','fcfMargin','netMargin','opIncomeGrowth'].includes(key)) return n >= 0 ? T.green : T.red;
     if (key === 'debtRatio') return n > 150 ? T.red : n > 80 ? T.yellow : T.green;
     return T.ink;
   };

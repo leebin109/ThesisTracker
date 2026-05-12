@@ -1226,6 +1226,7 @@ function mapYahooPayload(stock, chart, yahooSym, quote, summary) {
   const hNet   = hr(inc0, 'netIncome');
   const hEps0  = hr(inc0, 'dilutedEps');
   const hEps1  = hr(inc1, 'dilutedEps');
+  const hOp1   = hr(inc1, 'operatingIncome') || hr(inc1, 'ebit');
   const hOCF   = hr(cf0,  'totalCashFromOperatingActivities');
   const hCapex = Math.abs(hr(cf0, 'capitalExpenditures') || 0);
   const hFCF   = hr(cf0,  'freeCashFlow');
@@ -1247,7 +1248,9 @@ function mapYahooPayload(stock, chart, yahooSym, quote, summary) {
   const fbCurRatio   = valid(hCL) ? (hCA   / hCL) * 100 : NaN;
   const fbRevGrowth  = valid(hPrevRev) ? ((hRev - hPrevRev) / hPrevRev) * 100 : NaN;
   // EPS Growth from timeseries dilutedEps (two most recent years)
-  const fbEpsGrowth  = valid(hEps1) ? ((hEps0 - hEps1) / Math.abs(hEps1)) * 100 : NaN;
+  const fbEpsGrowth      = valid(hEps1) ? ((hEps0 - hEps1) / Math.abs(hEps1)) * 100 : NaN;
+  const fbNetMargin      = valid(hRev)  ? (hNet / hRev) * 100 : NaN;
+  const fbOpIncomeGrowth = (valid(hOp) && valid(hOp1)) ? ((hOp - hOp1) / Math.abs(hOp1)) * 100 : NaN;
 
   // earnings module fallback (revenue/earnings yearly chart — available for non-US when statements fail)
   const earningsYearly = summary?.earnings?.financialsChart?.yearly || [];
@@ -1274,8 +1277,11 @@ function mapYahooPayload(stock, chart, yahooSym, quote, summary) {
     })(), fbFcfMargin),
     debtRatio:    fb(raw(fin, 'debtToEquity'), fbDebtRatio),
     currentRatio: fb(Number.isFinite(finCr) ? finCr * 100 : NaN, fbCurRatio),
-    revGrowth:    fb(pct(fin, 'revenueGrowth'), fb(fbRevGrowth, fbRevGrowthEy)),
-    epsGrowth:    fb(pct(fin, 'earningsGrowth'), fb(fbEpsGrowth, fbEpsGrowthEy)),
+    revGrowth:      fb(pct(fin, 'revenueGrowth'), fb(fbRevGrowth, fbRevGrowthEy)),
+    epsGrowth:      fb(pct(fin, 'earningsGrowth'), fb(fbEpsGrowth, fbEpsGrowthEy)),
+    netMargin:      fb(pct(fin, 'profitMargins'), fbNetMargin),
+    opIncomeGrowth: fbOpIncomeGrowth,
+    evEbitda:       raw(kst, 'enterpriseToEbitda'),
   });
 
   const industryGroup = detectIndustry(quote?.sector, quote?.industry);
