@@ -5004,6 +5004,30 @@ function DcfMiniModeler({ stock }) {
 
   const autoFcf = history[0]?.fcf ?? null;
 
+  // Derive shares outstanding (M) from DART EPS or implied via PER+price
+  const autoShares = (() => {
+    const h = history[0];
+    if (!h) return null;
+    const net = h.netIncome;
+    if (!Number.isFinite(net) || net <= 0) return null;
+    // DART provides eps in 원 for KRW stocks; netIncome in 억원
+    if (isKrw && Number.isFinite(h.eps) && h.eps > 0) {
+      const s = Math.round(net * 100 / h.eps);
+      if (s > 0) return s;
+    }
+    // Fallback: implied EPS from PER and current price
+    const per = Number(stock.metrics?.per);
+    const price = Number(stock.price);
+    if (Number.isFinite(per) && per > 0 && Number.isFinite(price) && price > 0) {
+      const epsD = price / per;
+      const s = isKrw
+        ? Math.round(net * 100 / epsD)  // 억원 * 1e8 / 원 / 1e6 = 억원*100/원
+        : Math.round(net / epsD);        // M USD / USD = M shares
+      if (s > 0) return s;
+    }
+    return null;
+  })();
+
   const autoGrowth = useMemo(() => {
     if (history.length < 2) return null;
     const newest = history[0]?.fcf;
@@ -5014,7 +5038,7 @@ function DcfMiniModeler({ stock }) {
   }, [history]);
 
   const [fcfStr, setFcfStr] = useState(autoFcf != null ? String(Math.round(autoFcf)) : '');
-  const [sharesStr, setSharesStr] = useState('');
+  const [sharesStr, setSharesStr] = useState(autoShares != null ? String(autoShares) : '');
   const [netDebtStr, setNetDebtStr] = useState('0');
   const [termG, setTermG] = useState(3);
   const [scenarios, setScenarios] = useState({
@@ -5095,6 +5119,7 @@ function DcfMiniModeler({ stock }) {
           <div style={rowSt}>
             <span style={lbSt}>SHARES (M)</span>
             <input value={sharesStr} onChange={e => setSharesStr(e.target.value)} style={inSt} placeholder="e.g. 5969"/>
+            {autoShares != null && <span style={{ fontSize: 9, color: T.inkFaint }}>자동: {autoShares.toLocaleString()}M</span>}
           </div>
           <div style={rowSt}>
             <span style={lbSt}>NET DEBT ({unitLabel})</span>
