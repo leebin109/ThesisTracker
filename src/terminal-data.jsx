@@ -1152,6 +1152,7 @@ async function fetchKoreanStockPrice(symbol, key) {
 
 async function fetchOpenDartStatements(corpCode, apiSettings) {
   const { openDartKey: key, dartFiscalYear: year, dartReportCode: reportCode, dartFsDiv } = apiSettings;
+  if (!key) throw new Error('OpenDART API 키 미설정 — F12 Settings → OPEN DART API KEY 입력 필요');
   const fsDivs = [...new Set([dartFsDiv, dartFsDiv === 'CFS' ? 'OFS' : 'CFS'])];
   const errors = [];
 
@@ -1161,7 +1162,9 @@ async function fetchOpenDartStatements(corpCode, apiSettings) {
         const params = new URLSearchParams({ crtfc_key: key, corp_code: corpCode, bsns_year: String(year), reprt_code: reportCode, fs_div: fsDiv });
         const res = await fetch(buildOpenDartApiUrl(endpoint, params));
         if (!res.ok) { errors.push(`${endpoint}/${fsDiv} HTTP ${res.status}`); continue; }
-        const data = await res.json();
+        const text = await res.text();
+        if (text.trimStart().startsWith('<')) { errors.push(`${endpoint}/${fsDiv}: API 키 오류 (HTML 응답) — 키 확인 필요`); continue; }
+        const data = JSON.parse(text);
         assertOpenDartResponse(data, endpoint);
         if (Array.isArray(data.list) && data.list.length) {
           return { ...data, context: { year, reportCode, fsDiv, sourceType: endpoint === 'fnlttSinglAcntAll' ? 'all' : 'single' } };
@@ -1821,7 +1824,9 @@ async function fetchDartFinancialHistory(stock, apiSettings, dartCorpMap) {
           const params = new URLSearchParams({ crtfc_key: key, corp_code: corpCode, bsns_year: String(year), reprt_code: '11011', fs_div: fsDiv });
           const res = await fetch(buildOpenDartApiUrl(endpoint, params));
           if (!res.ok) continue;
-          const data = await res.json();
+          const text = await res.text();
+          if (text.trimStart().startsWith('<')) continue;
+          const data = JSON.parse(text);
           if (data.status === '000' && Array.isArray(data.list) && data.list.length) return { rows: data.list, year };
         } catch {}
       }
