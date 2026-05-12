@@ -3625,6 +3625,8 @@ const PANEL_DEFS = [
   { k: 'F8', label: 'JOURNAL', short: 'JRN' },
   { k: 'F9', label: 'SCREEN', short: 'SCR' },
   { k: 'F10', label: 'SETTINGS', short: 'DATA' },
+  { k: 'F11', label: 'TRADE', short: 'TRD' },
+  { k: 'F12', label: 'MACRO', short: 'MCR' },
 ];
 
 const BACKUP_SCHEMA_VERSION = 2;
@@ -3748,8 +3750,26 @@ async function buildInitialAppState() {
   let stocks = normalizeStocksMap(normalizeStockSource(saved.stocks));
   if (!Object.keys(stocks).length) stocks = normalizeStocksMap(DEFAULT_STOCKS);
 
-  let watchlistIds = normalizeIdList(saved.watchlistIds, DEFAULT_WATCHLIST_IDS).filter(id => stocks[id]);
-  if (!watchlistIds.length) watchlistIds = Object.keys(stocks);
+  // Multi-watchlist: migrate legacy single list or load saved groups
+  let watchlists, activeWatchlistId;
+  if (Array.isArray(saved.watchlists) && saved.watchlists.length) {
+    watchlists = saved.watchlists.map(w => ({
+      id: String(w.id || `wl-${Math.random().toString(36).slice(2)}`),
+      name: String(w.name || 'Unnamed'),
+      stockIds: normalizeIdList(w.stockIds || [], []).filter(id => stocks[id]),
+    }));
+    activeWatchlistId = saved.activeWatchlistId && watchlists.find(w => w.id === saved.activeWatchlistId)
+      ? saved.activeWatchlistId : watchlists[0].id;
+  } else {
+    const legacyIds = normalizeIdList(saved.watchlistIds, DEFAULT_WATCHLIST_IDS).filter(id => stocks[id]);
+    const defaultIds = legacyIds.length ? legacyIds : Object.keys(stocks);
+    watchlists = [{ id: 'wl-0', name: 'Default', stockIds: defaultIds }];
+    activeWatchlistId = 'wl-0';
+  }
+
+  const activeWl = watchlists.find(w => w.id === activeWatchlistId) || watchlists[0];
+  let watchlistIds = [...activeWl.stockIds];
+  if (!watchlistIds.length) watchlistIds = Object.keys(stocks).slice(0, 5);
 
   let activeId = normalizeStockId(saved.activeId);
   if (!activeId || !stocks[activeId]) {
@@ -3759,12 +3779,13 @@ async function buildInitialAppState() {
   const savedApiSettings = isPlainObject(saved.apiSettings) ? saved.apiSettings : {};
   const savedAlertSettings = isPlainObject(saved.alertSettings) ? saved.alertSettings : {};
 
-  // Recalibrate relative scores on initial load so user doesn't have to manually refresh
   stocks = applyQuantScores(stocks, watchlistIds);
 
   return {
     stocks,
     watchlistIds,
+    watchlists,
+    activeWatchlistId,
     activeId,
     apiSettings: { ...DEFAULT_API_SETTINGS, ...savedApiSettings },
     dataCache: isPlainObject(saved.dataCache) ? saved.dataCache : {},
@@ -3775,6 +3796,7 @@ async function buildInitialAppState() {
       ...savedAlertSettings,
       sources: { ...DEFAULT_ALERT_SETTINGS.sources, ...(isPlainObject(savedAlertSettings.sources) ? savedAlertSettings.sources : {}) },
     },
+    trades: Array.isArray(saved.trades) ? saved.trades : [],
   };
 }
 
@@ -3841,9 +3863,38 @@ function ToastContainer({ toasts }) {
 }
 
 // ─── Watchlist panel ─────────────────────────────────────────────────────────
-function WatchlistPanel({ stocks, watchlistIds, activeId, onSelect, onAdd, onRemove }) {
+function WatchlistPanel({ stocks, watchlistIds, activeId, watchlists, activeWatchlistId,
+  onSelect, onAdd, onRemove, onSwitchWatchlist, onCreateWatchlist, onRenameWatchlist, onDeleteWatchlist }) {
+  const tabSt = (active) => ({
+    background: active ? `${T.amber}20` : 'transparent',
+    border: 'none', borderRight: `1px solid ${T.borderSoft}`,
+    borderBottom: `2px solid ${active ? T.amber : 'transparent'}`,
+    color: active ? T.amber : T.inkDim,
+    fontFamily: T.font, fontSize: 9, padding: '3px 7px', cursor: 'pointer',
+    whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0,
+  });
   return (
     <Cell label="WATCHLIST" accent={T.amber} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* Group tabs */}
+      {watchlists && watchlists.length > 0 && (
+        <div style={{ display: 'flex', borderBottom: `1px solid ${T.border}`, flexShrink: 0, overflowX: 'auto', background: T.bg }}>
+          {watchlists.map(wl => (
+            <button key={wl.id} style={tabSt(wl.id === activeWatchlistId)}
+              onClick={() => onSwitchWatchlist(wl.id)}
+              onDoubleClick={() => onRenameWatchlist(wl.id)}>
+              {wl.name}
+              {watchlists.length > 1 && (
+                <span onClick={e => { e.stopPropagation(); onDeleteWatchlist(wl.id); }}
+                  style={{ opacity: 0.5, fontSize: 9, lineHeight: 1, marginLeft: 1 }}>×</span>
+              )}
+            </button>
+          ))}
+          <button onClick={onCreateWatchlist}
+            style={{ background: 'transparent', border: 'none', color: T.inkFaint, fontFamily: T.font, fontSize: 11, padding: '3px 8px', cursor: 'pointer', flexShrink: 0 }}>
+            +
+          </button>
+        </div>
+      )}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {watchlistIds.map(id => {
           const s = stocks[id];
@@ -4045,6 +4096,302 @@ const SCR_TEMPLATES = [
     { field: 'fcfMargin', op: '>', value: '5' }, { field: 'piotroskiScore', op: '>=', value: '5' },
   ]},
 ];
+
+// ─── Macro Correlation (F12) ──────────────────────────────────────────────────
+const MACRO_TICKERS = [
+  { sym: '^GSPC', label: 'S&P 500' },
+  { sym: '^TNX',  label: 'US 10Y' },
+  { sym: '^VIX',  label: 'VIX' },
+  { sym: 'CL=F',  label: 'WTI 유가' },
+  { sym: 'DX-Y.NYB', label: 'DXY 달러' },
+];
+
+function pearsonCorr(x, y) {
+  const n = Math.min(x.length, y.length);
+  if (n < 4) return null;
+  const ax = x.slice(0, n), ay = y.slice(0, n);
+  const mx = ax.reduce((s, v) => s + v, 0) / n;
+  const my = ay.reduce((s, v) => s + v, 0) / n;
+  let num = 0, dx2 = 0, dy2 = 0;
+  for (let i = 0; i < n; i++) { const xi = ax[i] - mx, yi = ay[i] - my; num += xi * yi; dx2 += xi * xi; dy2 += yi * yi; }
+  const denom = Math.sqrt(dx2 * dy2);
+  return denom < 1e-10 ? 0 : Math.round(num / denom * 1000) / 1000;
+}
+
+function weeklyReturns(closes) {
+  const r = [];
+  for (let i = 1; i < closes.length; i++) if (closes[i - 1] > 0) r.push((closes[i] - closes[i - 1]) / closes[i - 1]);
+  return r;
+}
+
+function MacroPanel({ stock, stocks, watchlistIds }) {
+  const [data, setData]       = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState('');
+  const [stress, setStress]   = useState({ sym: '^GSPC', delta: 10 });
+
+  const fetchAll = async () => {
+    setLoading(true); setError(''); setData(null);
+    try {
+      const yahooSym = toYahooSymbol(stock);
+      const [stockRes, ...macroResults] = await Promise.allSettled([
+        fetchYahooChartOhlc(yahooSym, '1y', '1wk'),
+        ...MACRO_TICKERS.map(m => fetchYahooChartOhlc(m.sym, '1y', '1wk')),
+      ]);
+      if (stockRes.status === 'rejected') throw new Error(`${stock.symbol} 차트 실패: ${stockRes.reason?.message}`);
+      const stockCloses = stockRes.value.map(c => c.close);
+      const stockRets   = weeklyReturns(stockCloses);
+      const macros = MACRO_TICKERS.map((m, i) => {
+        const res = macroResults[i];
+        if (res.status === 'rejected' || !res.value?.length) return { ...m, corr: null, rets: [] };
+        const mCloses = res.value.map(c => c.close);
+        const mRets   = weeklyReturns(mCloses);
+        const minLen  = Math.min(stockRets.length, mRets.length);
+        const corr    = pearsonCorr(stockRets.slice(0, minLen), mRets.slice(0, minLen));
+        return { ...m, corr, rets: mRets, volatility: mRets.length > 1 ? Math.sqrt(mRets.reduce((s, r) => s + r * r, 0) / mRets.length) : 0 };
+      });
+      const stockVol = stockRets.length > 1 ? Math.sqrt(stockRets.reduce((s, r) => s + r * r, 0) / stockRets.length) : 0;
+      setData({ macros, stockVol, stockRets });
+    } catch (e) { setError(e.message || '데이터 로드 실패'); }
+    finally { setLoading(false); }
+  };
+
+  const corrColor = (r) => {
+    if (r == null) return T.inkFaint;
+    if (r > 0.5) return T.green;
+    if (r > 0.2) return '#86efac';
+    if (r < -0.5) return T.red;
+    if (r < -0.2) return '#fca5a5';
+    return T.inkDim;
+  };
+
+  const stressImpact = useMemo(() => {
+    if (!data) return null;
+    const macro = data.macros.find(m => m.sym === stress.sym);
+    if (!macro || macro.corr == null || macro.volatility === 0) return null;
+    const deltaFrac = stress.delta / 100;
+    const macroSd   = macro.volatility;
+    const stockSd   = data.stockVol;
+    const impact    = macro.corr * (deltaFrac / macroSd) * stockSd * 100;
+    return Math.round(impact * 100) / 100;
+  }, [data, stress]);
+
+  const thSt = { padding: '5px 10px', color: T.inkFaint, fontSize: 9, letterSpacing: '0.08em', textAlign: 'left', borderBottom: `1px solid ${T.border}`, fontWeight: 600 };
+  const tdSt = { padding: '6px 10px', fontSize: 11, borderBottom: `1px solid ${T.borderSoft}` };
+  const inSt = { background: T.surface, border: `1px solid ${T.border}`, color: T.ink, fontFamily: T.font, fontSize: 11, padding: '4px 7px', borderRadius: 3 };
+
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto' }}>
+      <Cell label={`MACRO CORRELATION · ${stock.symbol} vs 글로벌 매크로 (1Y 주간 수익률 기준)`} accent={T.cyan}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <button onClick={fetchAll} disabled={loading}
+            style={{ background: 'transparent', border: `1px solid ${T.cyan}`, color: T.cyan, fontFamily: T.font, fontSize: 10, padding: '5px 14px', borderRadius: 3, cursor: loading ? 'wait' : 'pointer', letterSpacing: '0.08em' }}>
+            {loading ? 'LOADING...' : '↻ LOAD DATA'}
+          </button>
+          {error && <span style={{ color: T.red, fontSize: 10 }}>{error}</span>}
+          {!data && !loading && <span style={{ color: T.inkFaint, fontSize: 10 }}>버튼을 눌러 1년치 주간 데이터를 불러오세요.</span>}
+        </div>
+        {data && (
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 6 }}>
+            <thead><tr>
+              {['지표', '상관계수 (r)', '해석'].map(h => <th key={h} style={thSt}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {data.macros.map(m => {
+                const r = m.corr;
+                const interp = r == null ? '데이터 없음'
+                  : r > 0.6 ? '강한 양의 상관 (함께 움직임)'
+                  : r > 0.3 ? '보통 양의 상관'
+                  : r < -0.6 ? '강한 음의 상관 (반대로 움직임)'
+                  : r < -0.3 ? '보통 음의 상관'
+                  : '상관 낮음';
+                return (
+                  <tr key={m.sym}>
+                    <td style={{ ...tdSt, color: T.amber, fontWeight: 700 }}>{m.label}</td>
+                    <td style={{ ...tdSt, color: corrColor(r), fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                      {r == null ? '–' : (r >= 0 ? '+' : '') + r.toFixed(3)}
+                    </td>
+                    <td style={{ ...tdSt, color: T.inkDim }}>{interp}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </Cell>
+
+      {data && (
+        <Cell label="STRESS TEST · 매크로 변화 시 예상 주가 영향" accent={T.amber}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+            <div>
+              <div style={{ fontSize: 9, color: T.inkFaint, marginBottom: 3 }}>지표 선택</div>
+              <select value={stress.sym} onChange={e => setStress(p => ({ ...p, sym: e.target.value }))} style={{ ...inSt }}>
+                {data.macros.filter(m => m.corr != null).map(m => <option key={m.sym} value={m.sym}>{m.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 9, color: T.inkFaint, marginBottom: 3 }}>변화폭 (%)</div>
+              <input type="range" min={-30} max={30} step={1} value={stress.delta} onChange={e => setStress(p => ({ ...p, delta: Number(e.target.value) }))} style={{ width: 140 }}/>
+              <span style={{ fontSize: 11, color: T.ink, marginLeft: 8 }}>{stress.delta > 0 ? '+' : ''}{stress.delta}%</span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, color: T.inkDim }}>{MACRO_TICKERS.find(m => m.sym === stress.sym)?.label} {stress.delta > 0 ? '+' : ''}{stress.delta}% 변화 시 {stock.symbol} 예상 영향:</span>
+            <span style={{ fontSize: 16, fontWeight: 700, color: stressImpact == null ? T.inkFaint : stressImpact >= 0 ? T.green : T.red }}>
+              {stressImpact == null ? '–' : `${stressImpact >= 0 ? '+' : ''}${stressImpact.toFixed(2)}%`}
+            </span>
+          </div>
+          <div style={{ fontSize: 9, color: T.inkFaint, marginTop: 6 }}>* 과거 상관관계 기반 통계적 추정치. 미래 수익률을 보장하지 않습니다.</div>
+        </Cell>
+      )}
+    </div>
+  );
+}
+
+// ─── Paper Trading (F11) ──────────────────────────────────────────────────────
+function BacktestPanel({ stocks, watchlistIds, trades, onAddTrade, onDeleteTrade }) {
+  const [form, setForm] = useState({ stockId: watchlistIds[0] || '', action: 'BUY', date: new Date().toISOString().slice(0,10), price: '', shares: '', note: '' });
+
+  const setF = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  const inSt = { background: T.surface, border: `1px solid ${T.border}`, color: T.ink, fontFamily: T.font, fontSize: 11, padding: '4px 7px', borderRadius: 3, width: '100%' };
+  const btnSt = (col) => ({ background: 'transparent', border: `1px solid ${col}`, color: col, fontFamily: T.font, fontSize: 10, padding: '4px 12px', borderRadius: 3, cursor: 'pointer', letterSpacing: '0.08em' });
+
+  const holdings = useMemo(() => {
+    const map = {};
+    [...trades].sort((a, b) => a.date < b.date ? -1 : 1).forEach(t => {
+      if (!map[t.stockId]) map[t.stockId] = { stockId: t.stockId, symbol: t.stockId, name: t.name || t.stockId, shares: 0, totalCost: 0 };
+      const h = map[t.stockId];
+      if (t.action === 'BUY') { h.totalCost += t.price * t.shares; h.shares += t.shares; }
+      else { const ratio = Math.min(t.shares, h.shares) / h.shares; h.totalCost *= (1 - ratio); h.shares = Math.max(0, h.shares - t.shares); }
+    });
+    return Object.values(map).filter(h => h.shares > 0.0001).map(h => {
+      const cur = Number(stocks[h.stockId]?.price) || 0;
+      const avgCost = h.shares > 0 ? h.totalCost / h.shares : 0;
+      const curVal = cur * h.shares;
+      const pl = curVal - h.totalCost;
+      const plPct = h.totalCost > 0 ? (pl / h.totalCost) * 100 : 0;
+      return { ...h, avgCost, curVal, pl, plPct, curPrice: cur };
+    });
+  }, [trades, stocks]);
+
+  const totalCost = holdings.reduce((s, h) => s + h.totalCost, 0);
+  const totalVal  = holdings.reduce((s, h) => s + h.curVal, 0);
+  const totalPl   = totalVal - totalCost;
+  const totalPlPct = totalCost > 0 ? (totalPl / totalCost) * 100 : 0;
+
+  const handleSubmit = () => {
+    const price = parseFloat(form.price);
+    const shares = parseFloat(form.shares);
+    if (!form.stockId || !price || !shares || !form.date) return;
+    onAddTrade({ stockId: form.stockId, name: stocks[form.stockId]?.name || form.stockId, action: form.action, date: form.date, price, shares, note: form.note });
+    setForm(p => ({ ...p, price: '', shares: '', note: '' }));
+  };
+
+  const thSt = { padding: '4px 8px', color: T.inkFaint, fontSize: 9, letterSpacing: '0.08em', textAlign: 'left', borderBottom: `1px solid ${T.border}`, fontWeight: 600 };
+  const tdSt = { padding: '5px 8px', fontSize: 11, borderBottom: `1px solid ${T.borderSoft}` };
+
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto' }}>
+      <Cell label="PAPER TRADING · 가상 거래 기록" accent={T.cyan}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px 100px 1fr auto', gap: 6, alignItems: 'end', padding: '0 0 8px' }}>
+          <div>
+            <div style={{ fontSize: 9, color: T.inkFaint, marginBottom: 3 }}>SYMBOL</div>
+            <select value={form.stockId} onChange={e => setF('stockId', e.target.value)} style={{ ...inSt }}>
+              {watchlistIds.map(id => <option key={id} value={id}>{stocks[id]?.symbol || id}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 9, color: T.inkFaint, marginBottom: 3 }}>ACTION</div>
+            <select value={form.action} onChange={e => setF('action', e.target.value)} style={{ ...inSt }}>
+              <option value="BUY">BUY</option>
+              <option value="SELL">SELL</option>
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 9, color: T.inkFaint, marginBottom: 3 }}>DATE</div>
+            <input type="date" value={form.date} onChange={e => setF('date', e.target.value)} style={{ ...inSt }}/>
+          </div>
+          <div>
+            <div style={{ fontSize: 9, color: T.inkFaint, marginBottom: 3 }}>PRICE</div>
+            <input type="number" value={form.price} onChange={e => setF('price', e.target.value)} style={{ ...inSt }} placeholder="0.00"/>
+          </div>
+          <div>
+            <div style={{ fontSize: 9, color: T.inkFaint, marginBottom: 3 }}>SHARES</div>
+            <input type="number" value={form.shares} onChange={e => setF('shares', e.target.value)} style={{ ...inSt }} placeholder="0"/>
+          </div>
+          <button onClick={handleSubmit} style={btnSt(T.cyan)}>ADD</button>
+        </div>
+      </Cell>
+
+      <Cell label="HOLDINGS · 현재 포지션" accent={T.amber}>
+        {holdings.length === 0 ? (
+          <div style={{ color: T.inkFaint, fontSize: 11, padding: 12 }}>거래 기록 없음</div>
+        ) : (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr 1fr 1fr 1fr 1fr', marginBottom: 6 }}>
+              <div style={{ padding: '4px 8px', color: T.amber, fontSize: 11, fontWeight: 700 }}>PORTFOLIO TOTAL</div>
+              <div style={{ padding: '4px 8px', fontSize: 11, color: T.inkFaint }}>COST: {totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+              <div style={{ padding: '4px 8px', fontSize: 11, color: T.inkFaint }}>VAL: {totalVal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+              <div style={{ padding: '4px 8px', fontSize: 12, fontWeight: 700, color: totalPl >= 0 ? T.green : T.red }}>
+                {totalPl >= 0 ? '+' : ''}{totalPl.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </div>
+              <div style={{ padding: '4px 8px', fontSize: 12, fontWeight: 700, color: totalPlPct >= 0 ? T.green : T.red }}>
+                {totalPlPct >= 0 ? '+' : ''}{totalPlPct.toFixed(2)}%
+              </div>
+              <div/>
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead><tr>
+                {['SYMBOL', 'SHARES', 'AVG COST', 'CUR PRICE', 'VALUE', 'P&L', 'P&L %'].map(h => <th key={h} style={thSt}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {holdings.map(h => (
+                  <tr key={h.stockId}>
+                    <td style={{ ...tdSt, color: T.amber, fontWeight: 700 }}>{h.symbol}</td>
+                    <td style={{ ...tdSt, color: T.ink }}>{h.shares.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                    <td style={{ ...tdSt, color: T.inkDim }}>{h.avgCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                    <td style={{ ...tdSt, color: T.inkDim }}>{h.curPrice > 0 ? h.curPrice.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '–'}</td>
+                    <td style={{ ...tdSt, color: T.ink }}>{h.curVal > 0 ? h.curVal.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '–'}</td>
+                    <td style={{ ...tdSt, color: h.pl >= 0 ? T.green : T.red, fontWeight: 600 }}>{h.curVal > 0 ? `${h.pl >= 0 ? '+' : ''}${h.pl.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '–'}</td>
+                    <td style={{ ...tdSt, color: h.plPct >= 0 ? T.green : T.red, fontWeight: 600 }}>{h.curVal > 0 ? `${h.plPct >= 0 ? '+' : ''}${h.plPct.toFixed(2)}%` : '–'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+      </Cell>
+
+      <Cell label="TRADE LOG · 거래 내역" accent={T.inkFaint}>
+        {trades.length === 0 ? (
+          <div style={{ color: T.inkFaint, fontSize: 11, padding: 12 }}>거래 내역 없음</div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr>
+              {['DATE', 'ACTION', 'SYMBOL', 'PRICE', 'SHARES', 'TOTAL', ''].map(h => <th key={h} style={thSt}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {trades.map(t => (
+                <tr key={t.id}>
+                  <td style={{ ...tdSt, color: T.inkDim }}>{t.date}</td>
+                  <td style={{ ...tdSt, color: t.action === 'BUY' ? T.green : T.red, fontWeight: 700 }}>{t.action}</td>
+                  <td style={{ ...tdSt, color: T.amber }}>{t.stockId}</td>
+                  <td style={{ ...tdSt, color: T.ink }}>{Number(t.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                  <td style={{ ...tdSt, color: T.ink }}>{Number(t.shares).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                  <td style={{ ...tdSt, color: T.ink }}>{(t.price * t.shares).toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                  <td style={{ ...tdSt }}>
+                    <button onClick={() => onDeleteTrade(t.id)} style={{ background: 'transparent', border: 'none', color: T.inkFaint, cursor: 'pointer', fontSize: 10 }}>×</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Cell>
+    </div>
+  );
+}
 
 function ScreenerPanel({ stocks, watchlistIds }) {
   const blank = () => ({ field: 'roe', op: '>', value: '' });
@@ -6560,6 +6907,9 @@ function App({ initialData }) {
 
   const [stocks, setStocks]               = useState(initial.stocks);
   const [watchlistIds, setWatchlistIds]   = useState(initial.watchlistIds);
+  const [watchlists, setWatchlists]       = useState(initial.watchlists);
+  const [activeWatchlistId, setActiveWatchlistId] = useState(initial.activeWatchlistId);
+  const [trades, setTrades]               = useState(initial.trades || []);
   const [activeId, setActiveId]           = useState(initial.activeId);
   const [apiSettings, setApiSettings]     = useState(initial.apiSettings);
   const [dataCache, setDataCache]         = useState(initial.dataCache);
@@ -6627,13 +6977,15 @@ function App({ initialData }) {
   useEffect(() => { dartCorpMapRef.current = dartCorpMap; }, [dartCorpMap]);
   const stocksRef = useRef(stocks);
   const watchlistIdsRef = useRef(watchlistIds);
+  const activeWatchlistIdRef = useRef(activeWatchlistId);
   const liveRefreshRef = useRef(false);
   useEffect(() => { stocksRef.current = stocks; }, [stocks]);
   useEffect(() => { watchlistIdsRef.current = watchlistIds; }, [watchlistIds]);
+  useEffect(() => { activeWatchlistIdRef.current = activeWatchlistId; }, [activeWatchlistId]);
 
   // ── Persistence ────────────────────────────────────────────────────────────
   useEffect(() => {
-    saveAppState({ stocks, watchlistIds, activeId, apiSettings, dataCache, dartCorpMap, alerts, alertSettings });
+    saveAppState({ stocks, watchlistIds, watchlists, activeWatchlistId, activeId, apiSettings, dataCache, dartCorpMap, alerts, alertSettings, trades });
   }, [stocks, watchlistIds, activeId, apiSettings, dataCache, dartCorpMap, alerts, alertSettings]);
 
   // ── Supabase session bootstrap ────────────────────────────────────────────
@@ -6949,6 +7301,7 @@ function App({ initialData }) {
         return applyQuantScores(next, newWatchlistIds);
       });
       setWatchlistIds(newWatchlistIds);
+      setWatchlists(prev => prev.map(w => w.id === activeWatchlistIdRef.current ? { ...w, stockIds: newWatchlistIds } : w));
       setActiveId(id);
       toast(`${id} 워치리스트 추가 완료. 데이터를 새로고침하세요.`, 'ok');
     } catch (e) {
@@ -6963,13 +7316,67 @@ function App({ initialData }) {
     setWatchlistIds(prev => {
       const nextWatchlistIds = prev.filter(x => normalizeStockId(x) !== removeId);
       if (activeId === removeId && nextWatchlistIds.length) setActiveId(nextWatchlistIds[0]);
-      
-      // Update scores for the new universe
       setStocks(currStocks => applyQuantScores(currStocks, nextWatchlistIds));
-      
+      setWatchlists(prevWl => prevWl.map(w => w.id === activeWatchlistIdRef.current ? { ...w, stockIds: nextWatchlistIds } : w));
       return nextWatchlistIds;
     });
   }, [activeId]);
+
+  // ── Multi-watchlist CRUD ───────────────────────────────────────────────────
+  const handleSwitchWatchlist = useCallback((id) => {
+    setWatchlists(prev => {
+      const wl = prev.find(w => w.id === id);
+      if (!wl) return prev;
+      setActiveWatchlistId(id);
+      const ids = wl.stockIds.filter(sid => stocksRef.current[sid]);
+      setWatchlistIds(ids);
+      setStocks(curr => applyQuantScores(curr, ids));
+      if (!ids.includes(activeId) && ids.length) setActiveId(ids[0]);
+      return prev;
+    });
+  }, [activeId]);
+
+  const handleCreateWatchlist = useCallback(() => {
+    const name = window.prompt('새 그룹 이름:');
+    if (!name?.trim()) return;
+    const id = `wl-${Date.now()}`;
+    setWatchlists(prev => [...prev, { id, name: name.trim(), stockIds: [] }]);
+    setActiveWatchlistId(id);
+    setWatchlistIds([]);
+  }, []);
+
+  const handleRenameWatchlist = useCallback((id) => {
+    const cur = watchlists.find(w => w.id === id)?.name || '';
+    const name = window.prompt('새 이름:', cur);
+    if (!name?.trim()) return;
+    setWatchlists(prev => prev.map(w => w.id === id ? { ...w, name: name.trim() } : w));
+  }, [watchlists]);
+
+  const handleDeleteWatchlist = useCallback((id) => {
+    setWatchlists(prev => {
+      if (prev.length <= 1) { toast('마지막 그룹은 삭제할 수 없습니다', 'warn'); return prev; }
+      const next = prev.filter(w => w.id !== id);
+      if (activeWatchlistIdRef.current === id) {
+        const fallback = next[0];
+        setActiveWatchlistId(fallback.id);
+        const ids = fallback.stockIds.filter(sid => stocksRef.current[sid]);
+        setWatchlistIds(ids);
+        setStocks(curr => applyQuantScores(curr, ids));
+        if (ids.length) setActiveId(ids[0]);
+      }
+      return next;
+    });
+  }, [toast]);
+
+  // ── Paper Trading (trades) ─────────────────────────────────────────────────
+  const handleAddTrade = useCallback((trade) => {
+    setTrades(prev => [{ ...trade, id: `tr-${Date.now()}` }, ...prev]);
+    toast('거래 기록 추가', 'ok');
+  }, [toast]);
+
+  const handleDeleteTrade = useCallback((id) => {
+    setTrades(prev => prev.filter(t => t.id !== id));
+  }, []);
 
   // ── Save pitch edits ───────────────────────────────────────────────────────
   const handleSavePitch = useCallback((stockId, patch) => {
@@ -7333,6 +7740,12 @@ function App({ initialData }) {
         onReloadDartMap={() => loadLocalDartMap(true)}
       />
     ),
+    F11: (
+      <BacktestPanel stocks={stocks} watchlistIds={watchlistIds} trades={trades} onAddTrade={handleAddTrade} onDeleteTrade={handleDeleteTrade}/>
+    ),
+    F12: (
+      <MacroPanel stock={stock} stocks={stocks} watchlistIds={watchlistIds}/>
+    ),
   };
 
   return (
@@ -7350,7 +7763,7 @@ function App({ initialData }) {
         symbol={stock.symbol}
         onSymbol={handleSymbolNav}
         onSearch={() => setSearchMode('watchlist')}
-        onSettings={() => setActivePanel('F11')}
+        onSettings={() => setActivePanel('F10')}
         refreshing={refreshing}
         providerStatus={providerStatus}
         alertCount={alerts.filter(a => a.status === 'new').length}
@@ -7393,8 +7806,13 @@ function App({ initialData }) {
         <div style={{ borderRight: `1px solid ${T.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <WatchlistPanel
             stocks={stocks} watchlistIds={watchlistIds} activeId={activeId}
+            watchlists={watchlists} activeWatchlistId={activeWatchlistId}
             onSelect={setActiveId} onAdd={() => setSearchMode('watchlist')}
             onRemove={handleRemove}
+            onSwitchWatchlist={handleSwitchWatchlist}
+            onCreateWatchlist={handleCreateWatchlist}
+            onRenameWatchlist={handleRenameWatchlist}
+            onDeleteWatchlist={handleDeleteWatchlist}
           />
         </div>
 
