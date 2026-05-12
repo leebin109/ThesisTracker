@@ -4341,12 +4341,15 @@ PER ${f(m.per,'x')} | PBR ${f(m.pbr,'x')} | ROE ${f(m.roe,'%')} | FCF마진 ${f(
 한국어로 간결하고 정확하게 답변하세요.`;
   };
 
+  // localhost → 로컬 프록시 경유 (CORS 우회), 외부 URL → 직접 접근
+  const ollamaBase = () => isProxiedOrigin() ? '' : ollamaUrl.replace(/\/$/, '');
+  const ollamaPath = (path) => isProxiedOrigin() ? `/api/ollama${path}` : `${ollamaUrl.replace(/\/$/, '')}${path}`;
+
   // ── Ollama: 연결 테스트 ──────────────────────────────────────────────────
   const testOllama = async () => {
     setOllamaTesting(true); setOllamaError(''); setOllamaReady(false);
     try {
-      const base = ollamaUrl.replace(/\/$/, '');
-      const res = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(5000) });
+      const res = await fetch(ollamaPath('/api/tags'), { signal: AbortSignal.timeout(5000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const names = (data.models || []).map(m => m.name);
@@ -4397,8 +4400,7 @@ PER ${f(m.per,'x')} | PBR ${f(m.pbr,'x')} | ROE ${f(m.roe,'%')} | FCF마진 ${f(
         });
         content = res.choices?.[0]?.message?.content || '응답 없음';
       } else {
-        const base = ollamaUrl.replace(/\/$/, '');
-        const res = await fetch(`${base}/v1/chat/completions`, {
+        const res = await fetch(ollamaPath('/v1/chat/completions'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

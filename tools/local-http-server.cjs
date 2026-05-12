@@ -292,8 +292,60 @@ async function proxyYahoo(req, res, url) {
   }
 }
 
+function proxyOllama(req, res, url) {
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'access-control-allow-origin': '*',
+      'access-control-allow-methods': 'GET, POST, OPTIONS',
+      'access-control-allow-headers': 'content-type',
+      'cache-control': 'no-store',
+    });
+    res.end();
+    return;
+  }
+
+  const suffix = url.pathname.slice('/api/ollama'.length); // e.g. /api/tags or /v1/chat/completions
+  const targetPath = suffix + (url.search || '');
+
+  const chunks = [];
+  req.on('data', chunk => chunks.push(chunk));
+  req.on('end', () => {
+    const body = Buffer.concat(chunks);
+    const proxyReq = http.request({
+      hostname: '127.0.0.1',
+      port: 11434,
+      path: targetPath,
+      method: req.method,
+      headers: {
+        'content-type': req.headers['content-type'] || 'application/json',
+        'content-length': body.length,
+      },
+    }, (proxyRes) => {
+      const parts = [];
+      proxyRes.on('data', c => parts.push(c));
+      proxyRes.on('end', () => {
+        res.writeHead(proxyRes.statusCode || 502, {
+          'content-type': proxyRes.headers['content-type'] || 'application/json',
+          'cache-control': 'no-store',
+          'access-control-allow-origin': '*',
+        });
+        res.end(Buffer.concat(parts));
+      });
+    });
+    proxyReq.setTimeout(60000, () => proxyReq.destroy(new Error('Ollama timeout')));
+    proxyReq.on('error', (err) => {
+      writeJson(res, 502, { error: `Ollama proxy failed: ${err.message}` });
+    });
+    proxyReq.end(body);
+  });
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${port}`);
+  if (url.pathname.startsWith('/api/ollama')) {
+    proxyOllama(req, res, url);
+    return;
+  }
   if (url.pathname.startsWith('/api/opendart/')) {
     proxyOpenDart(req, res, url);
     return;
@@ -335,5 +387,6 @@ server.listen(port, '127.0.0.1', () => {
   console.log('[start] OpenDART proxy enabled at /api/opendart/*.json.');
   console.log('[start] SEC EDGAR proxy enabled at /api/sec/*.json.');
   console.log('[start] Yahoo proxy enabled at /api/yahoo/chart/:symbol and /api/yahoo/search.');
+  console.log('[start] Ollama proxy enabled at /api/ollama/* → http://localhost:11434');
   console.log('[start] Press Ctrl+C to stop.');
 });
