@@ -2,7 +2,7 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
-const unifiedProxyHandler = require('../api/proxy.cjs');
+const unifiedProxyHandler = require('../server/proxy-handler.cjs');
 
 const port = Number(process.argv[2]) || 8080;
 const root = path.resolve(__dirname, '..');
