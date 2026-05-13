@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "api/proxy.mjs": {
+      "maxDuration": 30
+    }
+  },
   "rewrites": [
     { "source": "/api/opendart/:endpoint",          "destination": "/api/proxy?service=opendart&path=:endpoint" },
     { "source": "/api/yahoo/search",                "destination": "/api/proxy?service=yahoo&path=search" },
