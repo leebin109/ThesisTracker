@@ -2,6 +2,9 @@
 // vercel.json rewrites: /api/opendart/*, /api/sec/*, /api/yahoo/* → here
 
 const YAHOO_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const OPENDART_ENDPOINTS = new Set(['fnlttSinglAcntAll', 'fnlttSinglAcnt', 'list', 'stockInfo']);
+const YAHOO_SYMBOL_ENDPOINTS = new Set(['chart', 'quoteSummary', 'timeseries']);
+const SEC_SECTIONS = new Set(['files', 'submissions', 'archives', 'companyfacts']);
 
 // Module-level cache: valid within one Lambda warm instance
 let _yahooCrumb = null; // { crumb, cookie, expiresAt }
@@ -58,6 +61,30 @@ async function fetchYahoo(targetUrl, crumbInfo) {
   return res;
 }
 
+function one(v) {
+  return Array.isArray(v) ? v[0] : v;
+}
+
+function cleanSegment(v) {
+  return String(v || '').trim().replace(/^\/+|\/+$/g, '');
+}
+
+function bodySnippet(body) {
+  return String(body || '').trim().replace(/\s+/g, ' ').slice(0, 240);
+}
+
+function upstreamHttpError(res, upstream, body, service, path) {
+  return res.status(upstream.status || 502).json({
+    status: `UPSTREAM_HTTP_${upstream.status || 502}`,
+    message: `${service} upstream returned HTTP ${upstream.status || 502}`,
+    service,
+    path,
+    upstreamStatus: upstream.status || 502,
+    upstreamContentType: upstream.headers.get('content-type') || '',
+    upstreamBody: bodySnippet(body),
+  });
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -66,17 +93,17 @@ module.exports = async function handler(req, res) {
 
   const { service, path: pathParam, ...rawRest } = req.query;
   const rest = { ...rawRest };
-  let suffix = Array.isArray(pathParam) ? pathParam.join('/') : String(pathParam || '');
-  if (service === 'yahoo' && ['chart', 'quoteSummary', 'timeseries'].includes(suffix) && rest.symbol) {
-    suffix = `${suffix}/${Array.isArray(rest.symbol) ? rest.symbol[0] : rest.symbol}`;
+  let suffix = cleanSegment(Array.isArray(pathParam) ? pathParam.join('/') : String(pathParam || ''));
+  if (service === 'yahoo' && YAHOO_SYMBOL_ENDPOINTS.has(suffix) && rest.symbol) {
+    suffix = `${suffix}/${cleanSegment(one(rest.symbol))}`;
     delete rest.symbol;
   }
   if (service === 'sec' && suffix === 'archives' && rest.archivePath) {
-    suffix = `archives/${Array.isArray(rest.archivePath) ? rest.archivePath.join('/') : rest.archivePath}`;
+    suffix = `archives/${cleanSegment(Array.isArray(rest.archivePath) ? rest.archivePath.join('/') : rest.archivePath)}`;
     delete rest.archivePath;
   }
   if (service === 'sec' && rest.file && suffix && !suffix.includes('/')) {
-    suffix = `${suffix}/${Array.isArray(rest.file) ? rest.file[0] : rest.file}`;
+    suffix = `${suffix}/${cleanSegment(one(rest.file))}`;
     delete rest.file;
   }
   const qs = new URLSearchParams(rest).toString();
@@ -86,6 +113,9 @@ module.exports = async function handler(req, res) {
     if (service === 'opendart') {
       // suffix is the bare endpoint name (no .json) — OpenDART selects JSON output via the .json extension
       const ep = suffix.replace(/\.json$/, '');
+      if (!OPENDART_ENDPOINTS.has(ep)) {
+        return res.status(404).json({ error: `unknown opendart path: ${suffix}` });
+      }
       const url = `https://opendart.fss.or.kr/api/${ep}.json${qs ? '?' + qs : ''}`;
       upstream = await fetch(url, {
         headers: { 'User-Agent': 'ThesisTrack/1.0', 'Accept': 'application/json' },
@@ -94,6 +124,9 @@ module.exports = async function handler(req, res) {
     } else if (service === 'sec') {
       let secUrl;
       if (suffix.startsWith('files/')) {
+        if (suffix !== 'files/company_tickers.json') {
+          return res.status(404).json({ error: `unknown sec path: ${suffix}` });
+        }
         secUrl = `https://www.sec.gov/${suffix}${qs ? '?' + qs : ''}`;
       } else if (suffix.startsWith('archives/')) {
         const archivePath = suffix.slice('archives/'.length);
@@ -102,7 +135,13 @@ module.exports = async function handler(req, res) {
         }
         secUrl = `https://www.sec.gov/Archives/edgar/data/${archivePath}${qs ? '?' + qs : ''}`;
       } else {
-        secUrl = `https://data.sec.gov/${suffix}${qs ? '?' + qs : ''}`;
+        const section = suffix.split('/')[0];
+        if (!SEC_SECTIONS.has(section)) {
+          return res.status(404).json({ error: `unknown sec path: ${suffix}` });
+        }
+        secUrl = suffix.startsWith('companyfacts/')
+          ? `https://data.sec.gov/api/xbrl/${suffix}${qs ? '?' + qs : ''}`
+          : `https://data.sec.gov/${suffix}${qs ? '?' + qs : ''}`;
       }
       upstream = await fetch(secUrl, {
         headers: { 'User-Agent': 'ThesisTrack research@example.com', 'Accept': 'application/json, text/xml, application/xml, */*' },
@@ -120,7 +159,7 @@ module.exports = async function handler(req, res) {
         const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}${qs ? '?' + qs : ''}${crumbSuffix}`;
         upstream = await fetchYahoo(url, crumbInfo);
 
-      } else if (suffix === 'search' || suffix.startsWith('search')) {
+      } else if (suffix === 'search') {
         const url = `https://query1.finance.yahoo.com/v1/finance/search${qs ? '?' + qs : ''}${crumbSuffix}`;
         upstream = await fetchYahoo(url, crumbInfo);
 
@@ -161,13 +200,7 @@ module.exports = async function handler(req, res) {
   }
 
   const body = await upstream.text();
-  if (service === 'opendart' && upstream.status === 404) {
-    return res.status(404).json({
-      status: 'UPSTREAM_HTTP_404',
-      message: 'OpenDART upstream returned HTTP 404',
-      upstreamBody: body.trim().replace(/\s+/g, ' ').slice(0, 180),
-    });
-  }
+  if (!upstream.ok) return upstreamHttpError(res, upstream, body, service, suffix);
   res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json');
   res.status(upstream.status).send(body);
 };

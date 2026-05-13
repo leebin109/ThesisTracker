@@ -2691,6 +2691,7 @@ function SearchOverlay({ apiSettings, dartCorpMap, onAdd, onClose }) {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [noResults, setNoResults] = useState(false);
   const inputRef = useRef(null);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -2713,12 +2714,14 @@ function SearchOverlay({ apiSettings, dartCorpMap, onAdd, onClose }) {
   };
 
   const doSearch = useCallback(async (q) => {
-    if (!q.trim()) { setResults([]); return; }
+    if (!q.trim()) { setResults([]); setNoResults(false); return; }
     if (isKorean(q)) {
-      setResults(searchKorean(q));
+      const rows = searchKorean(q);
+      setResults(rows);
+      setNoResults(rows.length === 0);
       return;
     }
-    setLoading(true); setError('');
+    setLoading(true); setError(''); setNoResults(false);
     try {
       const [yahoo, fmp] = await Promise.allSettled([
         searchWithYahoo(q),
@@ -2728,13 +2731,19 @@ function SearchOverlay({ apiSettings, dartCorpMap, onAdd, onClose }) {
         ...(yahoo.status === 'fulfilled' ? yahoo.value : []),
         ...(fmp.status === 'fulfilled' ? fmp.value : []),
       ];
-      if (!all.length && yahoo.status === 'rejected' && fmp.status === 'rejected') {
+      const fmpEmptyOrUnavailable = !apiSettings.fmpKey
+        || fmp.status === 'rejected'
+        || (fmp.status === 'fulfilled' && !fmp.value.length);
+      if (!all.length && yahoo.status === 'rejected' && fmpEmptyOrUnavailable) {
         throw new Error([yahoo.reason?.message, fmp.reason?.message].filter(Boolean).join(' / ') || 'Search failed');
       }
       const seen = new Set();
-      setResults(all.filter(r => { const k = `${r.market}:${r.symbol}`; if (seen.has(k)) return false; seen.add(k); return true; }));
+      const deduped = all.filter(r => { const k = `${r.market}:${r.symbol}`; if (seen.has(k)) return false; seen.add(k); return true; });
+      setResults(deduped);
+      setNoResults(deduped.length === 0);
     } catch (e) {
       setError(e.message);
+      setNoResults(false);
     } finally {
       setLoading(false);
     }
@@ -2761,6 +2770,7 @@ function SearchOverlay({ apiSettings, dartCorpMap, onAdd, onClose }) {
         </div>
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {error && <div style={{ padding: 12, fontSize: 11, color: T.red }}>{error}</div>}
+          {!error && noResults && <div style={{ padding: 12, fontSize: 11, color: T.inkFaint }}>검색 결과 없음</div>}
           {results.map((r, i) => (
             <div key={i} onClick={() => { onAdd(r); onClose(); }}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -2780,7 +2790,7 @@ function SearchOverlay({ apiSettings, dartCorpMap, onAdd, onClose }) {
               </span>
             </div>
           ))}
-          {results.length === 0 && query.trim() && !loading && !error && (
+          {results.length === 0 && query.trim() && !loading && !error && !noResults && (
             <div style={{ padding: 16, color: T.inkFaint, fontSize: 11, textAlign: 'center' }}>검색 결과 없음</div>
           )}
         </div>
