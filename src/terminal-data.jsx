@@ -1240,7 +1240,12 @@ async function describeOpenDartHttpError(res) {
 }
 
 async function fetchJsonWithDiagnostics(label, url, opts = {}) {
-  const res = await fetch(url, opts.fetchOptions);
+  let res;
+  try {
+    res = await fetch(url, opts.fetchOptions);
+  } catch (e) {
+    throw new Error(`${label} network failed${e?.message ? ` · ${e.message}` : ''}`);
+  }
   const text = await res.text();
   const detail = summarizeApiPayloadText(text);
   if (!res.ok) throw new Error(`${label} HTTP ${res.status}${detail ? ` · ${detail}` : ''}`);
@@ -1328,8 +1333,6 @@ async function fetchOpenDartStatements(corpCode, apiSettings) {
       try {
         const params = new URLSearchParams({ crtfc_key: key, corp_code: corpCode, bsns_year: String(y), reprt_code: reportCode, fs_div: fsDiv });
         const data = await fetchJsonWithDiagnostics(`OpenDART ${endpoint}/${fsDiv}/${y}`, buildOpenDartApiUrl(endpoint, params), { openDartOkStatuses: ['000'] });
-        const text = '';
-        if (text.trimStart().startsWith('<')) { errors.push(`${endpoint}/${fsDiv}: 프록시 미작동 (HTML 수신: "${text.trim().slice(0, 50).replace(/\s+/g, ' ')}")`); continue; }
         if (Array.isArray(data.list) && data.list.length) {
           return { ...data, context: { year: y, reportCode, fsDiv, sourceType: endpoint === 'fnlttSinglAcntAll' ? 'all' : 'single' } };
         }

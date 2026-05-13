@@ -2,6 +2,7 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const unifiedProxyHandler = require('../api/proxy.js');
 
 const port = Number(process.argv[2]) || 8080;
 const root = path.resolve(__dirname, '..');
@@ -36,6 +37,66 @@ function writeJson(res, status, payload) {
     'access-control-allow-origin': '*',
   });
   res.end(JSON.stringify(payload));
+}
+
+function queryObjectFromUrl(url) {
+  const out = {};
+  for (const [key, value] of url.searchParams.entries()) {
+    if (Object.prototype.hasOwnProperty.call(out, key)) {
+      out[key] = Array.isArray(out[key]) ? [...out[key], value] : [out[key], value];
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+async function proxyUnified(req, res, url) {
+  const localReq = Object.assign(Object.create(req), {
+    method: req.method,
+    url: req.url,
+    headers: req.headers,
+    query: queryObjectFromUrl(url),
+  });
+
+  let statusCode = 200;
+  const localRes = {
+    setHeader(name, value) {
+      res.setHeader(name, value);
+      return this;
+    },
+    status(code) {
+      statusCode = code;
+      return this;
+    },
+    json(payload) {
+      if (!res.headersSent && !res.getHeader('content-type')) {
+        res.setHeader('content-type', 'application/json; charset=utf-8');
+      }
+      res.statusCode = statusCode;
+      res.end(JSON.stringify(payload));
+      return this;
+    },
+    send(body) {
+      res.statusCode = statusCode;
+      res.end(body);
+      return this;
+    },
+    end(body) {
+      res.statusCode = statusCode;
+      res.end(body);
+      return this;
+    },
+  };
+
+  try {
+    await unifiedProxyHandler(localReq, localRes);
+  } catch (err) {
+    writeJson(res, 502, {
+      status: 'LOCAL_PROXY_ERROR',
+      message: err?.message || String(err),
+    });
+  }
 }
 
 function proxyOpenDart(req, res, url) {
@@ -343,6 +404,10 @@ function proxyOllama(req, res, url) {
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${port}`);
+  if (url.pathname === '/api/proxy') {
+    proxyUnified(req, res, url);
+    return;
+  }
   if (url.pathname.startsWith('/api/ollama')) {
     proxyOllama(req, res, url);
     return;
@@ -385,6 +450,7 @@ const server = http.createServer((req, res) => {
 
 server.listen(port, '127.0.0.1', () => {
   console.log(`[start] Serving on http://localhost:${port}/terminal.html`);
+  console.log('[start] Unified proxy enabled at /api/proxy?service=...');
   console.log('[start] OpenDART proxy enabled at /api/opendart/*.json.');
   console.log('[start] SEC EDGAR proxy enabled at /api/sec/*.json.');
   console.log('[start] Yahoo proxy enabled at /api/yahoo/chart/:symbol and /api/yahoo/search.');
