@@ -12,6 +12,7 @@
 /* global inferMarketFromExchange, normalizeSymbolForMarket, getMarketProfile, buildYahooChartUrl, MARKET_PROFILES, COUNTRY_FLAGS, SCORE_CFG */
 /* global useTweaks, TweaksPanel */
 /* global supabase */
+/* global makeMetricMeta, computeDataConfidence, CORE_METRIC_KEYS */
 
 // ─── Supabase config ──────────────────────────────────────────────────────────
 // After creating a Supabase project, replace both placeholder values below.
@@ -99,6 +100,7 @@ function makeBlankStock(patch = {}) {
     prevClose: 0,
     target: 0,
     metrics: {},
+    metricsMeta: {},
     asOf: '',
     priceSrc: '',
     scores: { overall: null, profitability: null, stability: null, growth: null, valuation: null, risk: null, weights: DEFAULT_SCORE_WEIGHTS },
@@ -130,6 +132,10 @@ function normalizeStockRecord(stock, fallbackId = '') {
   next.flag = next.flag || '🏷️';
   next.country = next.country || '기타';
   next.metrics = { ...(stock?.metrics || {}) };
+  // Preserve metricsMeta; old records without it get an empty object (safe)
+  next.metricsMeta = (stock?.metricsMeta && typeof stock.metricsMeta === 'object' && !Array.isArray(stock.metricsMeta))
+    ? { ...stock.metricsMeta }
+    : {};
   next.scores = {
     ...base.scores,
     ...(stock?.scores || {}),
@@ -1583,7 +1589,14 @@ function OverviewPanel({ stock, apiSettings, dartCorpMap, onSaveHistory, onSaveI
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', overflowY: 'auto' }}>
       <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 8, flex: '0 0 auto' }}>
         <ScoreBreakdown scores={stock.scores} activeDim={activeDim} onDimClick={setActiveDim}/>
-        <MetricsGrid metrics={stock.metrics} currency={stock.currency} activeDim={activeDim} refreshedAt={stock.refreshedAt}/>
+        <MetricsGrid
+          metrics={stock.metrics}
+          metricsMeta={stock.metricsMeta}
+          currency={stock.currency}
+          activeDim={activeDim}
+          refreshedAt={stock.refreshedAt}
+          dataMode={apiSettings?.dataMode}
+        />
       </div>
       <div style={{ flex: '0 0 auto' }}>
         <FinancialHistorySection stock={stock} apiSettings={apiSettings} dartCorpMap={dartCorpMap} onSaveHistory={onSaveHistory}/>
@@ -1596,7 +1609,7 @@ function OverviewPanel({ stock, apiSettings, dartCorpMap, onSaveHistory, onSaveI
 }
 
 // ─── Metrics grid ─────────────────────────────────────────────────────────────
-function MetricsGrid({ metrics, currency, activeDim, refreshedAt }) {
+function MetricsGrid({ metrics, metricsMeta, currency, activeDim, refreshedAt, dataMode }) {
   const categories = [
     {
       label: 'PROFITABILITY', color: T.amber,
@@ -1644,6 +1657,21 @@ function MetricsGrid({ metrics, currency, activeDim, refreshedAt }) {
     return Number.isFinite(parsed.getTime()) && (Date.now() - parsed.getTime()) > 90 * 86400000;
   })();
   const dimKey = activeDim?.toUpperCase();
+
+  // Confidence summary
+  const safeComputeDataConfidence = (typeof computeDataConfidence === 'function') ? computeDataConfidence : () => null;
+  const conf = safeComputeDataConfidence(metrics, metricsMeta);
+  const GRADE_COLOR = { A: T.green, B: T.cyan, C: T.yellow, D: T.red };
+  const gradeColor = (g) => GRADE_COLOR[g] || T.inkFaint;
+  const PROVIDER_SHORT = { 'Yahoo Finance': 'Yahoo', 'SEC EDGAR': 'SEC', 'OpenDART': 'DART', 'Alpha Vantage': 'AV', 'FMP': 'FMP' };
+  const providerShort = (p) => PROVIDER_SHORT[p] || (p || '').slice(0, 6);
+
+  // Commercial-safe warning: only show in commercialSafe mode when non-safe metrics exist
+  const showCommercialWarning = dataMode === 'commercialSafe'
+    && conf
+    && conf.usedCount > 0
+    && conf.commercialSafeCount < conf.usedCount;
+
   return (
     <Cell label="KEY METRICS" accent={T.cyan} style={{ height: '100%' }}>
       <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 9 }}>
@@ -1652,6 +1680,24 @@ function MetricsGrid({ metrics, currency, activeDim, refreshedAt }) {
             ⚠ 마지막 Refresh 3개월+ 경과 ({refreshedAt?.slice(0, 10)}) — REFRESH 권장
           </div>
         )}
+
+        {/* Confidence summary row */}
+        {conf && conf.usedCount > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 9, color: T.inkFaint, borderBottom: `1px solid ${T.borderSoft}`, paddingBottom: 6, marginBottom: 2 }}>
+            <span>Data Confidence: <span style={{ color: gradeColor(conf.grade), fontWeight: 700 }}>{conf.grade}</span></span>
+            <span style={{ color: T.borderSoft }}>|</span>
+            <span>Metrics: <span style={{ color: T.inkDim }}>{conf.usedCount} / {conf.totalCoreCount}</span></span>
+            <span style={{ color: T.borderSoft }}>|</span>
+            <span>Commercial-Safe: <span style={{ color: conf.commercialSafeCount < conf.usedCount ? T.yellow : T.green }}>{conf.commercialSafeCount} / {conf.usedCount}</span></span>
+          </div>
+        )}
+
+        {showCommercialWarning && (
+          <div style={{ fontSize: 9, color: T.yellow, background: `${T.yellow}12`, border: `1px solid ${T.yellow}44`, padding: '4px 8px' }}>
+            ⚠ This score uses one or more non-commercial-safe data points.
+          </div>
+        )}
+
         {categories.map(cat => {
           const isActive = !dimKey || cat.label === dimKey;
           return (
@@ -1666,14 +1712,23 @@ function MetricsGrid({ metrics, currency, activeDim, refreshedAt }) {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
                 {cat.items.map(({ key, label, fmt }) => {
-                  const v = metrics?.[key];
+                  const v    = metrics?.[key];
+                  const meta = metricsMeta?.[key];
                   const display = Number.isFinite(Number(v)) ? fmt(v) : '–';
+                  const badgeProvider = meta?.provider ? providerShort(meta.provider) : null;
+                  const badgeConf     = meta?.confidence || null;
+                  const badgeColor    = badgeConf ? gradeColor(badgeConf) : T.inkFaint;
                   return (
                     <div key={key} style={{ background: T.surface2, padding: '7px 10px', border: `1px solid ${isActive && dimKey ? cat.color + '55' : T.borderSoft}` }}>
                       <div style={{ fontSize: 8.5, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 3 }}>{label}</div>
                       <div style={{ fontSize: 14, fontWeight: 700, color: colorFor(key, v), fontVariantNumeric: 'tabular-nums' }}>
                         {display}
                       </div>
+                      {badgeProvider && Number.isFinite(Number(v)) && (
+                        <div style={{ fontSize: 7.5, color: badgeColor, marginTop: 3, letterSpacing: '0.04em' }}>
+                          [{badgeProvider} · {badgeConf}]
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -2909,6 +2964,18 @@ function SettingsDataPanel({
                 style={{ ...inputSt, width: '100%' }}/>
             </SettingRow>
           </div>
+
+          <SettingRow label="DATA MODE">
+            <select value={s.dataMode || 'personal'} onChange={(e) => setS({ ...s, dataMode: e.target.value })}
+              style={{ ...inputSt, width: '100%' }}>
+              <option value="personal">🔒 Personal — Yahoo 등 비공식 API 사용 가능</option>
+              <option value="commercialSafe">🛡️ Commercial-Safe — 비상업용 데이터에 경고 표시</option>
+            </select>
+            <div style={{ fontSize: 9, color: T.inkFaint, marginTop: 4, lineHeight: 1.5 }}>
+              Commercial-Safe 모드는 Yahoo 비공식 API 사용을 차단하지 않습니다.
+              다만 KEY METRICS 패널에 비상업 데이터 출처를 시각적으로 표시합니다.
+            </div>
+          </SettingRow>
 
           <SettingRow label="ALPHA VANTAGE KEY">
             <ApiKeyInput value={s.alphaVantageKey} onChange={(v) => setS({ ...s, alphaVantageKey: v })}/>
@@ -4217,6 +4284,11 @@ function App({ initialData }) {
           ...(newIndustryGroup ? { industryGroup: newIndustryGroup } : {}),
           refreshedAt: now,
           metrics: newMetrics,
+          // Merge metricsMeta: new payload's entries win over old, preserving any manually-set ones
+          metricsMeta: {
+            ...(old.metricsMeta || {}),
+            ...(payload.metricsMeta || {}),
+          },
           scoreHistory: newScoreHistory,
         };
 

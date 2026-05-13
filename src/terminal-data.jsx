@@ -44,7 +44,14 @@ const DEFAULT_API_SETTINGS = {
   dartFsDiv: 'CFS',
   dataGoKrKey: '',
   cacheDays: 3,
+  // 'personal' = may use Yahoo + experimental endpoints
+  // 'commercialSafe' = marks Yahoo-derived metrics as non-commercial-safe,
+  //                    prefers official filings when available
+  dataMode: 'personal',
 };
+
+// Cache schema version — bump when cache payload shape changes significantly
+const CACHE_SCHEMA_VERSION = 3;
 
 const DEFAULT_DART_CORP_MAP = {
   '005930': { corpCode: '00126380', corpName: '삼성전자' },
@@ -765,12 +772,129 @@ function buildKrPriceCacheKey(stock) {
   return `dataGoKrStockPrice:${stock.market}:${stock.symbol.padStart(6, '0')}`;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// metricsMeta helpers
+// ═══════════════════════════════════════════════════════════════
+
+// Core metrics used in scoring (for computeDataConfidence)
+const CORE_METRIC_KEYS = ['per', 'pbr', 'roe', 'opMargin', 'fcfMargin', 'debtRatio', 'currentRatio', 'revGrowth', 'epsGrowth', 'evEbitda'];
+
+/**
+ * makeMetricMeta — create a metricsMeta entry for a single metric.
+ * @param {object} opts
+ * @param {string} opts.provider   e.g. 'Yahoo Finance', 'SEC EDGAR', 'OpenDART', 'Alpha Vantage', 'FMP'
+ * @param {string} opts.source     human-readable source description
+ * @param {string} opts.method     e.g. 'direct', 'calculated', 'fallback', 'timeseries'
+ * @param {string} opts.confidence 'A'|'B'|'C'|'D'
+ * @param {boolean} opts.commercialSafe
+ * @param {string=} opts.periodEnd  ISO date string
+ * @param {number=} opts.fiscalYear
+ * @param {boolean=} opts.usedInScore
+ */
+function makeMetricMeta({ provider, source, method, confidence, commercialSafe, periodEnd, fiscalYear, usedInScore } = {}) {
+  return {
+    source:         source         || provider || 'unknown',
+    provider:       provider       || 'unknown',
+    method:         method         || 'direct',
+    periodEnd:      periodEnd      || null,
+    fiscalYear:     fiscalYear     || null,
+    fetchedAt:      new Date().toISOString(),
+    confidence:     confidence     || 'D',
+    commercialSafe: commercialSafe != null ? Boolean(commercialSafe) : false,
+    usedInScore:    usedInScore    != null ? Boolean(usedInScore)    : true,
+  };
+}
+
+/**
+ * setMetricWithMeta — attach a metric value and its meta in one call.
+ * Returns { metrics: {...}, metricsMeta: {...} } patches to spread into stock.
+ */
+function setMetricWithMeta(existingMetrics, existingMeta, key, value, metaOpts) {
+  if (!Number.isFinite(toNumber(value))) return { metrics: existingMetrics, metricsMeta: existingMeta };
+  return {
+    metrics:     { ...(existingMetrics || {}), [key]: value },
+    metricsMeta: { ...(existingMeta    || {}), [key]: makeMetricMeta(metaOpts) },
+  };
+}
+
+/**
+ * computeDataConfidence — summarise metricsMeta for a set of core metrics.
+ * Returns { grade, usedCount, totalCoreCount, commercialSafeCount, missingCoreMetrics, lowConfidenceMetrics }
+ */
+function computeDataConfidence(metrics, metricsMeta) {
+  const total = CORE_METRIC_KEYS.length;
+  const missing = [];
+  const lowConf  = [];
+  let usedCount  = 0;
+  let safeCount  = 0;
+  const gradeOrder = { A: 0, B: 1, C: 2, D: 3 };
+  let worstGrade = 'A';
+
+  for (const key of CORE_METRIC_KEYS) {
+    const val  = metrics?.[key];
+    const meta = metricsMeta?.[key];
+    if (val == null || !Number.isFinite(toNumber(val))) {
+      missing.push(key);
+      if ((gradeOrder['D'] || 3) > (gradeOrder[worstGrade] || 0)) worstGrade = 'D';
+      continue;
+    }
+    usedCount++;
+    const grade = meta?.confidence || 'D';
+    if ((gradeOrder[grade] || 3) > (gradeOrder[worstGrade] || 0)) worstGrade = grade;
+    if (grade === 'C' || grade === 'D') lowConf.push(key);
+    if (meta?.commercialSafe) safeCount++;
+  }
+
+  // Overall grade: worst of all populated metrics, or D if majority missing
+  const presentGrade = usedCount === 0 ? 'D'
+    : missing.length > total / 2 ? 'D'
+    : worstGrade;
+
+  return {
+    grade: presentGrade,
+    usedCount,
+    totalCoreCount: total,
+    commercialSafeCount: safeCount,
+    missingCoreMetrics: missing,
+    lowConfidenceMetrics: lowConf,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Cache helpers (with smart TTL)
+// ═══════════════════════════════════════════════════════════════
+
+// TTL overrides for partial/empty/error cache entries (ms)
+const CACHE_TTL_PARTIAL_MS  = 12 * 3600000;  // 12 h — some metrics fetched but incomplete
+const CACHE_TTL_EMPTY_MS    = 30 * 60000;    // 30 min — all metrics empty
+const CACHE_TTL_ERROR_MS    = 10 * 60000;    // 10 min — fetch returned an error
+
 function getCachedEntry(cache, cacheKey, cacheDays) {
   const entry = cache[cacheKey];
   if (!entry) return null;
   const age = Date.now() - new Date(entry.fetchedAt).getTime();
-  if (!Number.isFinite(age) || age > cacheDays * 86400000) return null;
-  return entry;
+  if (!Number.isFinite(age)) return null;
+
+  // Error cache: very short TTL
+  if (entry.errorState) {
+    return age < CACHE_TTL_ERROR_MS ? entry : null;
+  }
+
+  // Empty-metrics cache: short TTL
+  const payloadMetrics = entry.payload?.metrics;
+  const metricCount = payloadMetrics ? Object.keys(payloadMetrics).length : 0;
+  if (metricCount === 0) {
+    return age < CACHE_TTL_EMPTY_MS ? entry : null;
+  }
+
+  // Partial-metrics cache: medium TTL (half the core metrics missing)
+  const corePresent = CORE_METRIC_KEYS.filter(k => payloadMetrics?.[k] != null).length;
+  if (corePresent < CORE_METRIC_KEYS.length / 2) {
+    return age < CACHE_TTL_PARTIAL_MS ? entry : null;
+  }
+
+  // Full cache: use configured cacheDays
+  return age <= cacheDays * 86400000 ? entry : null;
 }
 
 function getAnyCachedEntry(cache, cacheKey) {
@@ -1271,24 +1395,81 @@ function mapYahooPayload(stock, chart, yahooSym, quote, summary) {
   const fbOpMarginEy  = valid(eyRev0) ? (eyEar0 / eyRev0) * 100 : NaN;
 
   const finCr = raw(fin, 'currentRatio');
-  const metrics = compactMetrics({
-    per:          firstFinite(raw(det,'trailingPE'), toNumber(quote?.trailingPE), raw(det,'forwardPE'), toNumber(quote?.forwardPE)),
-    pbr:          firstFinite(raw(kst,'priceToBook'), toNumber(quote?.priceToBook)),
-    roe:          fb(pct(fin, 'returnOnEquity'), fbRoe),
-    opMargin:     fb(pct(fin, 'operatingMargins'), fb(fbOpMargin, fbOpMarginEy)),
-    fcfMargin:    fb((() => {
-      const fcf = raw(fin, 'freeCashflow');
-      const rev = raw(fin, 'totalRevenue');
-      return (Number.isFinite(fcf) && Number.isFinite(rev) && rev > 0) ? (fcf / rev) * 100 : NaN;
-    })(), fbFcfMargin),
-    debtRatio:    fb(raw(fin, 'debtToEquity'), fbDebtRatio),
-    currentRatio: fb(Number.isFinite(finCr) ? finCr * 100 : NaN, fbCurRatio),
-    revGrowth:      fb(pct(fin, 'revenueGrowth'), fb(fbRevGrowth, fbRevGrowthEy)),
-    epsGrowth:      fb(pct(fin, 'earningsGrowth'), fb(fbEpsGrowth, fbEpsGrowthEy)),
-    netMargin:      fb(pct(fin, 'profitMargins'), fbNetMargin),
-    opIncomeGrowth: fbOpIncomeGrowth,
-    evEbitda:       raw(kst, 'enterpriseToEbitda'),
+
+  // Determine which tier each metric came from, for metricsMeta
+  // Tier B = from financialData (reputable field, not official filing)
+  // Tier C = from statements calc or earnings fallback
+  const hasFin = Object.keys(fin).length > 0;
+  const hasStmts = incomeStmts.length > 0;
+  const makeYMeta = (method) => makeMetricMeta({
+    provider: 'Yahoo Finance',
+    source: `Yahoo Finance quoteSummary (${yahooSym})`,
+    method,
+    confidence: method === 'financialData' ? 'B' : 'C',
+    commercialSafe: false,
   });
+
+  const perRaw  = firstFinite(raw(det,'trailingPE'), toNumber(quote?.trailingPE), raw(det,'forwardPE'), toNumber(quote?.forwardPE));
+  const pbrRaw  = firstFinite(raw(kst,'priceToBook'), toNumber(quote?.priceToBook));
+  const roeRaw  = fb(pct(fin, 'returnOnEquity'), fbRoe);
+  const opMRaw  = fb(pct(fin, 'operatingMargins'), fb(fbOpMargin, fbOpMarginEy));
+  const fcfCalc = (() => {
+    const fcf = raw(fin, 'freeCashflow');
+    const rev = raw(fin, 'totalRevenue');
+    return (Number.isFinite(fcf) && Number.isFinite(rev) && rev > 0) ? (fcf / rev) * 100 : NaN;
+  })();
+  const fcfRaw  = fb(fcfCalc, fbFcfMargin);
+  const debtRaw = fb(raw(fin, 'debtToEquity'), fbDebtRatio);
+  const crRaw   = fb(Number.isFinite(finCr) ? finCr * 100 : NaN, fbCurRatio);
+  const revGRaw = fb(pct(fin, 'revenueGrowth'), fb(fbRevGrowth, fbRevGrowthEy));
+  const epsGRaw = fb(pct(fin, 'earningsGrowth'), fb(fbEpsGrowth, fbEpsGrowthEy));
+  const nmRaw   = fb(pct(fin, 'profitMargins'), fbNetMargin);
+  const evRaw   = raw(kst, 'enterpriseToEbitda');
+
+  const metrics = compactMetrics({
+    per:            perRaw,
+    pbr:            pbrRaw,
+    roe:            roeRaw,
+    opMargin:       opMRaw,
+    fcfMargin:      fcfRaw,
+    debtRatio:      debtRaw,
+    currentRatio:   crRaw,
+    revGrowth:      revGRaw,
+    epsGrowth:      epsGRaw,
+    netMargin:      nmRaw,
+    opIncomeGrowth: fbOpIncomeGrowth,
+    evEbitda:       evRaw,
+  });
+
+  // Build metricsMeta — determine tier per metric
+  const metricsMeta = {};
+  const perMethod  = Number.isFinite(raw(det,'trailingPE')) || Number.isFinite(toNumber(quote?.trailingPE)) ? 'quote/detail' : 'forwardPE';
+  const pbrMethod  = Number.isFinite(raw(kst,'priceToBook')) ? 'defaultKeyStatistics' : 'quote';
+  const roeMethod  = Number.isFinite(pct(fin,'returnOnEquity'))   ? 'financialData'   : hasStmts ? 'calculated-stmts' : 'earnings-fallback';
+  const opMMethod  = Number.isFinite(pct(fin,'operatingMargins')) ? 'financialData'   : hasStmts ? 'calculated-stmts' : 'earnings-fallback';
+  const fcfMethod  = Number.isFinite(fcfCalc)                     ? 'financialData'   : hasStmts ? 'calculated-stmts' : 'unavailable';
+  const debtMethod = Number.isFinite(raw(fin,'debtToEquity'))     ? 'financialData'   : hasStmts ? 'calculated-stmts' : 'unavailable';
+  const crMethod   = Number.isFinite(finCr)                       ? 'financialData'   : hasStmts ? 'calculated-stmts' : 'unavailable';
+  const revGMethod = Number.isFinite(pct(fin,'revenueGrowth'))    ? 'financialData'   : hasStmts ? 'calculated-stmts' : 'earnings-fallback';
+  const epsGMethod = Number.isFinite(pct(fin,'earningsGrowth'))   ? 'financialData'   : 'earnings-fallback';
+  const evMethod   = Number.isFinite(raw(kst,'enterpriseToEbitda')) ? 'defaultKeyStatistics' : 'unavailable';
+
+  for (const [k, method] of [
+    ['per', perMethod], ['pbr', pbrMethod], ['roe', roeMethod], ['opMargin', opMMethod],
+    ['fcfMargin', fcfMethod], ['debtRatio', debtMethod], ['currentRatio', crMethod],
+    ['revGrowth', revGMethod], ['epsGrowth', epsGMethod], ['evEbitda', evMethod],
+    ['netMargin', method === 'financialData' ? 'financialData' : 'calculated-stmts'],
+    ['opIncomeGrowth', hasStmts ? 'calculated-stmts' : 'unavailable'],
+  ]) {
+    if (metrics[k] != null && Number.isFinite(toNumber(metrics[k]))) {
+      metricsMeta[k] = makeYMeta(
+        ['financialData','defaultKeyStatistics','quote/detail','quote','forwardPE'].includes(method) ? 'financialData' : 'fallback'
+      );
+      // Refine confidence: pure financialData fields are B, calculated/fallback are C
+      metricsMeta[k].method = method;
+      metricsMeta[k].confidence = (['financialData','defaultKeyStatistics','quote/detail','quote'].includes(method)) ? 'B' : 'C';
+    }
+  }
 
   const industryGroup = detectIndustry(quote?.sector, quote?.industry);
   return {
@@ -1301,6 +1482,7 @@ function mapYahooPayload(stock, chart, yahooSym, quote, summary) {
     ) || undefined,
     priceHistory: priceHistory.length ? priceHistory : undefined,
     metrics,
+    metricsMeta,
     asOf,
     priceSrc: `Yahoo Finance (${yahooSym})`,
     ...(industryGroup ? { industryGroup } : {}),
@@ -1482,13 +1664,31 @@ function mapOpenDartPayload(stock, raw, corp, currentPrice, shares) {
     epsGrowth: prevEps ? ((eps - prevEps) / Math.abs(prevEps)) * 100 : NaN,
     currentRatio: currLiab ? (currAssets / currLiab) * 100 : NaN,
     gpa: (grossProfit && totalAssets) ? (grossProfit / totalAssets) * 100 : NaN,
-    roic: (totalEquity && totalLiab) ? (opIncome / (totalEquity + totalLiab - currLiab)) * 100 : NaN, // Proxy ROIC: EBIT / (Total Assets - Current Liabilities)
+    roic: (totalEquity && totalLiab) ? (opIncome / (totalEquity + totalLiab - currLiab)) * 100 : NaN,
   });
+
+  // metricsMeta: OpenDART = official filing → confidence A, commercialSafe true
+  const dartMetaBase = makeMetricMeta({
+    provider: 'OpenDART',
+    source: srcName,
+    method: 'official-filing',
+    confidence: 'A',
+    commercialSafe: true,
+    fiscalYear: ctx.year,
+    periodEnd: asOf,
+  });
+  const metricsMeta = {};
+  for (const k of Object.keys(metrics)) {
+    if (metrics[k] != null && Number.isFinite(toNumber(metrics[k]))) {
+      metricsMeta[k] = { ...dartMetaBase, fetchedAt: new Date().toISOString() };
+    }
+  }
 
   return {
     name: corp.corpName || stock.name,
     currency: stock.currency,
     metrics,
+    metricsMeta,
     asOf,
     priceSrc: srcName,
   };
@@ -1577,7 +1777,7 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
   if (apiSettings.globalProvider === 'yahooExperimental') {
     const cacheKey = buildCacheKey(stock, apiSettings, mode);
     const cached = getCachedEntry(cache, cacheKey, apiSettings.cacheDays);
-    // schemaVersion 2 = timeseries fallback included; older entries lack non-US metrics
+    // schemaVersion 3 = metricsMeta included; 2 = timeseries fallback included; older entries lack non-US metrics
     if (cached && (cached.schemaVersion ?? 1) >= 2) return { ...cached.payload, cacheUpdates: {}, fromCache: true };
     onStatus('Yahoo Finance 가격/재무 조회 중...');
     const yahooSym = toYahooSymbol(stock);
@@ -1596,7 +1796,16 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
       const earnData = earningsRes.status === 'fulfilled' ? earningsRes.value : null;
       const summary  = (coreSumm || stmts) ? { ...coreSumm, ...stmts, ...(earnData || {}) } : null;
       const payload = mapYahooPayload(stock, chartRes.value, yahooSym, quote, summary);
-      const entry = { fetchedAt: new Date().toISOString(), provider: 'yahooExperimental', schemaVersion: 2, payload };
+      // Compute completeness for smart cache TTL decisions
+      const conf = computeDataConfidence(payload.metrics, payload.metricsMeta);
+      const entry = {
+        fetchedAt: new Date().toISOString(),
+        provider: 'yahooExperimental',
+        schemaVersion: CACHE_SCHEMA_VERSION,
+        confidence: conf.grade,
+        completeness: { usedCount: conf.usedCount, totalCoreCount: conf.totalCoreCount },
+        payload,
+      };
       return { ...payload, cacheUpdates: { [cacheKey]: entry } };
     } catch (e) {
       const stale = getAnyCachedEntry(cache, cacheKey);
@@ -2341,6 +2550,8 @@ Object.assign(window, {
   DEFAULT_STOCKS, DEFAULT_WATCHLIST_IDS, DEFAULT_API_SETTINGS,
   DEFAULT_DART_CORP_MAP, DEFAULT_MARKET_TICKERS, DEFAULT_ALERT_SETTINGS,
   ALERT_RETENTION_DAYS,
+  CACHE_SCHEMA_VERSION, CORE_METRIC_KEYS,
+  makeMetricMeta, setMetricWithMeta, computeDataConfidence,
   loadAppState, saveAppState,
   computeScores, computeQuantScores, applyQuantScores, computeDynamicQuality,
   getDaysLeft, fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp,
