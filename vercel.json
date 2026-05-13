@@ -1,8 +1,14 @@
 {
   "rewrites": [
-    { "source": "/api/opendart/:endpoint", "destination": "https://opendart.fss.or.kr/api/:endpoint.json" },
-    { "source": "/api/sec/:path*",      "destination": "/api/proxy?service=sec&path=:path*" },
-    { "source": "/api/yahoo/:path*",    "destination": "/api/proxy?service=yahoo&path=:path*" },
+    { "source": "/api/opendart/:endpoint",          "destination": "/api/proxy?service=opendart&path=:endpoint" },
+    { "source": "/api/yahoo/search",                "destination": "/api/proxy?service=yahoo&path=search" },
+    { "source": "/api/yahoo/quote",                 "destination": "/api/proxy?service=yahoo&path=quote" },
+    { "source": "/api/yahoo/chart/:symbol",         "destination": "/api/proxy?service=yahoo&path=chart&symbol=:symbol" },
+    { "source": "/api/yahoo/quoteSummary/:symbol",  "destination": "/api/proxy?service=yahoo&path=quoteSummary&symbol=:symbol" },
+    { "source": "/api/yahoo/timeseries/:symbol",    "destination": "/api/proxy?service=yahoo&path=timeseries&symbol=:symbol" },
+    { "source": "/api/sec/files/company_tickers.json", "destination": "/api/proxy?service=sec&path=files/company_tickers.json" },
+    { "source": "/api/sec/archives/:path*",         "destination": "/api/proxy?service=sec&path=archives&archivePath=:path*" },
+    { "source": "/api/sec/:section/:file",          "destination": "/api/proxy?service=sec&path=:section&file=:file" },
     { "source": "/((?!api/).*)",        "destination": "/terminal.html" }
   ],
   "headers": [

@@ -64,8 +64,21 @@ module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') { res.status(204).end(); return; }
   if (req.method !== 'GET') { res.status(405).json({ error: 'Method not allowed' }); return; }
 
-  const { service, path: pathParam, ...rest } = req.query;
-  const suffix = Array.isArray(pathParam) ? pathParam.join('/') : String(pathParam || '');
+  const { service, path: pathParam, ...rawRest } = req.query;
+  const rest = { ...rawRest };
+  let suffix = Array.isArray(pathParam) ? pathParam.join('/') : String(pathParam || '');
+  if (service === 'yahoo' && ['chart', 'quoteSummary', 'timeseries'].includes(suffix) && rest.symbol) {
+    suffix = `${suffix}/${Array.isArray(rest.symbol) ? rest.symbol[0] : rest.symbol}`;
+    delete rest.symbol;
+  }
+  if (service === 'sec' && suffix === 'archives' && rest.archivePath) {
+    suffix = `archives/${Array.isArray(rest.archivePath) ? rest.archivePath.join('/') : rest.archivePath}`;
+    delete rest.archivePath;
+  }
+  if (service === 'sec' && rest.file && suffix && !suffix.includes('/')) {
+    suffix = `${suffix}/${Array.isArray(rest.file) ? rest.file[0] : rest.file}`;
+    delete rest.file;
+  }
   const qs = new URLSearchParams(rest).toString();
 
   let upstream;

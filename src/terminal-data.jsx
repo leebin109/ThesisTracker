@@ -1928,7 +1928,10 @@ function mapFmpSearchResult(row) {
 
 async function searchWithYahoo(query) {
   const params = new URLSearchParams({ q: query, quotesCount: '10', newsCount: '0' });
-  const res = await fetch(buildYahooSearchUrl(params));
+  let res = await fetch(buildYahooSearchUrl(params));
+  if (!res.ok && isProxiedOrigin()) {
+    res = await fetch(`/api/proxy?service=yahoo&path=search&${params}`);
+  }
   if (!res.ok) throw new Error(`Yahoo 검색 HTTP ${res.status}`);
   const data = await res.json();
   const rows = (data.quotes ?? []).filter(q => ['EQUITY','ETF'].includes(String(q.quoteType ?? '').toUpperCase()));
