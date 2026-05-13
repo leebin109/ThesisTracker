@@ -2636,6 +2636,7 @@ function SearchOverlay({ apiSettings, dartCorpMap, onAdd, onClose }) {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [noResults, setNoResults] = useState(false);
   const inputRef = useRef(null);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -2658,9 +2659,13 @@ function SearchOverlay({ apiSettings, dartCorpMap, onAdd, onClose }) {
   };
 
   const doSearch = useCallback(async (q) => {
-    if (!q.trim()) { setResults([]); return; }
+    if (!q.trim()) { setResults([]); setNoResults(false); return; }
+    setNoResults(false);
+    setError('');
     if (isKorean(q)) {
-      setResults(searchKorean(q));
+      const rows = searchKorean(q);
+      setResults(rows);
+      setNoResults(rows.length === 0);
       return;
     }
     setLoading(true); setError('');
@@ -2674,9 +2679,15 @@ function SearchOverlay({ apiSettings, dartCorpMap, onAdd, onClose }) {
         ...(fmp.status === 'fulfilled' ? fmp.value : []),
       ];
       const seen = new Set();
-      setResults(all.filter(r => { const k = `${r.market}:${r.symbol}`; if (seen.has(k)) return false; seen.add(k); return true; }));
+      const deduped = all.filter(r => { const k = `${r.market}:${r.symbol}`; if (seen.has(k)) return false; seen.add(k); return true; });
+      if (!deduped.length && yahoo.status === 'rejected' && (!apiSettings.fmpKey || fmp.status === 'rejected' || !fmp.value?.length)) {
+        throw new Error(yahoo.reason?.message || 'Yahoo search failed');
+      }
+      setResults(deduped);
+      setNoResults(deduped.length === 0);
     } catch (e) {
       setError(e.message);
+      setNoResults(false);
     } finally {
       setLoading(false);
     }
@@ -2722,7 +2733,7 @@ function SearchOverlay({ apiSettings, dartCorpMap, onAdd, onClose }) {
               </span>
             </div>
           ))}
-          {results.length === 0 && query.trim() && !loading && !error && (
+          {noResults && query.trim() && !loading && !error && (
             <div style={{ padding: 16, color: T.inkFaint, fontSize: 11, textAlign: 'center' }}>검색 결과 없음</div>
           )}
         </div>
