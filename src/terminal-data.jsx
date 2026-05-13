@@ -1231,6 +1231,27 @@ function buildOpenDartApiUrl(endpoint, params) {
     : `https://opendart.fss.or.kr/api/${endpoint}.json?${q}`;
 }
 
+function summarizeOpenDartPayloadText(text) {
+  const clean = String(text || '').trim();
+  if (!clean) return '';
+  try {
+    const data = JSON.parse(clean);
+    const parts = [
+      data.status ? `status ${data.status}` : '',
+      data.message || data.error || data.msg || '',
+    ].filter(Boolean);
+    if (parts.length) return parts.join(' · ');
+  } catch {}
+  if (clean.startsWith('<')) return `HTML response "${clean.slice(0, 80).replace(/\s+/g, ' ')}"`;
+  return clean.replace(/\s+/g, ' ').slice(0, 160);
+}
+
+async function describeOpenDartHttpError(res) {
+  let detail = '';
+  try { detail = summarizeOpenDartPayloadText(await res.text()); } catch {}
+  return `HTTP ${res.status}${detail ? ` · ${detail}` : ''}`;
+}
+
 function buildSecApiUrl(path) {
   const clean = String(path || '').replace(/^\/+/, '');
   if (isProxiedOrigin()) return `/api/sec/${clean}`;
@@ -1287,7 +1308,7 @@ async function fetchOpenDartStatements(corpCode, apiSettings) {
       try {
         const params = new URLSearchParams({ crtfc_key: key, corp_code: corpCode, bsns_year: String(year), reprt_code: reportCode, fs_div: fsDiv });
         const res = await fetch(buildOpenDartApiUrl(endpoint, params));
-        if (!res.ok) { errors.push(`${endpoint}/${fsDiv} HTTP ${res.status}`); continue; }
+        if (!res.ok) { errors.push(`${endpoint}/${fsDiv} ${await describeOpenDartHttpError(res)}`); continue; }
         const text = await res.text();
         if (text.trimStart().startsWith('<')) { errors.push(`${endpoint}/${fsDiv}: 프록시 미작동 (HTML 수신: "${text.trim().slice(0, 50).replace(/\s+/g, ' ')}")`); continue; }
         const data = JSON.parse(text);
@@ -1306,7 +1327,7 @@ async function fetchOpenDartStatements(corpCode, apiSettings) {
 async function fetchDartStockInfo(corpCode, apiKey) {
   const params = new URLSearchParams({ crtfc_key: apiKey, corp_code: corpCode });
   const res = await fetch(buildOpenDartApiUrl('stockInfo', params));
-  if (!res.ok) throw new Error(`stockInfo HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`stockInfo ${await describeOpenDartHttpError(res)}`);
   const data = await res.json();
   if (data.status !== '000' || !Array.isArray(data.list)) throw new Error(`stockInfo status ${data.status}`);
   // Sum common shares (보통주) across all rows — field names vary by DART version
@@ -2028,18 +2049,26 @@ async function fetchDartFinancialHistory(stock, apiSettings, dartCorpMap) {
   const corpCode = entry.corpCode;
 
   const currentYear = new Date().getFullYear();
+  const errors = [];
   const fetchYear = async (year) => {
     for (const fsDiv of ['CFS', 'OFS']) {
       for (const endpoint of ['fnlttSinglAcntAll', 'fnlttSinglAcnt']) {
         try {
           const params = new URLSearchParams({ crtfc_key: key, corp_code: corpCode, bsns_year: String(year), reprt_code: '11011', fs_div: fsDiv });
           const res = await fetch(buildOpenDartApiUrl(endpoint, params));
-          if (!res.ok) continue;
+          if (!res.ok) { errors.push(`${year}/${endpoint}/${fsDiv} ${await describeOpenDartHttpError(res)}`); continue; }
           const text = await res.text();
-          if (text.trimStart().startsWith('<')) continue;
+          if (text.trimStart().startsWith('<')) { errors.push(`${year}/${endpoint}/${fsDiv}: ${summarizeOpenDartPayloadText(text)}`); continue; }
           const data = JSON.parse(text);
+          if (data.status && data.status !== '000') {
+            errors.push(`${year}/${endpoint}/${fsDiv}: ${summarizeOpenDartPayloadText(text)}`);
+            continue;
+          }
           if (data.status === '000' && Array.isArray(data.list) && data.list.length) return { rows: data.list, year };
-        } catch {}
+          errors.push(`${year}/${endpoint}/${fsDiv}: empty list`);
+        } catch (e) {
+          errors.push(`${year}/${endpoint}/${fsDiv}: ${e.message}`);
+        }
       }
     }
     return null;
@@ -2091,10 +2120,14 @@ async function fetchDartFinancialHistory(stock, apiSettings, dartCorpMap) {
   };
 
   const seen = new Set();
-  return [...extractFromResult(r1), ...extractFromResult(r2)]
+  const records = [...extractFromResult(r1), ...extractFromResult(r2)]
     .filter(r => { if (seen.has(r.fy)) return false; seen.add(r.fy); return true; })
     .sort((a, b) => b.fy - a.fy)
     .slice(0, 5);
+  if (!records.length && errors.length) {
+    throw new Error(`DART financial history fetch failed · ${errors.slice(0, 6).join(' / ')}`);
+  }
+  return records;
 }
 let secTickerMapPromise = null;
 
@@ -2160,7 +2193,7 @@ async function fetchOpenDartDisclosures(corpCode, openDartKey, sinceISO) {
     page_count: '50',
   });
   const res = await fetch(buildOpenDartApiUrl('list', params));
-  if (!res.ok) throw new Error(`OpenDART list HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`OpenDART list ${await describeOpenDartHttpError(res)}`);
   const data = await res.json();
   // 000 = ok, 013 = no data
   if (data.status && data.status !== '000' && data.status !== '013') {

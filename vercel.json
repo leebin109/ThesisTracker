@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/api/opendart/:path*", "destination": "/api/proxy?service=opendart&path=:path*" },
+    { "source": "/api/opendart/:endpoint", "destination": "https://opendart.fss.or.kr/api/:endpoint.json" },
     { "source": "/api/sec/:path*",      "destination": "/api/proxy?service=sec&path=:path*" },
     { "source": "/api/yahoo/:path*",    "destination": "/api/proxy?service=yahoo&path=:path*" },
     { "source": "/((?!api/).*)",        "destination": "/terminal.html" }

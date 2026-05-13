@@ -2728,6 +2728,9 @@ function SearchOverlay({ apiSettings, dartCorpMap, onAdd, onClose }) {
         ...(yahoo.status === 'fulfilled' ? yahoo.value : []),
         ...(fmp.status === 'fulfilled' ? fmp.value : []),
       ];
+      if (!all.length && yahoo.status === 'rejected' && fmp.status === 'rejected') {
+        throw new Error([yahoo.reason?.message, fmp.reason?.message].filter(Boolean).join(' / ') || 'Search failed');
+      }
       const seen = new Set();
       setResults(all.filter(r => { const k = `${r.market}:${r.symbol}`; if (seen.has(k)) return false; seen.add(k); return true; }));
     } catch (e) {

@@ -259,13 +259,13 @@ async function proxyYahoo(req, res, url) {
     } else if (suffix === 'search' || suffix.startsWith('search')) {
       upstreamUrl = `https://query1.finance.yahoo.com/v1/finance/search${qs ? '?' + qs : ''}${crumbSuffix}`;
 
-    } else if (suffix === 'quote' || suffix.startsWith('quote')) {
-      upstreamUrl = `https://query1.finance.yahoo.com/v7/finance/quote${qs ? '?' + qs : ''}${crumbSuffix}`;
-
     } else if (suffix.startsWith('quoteSummary/')) {
       const sym = suffix.slice('quoteSummary/'.length);
       if (!sym || sym.length > 40 || sym.includes('/')) return writeJson(res, 400, { error: 'invalid symbol' });
       upstreamUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}${qs ? '?' + qs : ''}${crumbSuffix}`;
+
+    } else if (suffix === 'quote') {
+      upstreamUrl = `https://query1.finance.yahoo.com/v7/finance/quote${qs ? '?' + qs : ''}${crumbSuffix}`;
 
     } else if (suffix.startsWith('timeseries/')) {
       const sym = suffix.slice('timeseries/'.length);
