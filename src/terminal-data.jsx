@@ -1494,12 +1494,13 @@ function mapYahooPayload(stock, chart, yahooSym, quote, summary) {
   const revGMethod = Number.isFinite(pct(fin,'revenueGrowth'))    ? 'financialData'   : hasStmts ? 'calculated-stmts' : 'earnings-fallback';
   const epsGMethod = Number.isFinite(pct(fin,'earningsGrowth'))   ? 'financialData'   : 'earnings-fallback';
   const evMethod   = Number.isFinite(raw(kst,'enterpriseToEbitda')) ? 'defaultKeyStatistics' : 'unavailable';
+  const nmMethod   = Number.isFinite(pct(fin,'profitMargins'))    ? 'financialData'   : hasStmts ? 'calculated-stmts' : 'unavailable';
 
   for (const [k, method] of [
     ['per', perMethod], ['pbr', pbrMethod], ['roe', roeMethod], ['opMargin', opMMethod],
     ['fcfMargin', fcfMethod], ['debtRatio', debtMethod], ['currentRatio', crMethod],
     ['revGrowth', revGMethod], ['epsGrowth', epsGMethod], ['evEbitda', evMethod],
-    ['netMargin', method === 'financialData' ? 'financialData' : 'calculated-stmts'],
+    ['netMargin', nmMethod],
     ['opIncomeGrowth', hasStmts ? 'calculated-stmts' : 'unavailable'],
   ]) {
     if (metrics[k] != null && Number.isFinite(toNumber(metrics[k]))) {
