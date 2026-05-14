@@ -297,14 +297,14 @@ function ToastContainer({ toasts }) {
       <div style={{ position: 'fixed', inset: 0, display: centered.length ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', zIndex: 10000, pointerEvents: 'none', padding: 24 }}>
         {centered.slice(-1).map(t => (
           <div key={t.id} style={{
-            padding: '18px 22px', fontSize: 15, fontFamily: T.font,
+            padding: '18px 22px', fontSize: 14, fontFamily: T.fontSans,
             background: '#171008',
             border: `1px solid ${T.yellow}`,
             color: T.yellow,
             maxWidth: 680, lineHeight: 1.6,
             boxShadow: '0 18px 60px rgba(0,0,0,0.45)',
           }}>
-            <div style={{ fontSize: 11, color: T.inkDim, marginBottom: 6, fontWeight: 800, letterSpacing: '0.08em' }}>POLICY STATUS</div>
+            <div style={{ fontSize: 11, color: T.inkDim, marginBottom: 6, fontWeight: 800, letterSpacing: '0.08em', fontFamily: T.font }}>POLICY STATUS</div>
             {t.msg}
           </div>
         ))}
@@ -334,9 +334,9 @@ function isPolicyStatusError(err, apiSettings) {
 }
 
 function formatPolicyStatusMessage(stock, err) {
-  const symbol = stock?.symbol || 'Symbol';
-  const market = stock?.market || 'this market';
-  return `${symbol}: Commercial-Safe mode has no verified free commercial data source for ${market}. Use Personal mode or user import.`;
+  const symbol = stock?.symbol || '종목';
+  const market = stock?.market || '해당 시장';
+  return `${symbol}: Commercial-Safe 모드에서 ${market} 시장에 사용 가능한 무료 상업용 데이터 소스가 없습니다. Personal 모드를 사용하거나 직접 데이터를 가져오세요.`;
 }
 
 // ─── Watchlist panel ─────────────────────────────────────────────────────────
@@ -4520,7 +4520,7 @@ function App({ initialData }) {
       if (isPolicyStatusError(e, apiSettings)) {
         const msg = formatPolicyStatusMessage(s, e);
         setProviderStatus({ kind: 'warn', label: 'POLICY', text: msg });
-        toast(msg, 'policy', 8000);
+        toast(msg, 'policy', 2000);
       } else {
         setProviderStatus({ kind: 'error', label: providerLabels[apiSettings.globalProvider] || 'DATA', text: `${s.symbol}: ${e.message}` });
         toast(`${s.symbol}: ${e.message}`, 'error', 7000);
