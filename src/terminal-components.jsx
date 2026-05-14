@@ -883,6 +883,161 @@ const PitchHeadline = ({ text, onEdit }) => (
   </div>
 );
 
+// ── Policy / limited-state notices ────────────────────────────────────────────
+// These render as "policy/status" panels, not errors. Used wherever the app
+// would otherwise show a red message for data that is *intentionally* held
+// back by Commercial-Safe policy or data-coverage limits.
+const POLICY_TONES = {
+  notice: { accent: T.amber,  bg: 'rgba(255,149,0,0.08)',  border: 'rgba(255,149,0,0.35)' },
+  info:   { accent: T.cyan,   bg: 'rgba(34,211,238,0.08)', border: 'rgba(34,211,238,0.32)' },
+  soft:   { accent: T.inkDim, bg: T.surface2,              border: T.borderSoft           },
+};
+
+const PolicyCtaButton = ({ label, onClick, tone = 'notice' }) => {
+  const c = POLICY_TONES[tone]?.accent || T.amber;
+  return (
+    <button onClick={onClick} style={{
+      background: 'transparent', border: `1px solid ${c}`, color: c,
+      fontFamily: T.font, fontSize: 10.5, fontWeight: 700, letterSpacing: '0.08em',
+      padding: '4px 10px', minHeight: 24, borderRadius: 3, cursor: 'pointer',
+    }}>{label}</button>
+  );
+};
+
+const PolicyNotice = ({ tone = 'notice', label = 'POLICY', title, body, hint, ctas, dense = false }) => {
+  const t = POLICY_TONES[tone] || POLICY_TONES.notice;
+  return (
+    <div role="status" style={{
+      background: t.bg, border: `1px solid ${t.border}`,
+      padding: dense ? '7px 10px' : '10px 12px', borderRadius: 3,
+      display: 'flex', flexDirection: 'column', gap: dense ? 3 : 5,
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        color: t.accent, fontFamily: T.font, fontSize: 10,
+        letterSpacing: '0.14em', fontWeight: 800, textTransform: 'uppercase',
+      }}>
+        <span style={{ width: 5, height: 5, background: t.accent, borderRadius: 1 }}/>
+        <span>{label}</span>
+        {title && <span style={{ color: T.inkDim, letterSpacing: '0.08em', fontWeight: 700 }}>· {title}</span>}
+      </div>
+      {body && (
+        <div style={{ color: T.ink, fontFamily: T.fontSans, fontSize: 12, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+          {body}
+        </div>
+      )}
+      {hint && (
+        <div style={{ color: T.inkFaint, fontFamily: T.fontSans, fontSize: 11, lineHeight: 1.5 }}>
+          {hint}
+        </div>
+      )}
+      {ctas && ctas.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+          {ctas.map((c, i) => (
+            <PolicyCtaButton key={i} label={c.label} onClick={c.onClick} tone={tone}/>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Convenience callable that opens a Trust Page if the helper is mounted.
+const openTrust = (id) => {
+  if (typeof window !== 'undefined' && typeof window.openTrustPage === 'function') {
+    window.openTrustPage(id);
+  }
+};
+
+const PriceRequiredState = ({ metrics = [], dense = false }) => (
+  <PolicyNotice
+    tone="notice"
+    title="PRICE NEEDED"
+    body="가격 기반 지표 계산에 사용자 입력 가격이 필요합니다."
+    hint={metrics.length ? `필요한 지표: ${metrics.join(', ')}` : '가격 입력 기능은 준비 중입니다. 우선 SEC 공시 기반 재무지표만 사용해 판단해 주세요.'}
+    dense={dense}
+  />
+);
+
+const PersonalOnlyState = ({ feature, dense = false }) => (
+  <PolicyNotice
+    tone="notice"
+    title="PERSONAL MODE ONLY"
+    body={`이 기능은 Personal 모드에서만 사용할 수 있습니다.${feature ? ` (${feature})` : ''}`}
+    hint="Commercial-Safe 모드에서는 이용 조건이 불명확한 데이터 소스 호출을 차단합니다."
+    ctas={[{ label: '데이터 정책 보기', onClick: () => openTrust('dataPolicy') }]}
+    dense={dense}
+  />
+);
+
+const CommercialSourceNeededState = ({ dense = false }) => (
+  <PolicyNotice
+    tone="notice"
+    title="COMMERCIAL SOURCE NEEDED"
+    body="현재 Commercial-Safe 모드에서는 검증된 상업용 가격 데이터가 없습니다."
+    hint="SEC 공시 기반 재무지표는 표시되며, 가격 기반 지표는 사용자 입력 가격이 필요합니다."
+    ctas={[{ label: '데이터 정책 보기', onClick: () => openTrust('dataPolicy') }]}
+    dense={dense}
+  />
+);
+
+const LimitedMetricsState = ({
+  usedCount, totalCount, minCount,
+  missing = [], priceNeeded = [], dense = false,
+}) => {
+  const head = (Number.isFinite(usedCount) && Number.isFinite(totalCount))
+    ? `현재 계산 가능한 지표가 ${usedCount}/${totalCount}개 입니다.${minCount ? ` (종합 점수는 ${minCount}개 이상부터 표시)` : ''}`
+    : '현재 계산 가능한 지표가 부족해 종합 점수를 제한적으로 표시합니다.';
+  const hintParts = [
+    priceNeeded.length ? `가격 필요: ${priceNeeded.join(', ')}` : null,
+    missing.length ? `누락: ${missing.slice(0, 6).join(', ')}` : null,
+  ].filter(Boolean);
+  return (
+    <PolicyNotice
+      tone="notice"
+      title="LIMITED METRICS"
+      body={head + '\n확보된 지표와 누락 사유를 확인하세요.'}
+      hint={hintParts.length ? hintParts.join(' · ') : null}
+      ctas={[{ label: '점수 산정 방식 보기', onClick: () => openTrust('methodology') }]}
+      dense={dense}
+    />
+  );
+};
+
+const NoSafeDataState = ({ symbol, dense = false }) => (
+  <PolicyNotice
+    tone="notice"
+    title="NO SAFE DATA"
+    body={`현재 모드에서 ${symbol ? `${symbol} 종목으로 ` : ''}안전하게 표시할 수 있는 데이터가 없습니다.`}
+    hint="Personal 모드로 전환하거나, SEC EDGAR · OpenDART 기반으로 조회 가능한 종목을 사용하세요."
+    ctas={[{ label: '데이터 정책 보기', onClick: () => openTrust('dataPolicy') }]}
+    dense={dense}
+  />
+);
+
+const SecFallbackState = ({ onTrigger, dense = false }) => (
+  <PolicyNotice
+    tone="info"
+    title="SEC FALLBACK AVAILABLE"
+    body="Commercial-Safe 모드에서는 Yahoo 검색 대신 SEC EDGAR 기준으로 미국 티커를 조회합니다."
+    ctas={onTrigger ? [{ label: 'SEC 기준으로 조회', onClick: onTrigger }] : null}
+    dense={dense}
+  />
+);
+
+const DataCoverageState = ({ used, total, commercialSafe, grade, missing = [], dense = true }) => {
+  const head = `반영된 지표 ${used ?? '?'} / ${total ?? '?'}${Number.isFinite(commercialSafe) ? ` · Commercial-Safe ${commercialSafe} / ${used ?? '?'}` : ''}${grade ? ` · Grade ${grade}` : ''}`;
+  return (
+    <PolicyNotice
+      tone="soft"
+      title="DATA COVERAGE"
+      body={head}
+      hint={missing.length ? `누락: ${missing.slice(0, 6).join(', ')}` : null}
+      dense={dense}
+    />
+  );
+};
+
 window.T = T;
 window.Cell = Cell;
 window.Stat = Stat;
@@ -900,3 +1055,12 @@ window.sign = sign;
 window.colorForChange = colorForChange;
 window.safeFixed = safeFixed;
 window.kbdStyle = kbdStyle;
+window.PolicyNotice = PolicyNotice;
+window.PolicyCtaButton = PolicyCtaButton;
+window.PriceRequiredState = PriceRequiredState;
+window.PersonalOnlyState = PersonalOnlyState;
+window.CommercialSourceNeededState = CommercialSourceNeededState;
+window.LimitedMetricsState = LimitedMetricsState;
+window.NoSafeDataState = NoSafeDataState;
+window.SecFallbackState = SecFallbackState;
+window.DataCoverageState = DataCoverageState;

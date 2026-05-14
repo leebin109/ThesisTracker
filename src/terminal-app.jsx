@@ -1,5 +1,6 @@
 /* global React, ReactDOM */
 /* global T, Cell, Stat, ScoreRing, ScoreBar, Spark, PriceChart, CommandBar, TickerRail, HeroStrip, PitchHeadline */
+/* global PolicyNotice, PolicyCtaButton, PriceRequiredState, PersonalOnlyState, CommercialSourceNeededState, LimitedMetricsState, NoSafeDataState, SecFallbackState, DataCoverageState */
 /* global fmtNum, fmtPx, sign, colorForChange, safeFixed, kbdStyle */
 /* global TT_KEY, DEFAULT_STOCKS, DEFAULT_WATCHLIST_IDS, DEFAULT_API_SETTINGS, DEFAULT_DART_CORP_MAP, DEFAULT_MARKET_TICKERS */
 /* global DEFAULT_ALERT_SETTINGS, ALERT_RETENTION_DAYS */
@@ -326,6 +327,192 @@ function ToastContainer({ toasts }) {
   );
 }
 
+// ─── Trust Pages (Methodology · Data Policy · Disclaimer) ────────────────────
+const TRUST_PAGES = {
+  methodology: {
+    id: 'methodology',
+    hash: 'methodology',
+    label: 'Methodology',
+    title: 'Methodology — 점수 산정 방식',
+    sections: [
+      {
+        heading: '이 서비스는 무엇인가',
+        paragraphs: [
+          'ThesisTrack은 투자 추천 서비스가 아니라 분석 보조 도구입니다.',
+          '여기서 보여드리는 점수는 특정 종목의 매수·매도 의견이 아니며, 수익성·성장성·재무 안정성·가격 부담·리스크 신호 등을 종합해 투자자가 스스로 판단할 수 있도록 돕는 참고 지표입니다.',
+        ],
+      },
+      {
+        heading: '점수는 어떻게 만들어지는가',
+        paragraphs: [
+          '여러 재무·가격·리스크 지표를 조합한 참고값입니다. 5개 차원(PROFITABILITY · STABILITY · GROWTH · VALUATION · RISK)을 가중합으로 묶고, RISK 플래그가 켜질 때마다 일정한 패널티가 적용됩니다.',
+          '시장 표준편차 기반 z-score를 사용하므로, 사용자의 워치리스트 표본에 따라 점수가 흔들리지 않습니다.',
+        ],
+      },
+      {
+        heading: '모든 지표가 항상 계산되는 것은 아닙니다',
+        paragraphs: [
+          'SEC EDGAR · OpenDART 같은 공시 기반 데이터는 매년 갱신되며, 일부 기업이나 시장에서는 일부 지표가 누락될 수 있습니다.',
+          '데이터 coverage가 낮으면 화면에 "LIMITED METRICS" 상태가 표시됩니다. 종합 점수는 일정 개수 이상의 scoring metric이 있을 때만 표시됩니다.',
+          '가격 데이터가 없으면 PER · PBR · MarketCap 등 가격 기반 지표는 "PRICE NEEDED" 상태로 표시되고 점수에서도 제외됩니다.',
+        ],
+      },
+      {
+        heading: '어떻게 사용하길 권하나',
+        paragraphs: [
+          '지표는 기업 간 비교와 자기 판단을 돕기 위한 것입니다. 점수만 보고 결정하지 말고, 실제 공시·재무제표·산업 컨텍스트를 함께 보세요.',
+          '자세한 공식과 팩터 산출 방식은 저장소의 SCORING_METHODOLOGY.md를 참고하세요.',
+        ],
+      },
+    ],
+  },
+  dataPolicy: {
+    id: 'dataPolicy',
+    hash: 'data-policy',
+    label: 'Data Policy',
+    title: 'Data Policy — 데이터 정책',
+    sections: [
+      {
+        heading: '두 가지 모드',
+        paragraphs: [
+          'Personal 모드: Yahoo Finance · FMP · Alpha Vantage 등 개인 사용 편의 소스를 사용할 수 있습니다. 검색·차트·새로고침·매크로·뉴스 기능이 그대로 동작합니다.',
+          'Commercial-Safe 모드: 이용 조건이 불명확하거나 비상업/계약 필요 소스의 호출을 차단합니다. Yahoo · FMP · Alpha Vantage · Google-like news 호출을 하지 않습니다.',
+        ],
+      },
+      {
+        heading: '어떤 데이터를 쓰나',
+        paragraphs: [
+          '미국 기업 재무 데이터는 SEC EDGAR (companyfacts XBRL)를 기반으로 처리합니다.',
+          '국내 기업은 OpenDART와 검증된 endpoint를 중심으로 처리합니다.',
+          '가격 데이터가 없으면 사용자 입력 가격 또는 검증된 상업용 가격 소스가 필요합니다. 이 경우 가격 기반 지표는 "PRICE NEEDED" 상태로 표시됩니다.',
+        ],
+      },
+      {
+        heading: '안전 기준',
+        paragraphs: [
+          'unknown source는 safe로 간주하지 않습니다. DATA_ENDPOINT_REGISTRY에 등록되지 않은 endpoint는 Commercial-Safe 모드에서 default-block 됩니다.',
+          '캐시 데이터도 source · license meta 기준으로 scoringData 사용 여부를 판단합니다. 비안전 캐시가 점수에 섞이지 않도록 displayData / scoringData가 분리되어 있습니다.',
+        ],
+      },
+      {
+        heading: '주의',
+        paragraphs: [
+          'Commercial-Safe 모드는 상업적으로 부적합하거나 이용 조건이 불명확한 데이터 소스 호출을 차단하는 운영 모드입니다.',
+          '이 모드는 법률 자문이나 완전한 상업 사용 보장을 의미하지 않으며, 최종 상업 출시 전 각 데이터 제공자의 약관 확인이 필요합니다.',
+        ],
+      },
+    ],
+  },
+  disclaimer: {
+    id: 'disclaimer',
+    hash: 'disclaimer',
+    label: 'Disclaimer',
+    title: 'Disclaimer — 면책 조항',
+    sections: [
+      {
+        heading: '본 서비스는 정보 제공 도구입니다',
+        paragraphs: [
+          '본 서비스의 모든 정보는 투자 판단을 돕기 위한 참고 자료입니다.',
+          '특정 종목의 매수·매도 추천이나 투자자문을 제공하지 않으며, 모든 투자 판단과 그 결과에 대한 책임은 사용자 본인에게 있습니다.',
+        ],
+      },
+      {
+        heading: '데이터와 점수의 한계',
+        paragraphs: [
+          '데이터는 지연되거나 오류가 있을 수 있습니다. 공시 기반 데이터도 정정·재공시가 발생할 수 있습니다.',
+          '점수와 시나리오(Bull · Base · Bear, DCF 등)는 가정에 기반한 참고 지표이며, 미래 수익을 보장하지 않습니다.',
+        ],
+      },
+      {
+        heading: '법적/세무/투자 자문이 아닙니다',
+        paragraphs: [
+          '본 서비스는 법률·세무·투자자문 서비스가 아닙니다. 실제 의사결정 전에는 자격 있는 전문가의 자문을 별도로 받으시기 바랍니다.',
+        ],
+      },
+    ],
+  },
+};
+
+function TrustPageOverlay({ pageId, onClose, onNavigate }) {
+  if (!pageId || !TRUST_PAGES[pageId]) return null;
+  const page = TRUST_PAGES[pageId];
+  return (
+    <div
+      onClick={onClose}
+      onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
+      tabIndex={-1}
+      ref={(el) => { if (el) el.focus(); }}
+      style={{ position: 'fixed', inset: 0, zIndex: 10002, background: 'rgba(0,0,0,0.78)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, outline: 'none' }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: 'min(760px, 100%)', maxHeight: 'calc(100dvh - 48px)',
+        background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4,
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        boxShadow: '0 18px 60px rgba(0,0,0,0.55)',
+      }}>
+        {/* Header */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px',
+          background: T.surface2, borderBottom: `1px solid ${T.border}`,
+        }}>
+          <span style={{ width: 6, height: 6, background: T.amber, borderRadius: 1 }}/>
+          <span style={{ color: T.amber, fontFamily: T.font, fontSize: 11, letterSpacing: '0.18em', fontWeight: 800 }}>
+            TRUST · {page.label.toUpperCase()}
+          </span>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+            {Object.values(TRUST_PAGES).map(p => (
+              <button key={p.id} onClick={() => onNavigate(p.id)}
+                style={{
+                  background: p.id === pageId ? `${T.amber}22` : 'transparent',
+                  border: `1px solid ${p.id === pageId ? T.amber : T.border}`,
+                  color: p.id === pageId ? T.amber : T.inkDim,
+                  fontFamily: T.font, fontSize: 10.5, fontWeight: 700, letterSpacing: '0.08em',
+                  padding: '4px 10px', borderRadius: 3, cursor: 'pointer',
+                }}>
+                {p.label.toUpperCase()}
+              </button>
+            ))}
+            <button onClick={onClose}
+              style={{ background: 'transparent', border: 'none', color: T.inkFaint,
+                fontSize: 18, cursor: 'pointer', lineHeight: 1, padding: '0 6px' }}>×</button>
+          </div>
+        </div>
+        {/* Body */}
+        <div style={{ padding: '18px 24px', overflowY: 'auto', flex: '1 1 auto', minHeight: 0 }}>
+          <div style={{ fontFamily: T.fontSans, color: T.ink, fontSize: 14, lineHeight: 1.55, fontWeight: 700, marginBottom: 14 }}>
+            {page.title}
+          </div>
+          {page.sections.map((sec, i) => (
+            <section key={i} style={{ marginBottom: 18 }}>
+              <div style={{
+                fontFamily: T.font, color: T.cyan, fontSize: 10.5,
+                letterSpacing: '0.14em', fontWeight: 800, textTransform: 'uppercase',
+                marginBottom: 6,
+              }}>
+                {sec.heading}
+              </div>
+              {sec.paragraphs.map((p, j) => (
+                <p key={j} style={{
+                  margin: '0 0 8px', color: T.inkDim, fontFamily: T.fontSans,
+                  fontSize: 13, lineHeight: 1.65, whiteSpace: 'pre-wrap',
+                }}>
+                  {p}
+                </p>
+              ))}
+            </section>
+          ))}
+          <div style={{
+            marginTop: 8, paddingTop: 12, borderTop: `1px solid ${T.borderSoft}`,
+            color: T.inkFaint, fontFamily: T.fontSans, fontSize: 11, lineHeight: 1.5,
+          }}>
+            본 페이지는 사용 약관이나 법적 효력을 가지는 계약 문서가 아닙니다. 데이터 정책의 운영 상태는 저장소의 HANDOFF.md와 CLAUDE.md, 그리고 npm run verify 결과를 통해 확인할 수 있습니다.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function isPolicyStatusError(err, apiSettings) {
   if (err?.personalOnly) return true;
   if (err?.code === 'SOURCE_POLICY_BLOCKED' || err?.code === 'SOURCE_POLICY_UNKNOWN') return true;
@@ -455,15 +642,14 @@ function ScoreBreakdown({ scores, activeDim, onDimClick }) {
     <Cell label="SCORE BREAKDOWN" accent={T.amber} style={{ height: '100%' }}>
       <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         {scores.scoreStatus === 'limited_metrics' && (
-          <div style={{ fontSize: 9.5, color: T.yellow, background: `${T.yellow}12`, border: `1px solid ${T.yellow}44`, padding: '7px 8px', lineHeight: 1.5 }}>
-            <div style={{ fontWeight: 800, letterSpacing: '0.08em' }}>LIMITED SCORE</div>
-            <div>SEC data partially available. Overall score is withheld until {scores.metricCoverage?.minScoringMetricCount || 4}+ scoring metrics are present.</div>
-            {scores.metricCoverage?.missingCoreMetricLabels?.length > 0 && (
-              <div style={{ color: T.inkFaint, marginTop: 3 }}>
-                Missing: {scores.metricCoverage.missingCoreMetricLabels.slice(0, 6).join(', ')}
-              </div>
-            )}
-          </div>
+          <LimitedMetricsState
+            usedCount={scores.metricCoverage?.usedCount}
+            totalCount={scores.metricCoverage?.totalCoreCount}
+            minCount={scores.metricCoverage?.minScoringMetricCount || 4}
+            missing={scores.metricCoverage?.missingCoreMetricLabels || []}
+            priceNeeded={scores.metricCoverage?.priceRequiredMetricLabels || []}
+            dense
+          />
         )}
         {dims.map(d => {
           const v = scores[d.key];
@@ -1742,21 +1928,18 @@ function MetricsGrid({ metrics, metricsMeta, metricCoverage, currency, activeDim
         )}
 
         {showCommercialWarning && (
-          <div style={{ fontSize: 9, color: T.yellow, background: `${T.yellow}12`, border: `1px solid ${T.yellow}44`, padding: '4px 8px' }}>
-            ⚠ This score uses one or more non-commercial-safe data points.
-          </div>
+          <CommercialSourceNeededState dense/>
         )}
 
         {metricCoverage?.status === 'limited_metrics' && (
-          <div style={{ fontSize: 9, color: T.yellow, background: `${T.yellow}12`, border: `1px solid ${T.yellow}44`, padding: '5px 8px', lineHeight: 1.55 }}>
-            SEC data partially available: {metricCoverage.usedCount} / {metricCoverage.totalCoreCount} scoring metrics.
-            {metricCoverage.priceRequiredMetricLabels?.length > 0 && (
-              <span> Price needed for {metricCoverage.priceRequiredMetricLabels.join(', ')}.</span>
-            )}
-            {metricCoverage.missingCoreMetricLabels?.length > 0 && (
-              <span> Missing: {metricCoverage.missingCoreMetricLabels.slice(0, 6).join(', ')}.</span>
-            )}
-          </div>
+          <LimitedMetricsState
+            usedCount={metricCoverage.usedCount}
+            totalCount={metricCoverage.totalCoreCount}
+            minCount={metricCoverage.minScoringMetricCount || 4}
+            missing={metricCoverage.missingCoreMetricLabels || []}
+            priceNeeded={metricCoverage.priceRequiredMetricLabels || []}
+            dense
+          />
         )}
 
         {categories.map(cat => {
@@ -3209,6 +3392,23 @@ function SettingsDataPanel({
             <div style={{ color: s.dataMode === 'commercialSafe' ? T.green : T.yellow, fontSize: 11, marginBottom: 8, fontWeight: 700 }}>
               {s.dataMode === 'commercialSafe' ? 'Commercial-Safe policy active' : 'Personal data mode active'}
             </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+              {[
+                { id: 'methodology', label: 'Methodology' },
+                { id: 'dataPolicy',  label: 'Data Policy' },
+                { id: 'disclaimer',  label: 'Disclaimer' },
+              ].map(link => (
+                <button key={link.id}
+                  onClick={() => window.openTrustPage?.(link.id)}
+                  style={{
+                    background: 'transparent', border: `1px solid ${T.border}`,
+                    color: T.inkDim, fontFamily: T.font, fontSize: 10, fontWeight: 700,
+                    letterSpacing: '0.08em', padding: '3px 8px', cursor: 'pointer', borderRadius: 3,
+                  }}>
+                  {link.label.toUpperCase()}
+                </button>
+              ))}
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 4, marginBottom: 10 }}>
               {sourcePolicyRows.map(src => (
                 <React.Fragment key={src.id}>
@@ -3910,7 +4110,26 @@ function StatusBar({ stocks, watchlistIds, fetchStatus, refreshing, userEmail, s
       {avgScore !== null && <span>avg score: {avgScore}pt</span>}
       {overdue > 0 && <span style={{ color: T.red }}>⚠ {overdue} review overdue</span>}
       {refreshing && <span style={{ color: T.amber }}>⟳ {fetchStatus || 'fetching...'}</span>}
-      <span style={{ marginLeft: 'auto' }}>{new Date().toISOString().slice(0, 10)}</span>
+      <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+        {[
+          { id: 'methodology', label: 'Methodology' },
+          { id: 'dataPolicy',  label: 'Data Policy' },
+          { id: 'disclaimer',  label: 'Disclaimer' },
+        ].map(link => (
+          <button key={link.id}
+            onClick={() => window.openTrustPage?.(link.id)}
+            style={{
+              background: 'none', border: 'none', color: T.inkFaint,
+              fontFamily: T.fontSans, fontSize: 10.5, cursor: 'pointer',
+              padding: 0, letterSpacing: '0.02em',
+            }}
+            title={`${link.label} 열기`}>
+            {link.label}
+          </button>
+        ))}
+        <span style={{ color: T.borderSoft }}>|</span>
+        <span>{new Date().toISOString().slice(0, 10)}</span>
+      </span>
       {userEmail && (
         <>
           {syncStatus === 'saving' && <span style={{ color: T.amber }}>SYNC↑</span>}
@@ -4128,6 +4347,36 @@ function App({ initialData }) {
   const [settingsOpen, setSettingsOpen]   = useState(false);
   const [pitchEditId, setPitchEditId]     = useState(null);
   const [showHelp, setShowHelp]           = useState(false);
+  const [trustView, setTrustView]         = useState(null); // null | 'methodology' | 'dataPolicy' | 'disclaimer'
+  const openTrustPage = useCallback((id) => {
+    const map = { methodology: '#methodology', dataPolicy: '#data-policy', disclaimer: '#disclaimer' };
+    setTrustView(id || null);
+    if (id && map[id] && typeof window !== 'undefined') {
+      try { window.history.replaceState(null, '', map[id]); } catch {}
+    }
+  }, []);
+  const closeTrustPage = useCallback(() => {
+    setTrustView(null);
+    if (typeof window !== 'undefined') {
+      try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch {}
+    }
+  }, []);
+  useEffect(() => {
+    window.openTrustPage = openTrustPage;
+    window.closeTrustPage = closeTrustPage;
+    const applyHash = () => {
+      const raw = (window.location.hash || '').replace(/^#/, '').toLowerCase();
+      const hashMap = { 'methodology': 'methodology', 'data-policy': 'dataPolicy', 'datapolicy': 'dataPolicy', 'disclaimer': 'disclaimer' };
+      if (hashMap[raw]) setTrustView(hashMap[raw]);
+    };
+    applyHash();
+    window.addEventListener('hashchange', applyHash);
+    return () => {
+      window.removeEventListener('hashchange', applyHash);
+      if (window.openTrustPage === openTrustPage) delete window.openTrustPage;
+      if (window.closeTrustPage === closeTrustPage) delete window.closeTrustPage;
+    };
+  }, [openTrustPage, closeTrustPage]);
   const [confirmDialog, setConfirmDialog] = useState(null); // { msg, tone } | null
   const confirmResolverRef = useRef(null);
   const appConfirm = useCallback((msg, opts = {}) => new Promise(resolve => {
@@ -5131,6 +5380,9 @@ function App({ initialData }) {
             </div>
           </div>
         </div>
+      )}
+      {trustView && (
+        <TrustPageOverlay pageId={trustView} onClose={closeTrustPage} onNavigate={openTrustPage}/>
       )}
       <CommandBar
         symbol={stock.symbol}
