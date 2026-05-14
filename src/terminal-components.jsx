@@ -19,6 +19,7 @@ const T = {
   yellow:    '#eab308',
   magenta:   '#c084fc',
   font:      "'JetBrains Mono', ui-monospace, monospace",
+  fontSans:  "Pretendard, Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif",
 };
 
 // ── Technical indicator math ─────────────────────────────────────────────────
@@ -109,11 +110,11 @@ const Cell = ({ label, children, accent, style }) => (
   }}>
     {label && (
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 8, height: 22, padding: '0 10px',
+        display: 'flex', alignItems: 'center', gap: 8, height: 26, padding: '0 12px',
         borderBottom: `1px solid ${T.borderSoft}`, background: T.surface2,
-        fontSize: 10.5, fontWeight: 700, letterSpacing: '0.12em',
+        fontSize: 11.5, fontWeight: 700, letterSpacing: '0.12em',
         color: accent || T.inkFaint, textTransform: 'uppercase',
-        flex: '0 0 auto',
+        flex: '0 0 auto', fontFamily: T.font,
       }}>
         {accent && <span style={{ width: 4, height: 4, background: accent, borderRadius: 1 }}/>}
         {label}
@@ -630,9 +631,9 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
   const statusColor = providerStatus?.kind === 'ok' ? T.green : providerStatus?.kind === 'warn' ? T.yellow : providerStatus?.kind === 'error' ? T.red : T.inkFaint;
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 12, height: 34, padding: '0 12px 0 18px',
+      display: 'flex', alignItems: 'center', gap: 12, height: 40, padding: '0 12px 0 18px',
       background: T.surface, borderBottom: `1px solid ${T.border}`,
-      whiteSpace: 'nowrap', overflow: 'hidden',
+      whiteSpace: 'nowrap', overflow: 'hidden', flex: '0 0 auto',
     }}>
       {/* Logo */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 auto' }}>
@@ -657,14 +658,14 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
         onClick={onSearch}
         style={{
           flex: '0 1 640px', minWidth: 200,
-          height: 22, background: T.bg, border: `1px solid ${T.border}`,
-          display: 'flex', alignItems: 'center', gap: 8, padding: '0 10px',
-          cursor: 'pointer', textAlign: 'left',
+          height: 30, background: T.bg, border: `1px solid ${T.border}`,
+          display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px',
+          cursor: 'pointer', textAlign: 'left', borderRadius: 3,
         }}>
-        <span style={{ fontSize: 12, color: T.inkFaint, lineHeight: 1 }}>⌕</span>
-        <span style={{ fontSize: 10.5, color: T.inkFaint, letterSpacing: '0.03em', fontFamily: T.font }}>
+        <span style={{ fontSize: 13, color: T.inkFaint, lineHeight: 1 }}>⌕</span>
+        <span style={{ fontSize: 12, color: T.inkFaint, letterSpacing: '0.02em', fontFamily: T.fontSans }}>
           종목 검색 &nbsp;
-          <span style={{ opacity: 0.55 }}>— <kbd style={{ ...kbdStyle, fontSize: 10.5 }}>/</kbd> 를 누르면 바로 활성화</span>
+          <span style={{ opacity: 0.55 }}>— <kbd style={{ ...kbdStyle, fontSize: 11 }}>/</kbd> 를 누르면 바로 활성화</span>
         </span>
       </button>
 
@@ -684,9 +685,10 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
             background: alertCount > 0 ? T.amber : 'transparent',
             border: `1px solid ${alertCount > 0 ? T.amber : T.border}`,
             color: alertCount > 0 ? '#000' : T.inkDim,
-            fontFamily: T.font, fontSize: 11, fontWeight: alertCount > 0 ? 800 : 500,
-            cursor: 'pointer', padding: '3px 10px', letterSpacing: '0.08em',
+            fontFamily: T.font, fontSize: 11.5, fontWeight: alertCount > 0 ? 800 : 500,
+            cursor: 'pointer', padding: '5px 12px', letterSpacing: '0.08em',
             display: 'flex', alignItems: 'center', gap: 6, flex: '0 0 auto',
+            minHeight: 28, borderRadius: 3,
           }}>
           <span>ALERT</span>
           {alertCount > 0 && (
@@ -699,8 +701,8 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
       )}
       {onSettings && (
         <button onClick={onSettings} style={{ background: 'transparent', border: `1px solid ${T.border}`,
-          color: T.inkDim, fontFamily: T.font, fontSize: 11, cursor: 'pointer',
-          padding: '3px 10px', letterSpacing: '0.08em' }}>
+          color: T.inkDim, fontFamily: T.font, fontSize: 11.5, cursor: 'pointer',
+          padding: '5px 12px', letterSpacing: '0.08em', minHeight: 28, borderRadius: 3 }}>
           API
         </button>
       )}
@@ -722,8 +724,8 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
 };
 
 const kbdStyle = {
-  display: 'inline-block', padding: '1px 5px', background: T.surface2,
-  border: `1px solid ${T.border}`, borderRadius: 2, fontSize: 11, fontFamily: T.font, color: T.inkDim, margin: '0 2px',
+  display: 'inline-block', padding: '2px 6px', background: T.surface2,
+  border: `1px solid ${T.border}`, borderRadius: 3, fontSize: 11.5, fontFamily: T.font, color: T.inkDim, margin: '0 2px',
 };
 
 const Pulse = () => (
@@ -734,12 +736,12 @@ const Pulse = () => (
 );
 
 const TickerRail = ({ tickers }) => (
-  <div style={{ height: 26, display: 'flex', alignItems: 'center', gap: 0,
-    background: T.bg, borderBottom: `1px solid ${T.border}`, overflow: 'hidden' }}>
+  <div style={{ height: 28, display: 'flex', alignItems: 'center', gap: 0,
+    background: T.bg, borderBottom: `1px solid ${T.border}`, overflow: 'hidden', flex: '0 0 auto' }}>
     {tickers.map((t, i) => (
       <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6,
         padding: '0 14px', borderRight: `1px solid ${T.borderSoft}`,
-        fontSize: 10.5, fontVariantNumeric: 'tabular-nums' }}>
+        fontSize: 11, fontVariantNumeric: 'tabular-nums', fontFamily: T.font }}>
         <span style={{ color: T.inkDim, fontWeight: 600 }}>{t.symbol}</span>
         <span style={{ color: T.ink }}>{t.val}</span>
         {t.change != null && (
@@ -859,21 +861,22 @@ const HeroStrip = ({ stock, onRefresh, refreshing }) => {
 const PitchHeadline = ({ text, onEdit }) => (
   <div style={{
     padding: '10px 20px', background: T.bg, borderBottom: `1px solid ${T.border}`,
-    display: 'flex', alignItems: 'center', gap: 12, minWidth: 0,
+    display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '0 0 auto',
   }}>
     <div style={{ fontSize: 10, color: T.amber, letterSpacing: '0.18em', fontWeight: 700,
-      writingMode: 'vertical-rl', transform: 'rotate(180deg)', flex: '0 0 auto' }}>PITCH</div>
+      writingMode: 'vertical-rl', transform: 'rotate(180deg)', flex: '0 0 auto', fontFamily: T.font }}>PITCH</div>
     <div style={{ width: 2, alignSelf: 'stretch', background: T.amber, boxShadow: `0 0 8px ${T.amber}88`, flex: '0 0 auto' }}/>
-    <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 16, fontWeight: 500, color: T.ink,
-      lineHeight: 1.35, letterSpacing: '-0.01em', flex: 1, minWidth: 0,
+    <div style={{ fontFamily: T.fontSans, fontSize: 16, fontWeight: 500, color: T.ink,
+      lineHeight: 1.4, letterSpacing: '-0.005em', flex: 1, minWidth: 0,
       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
       title={text}>
       "{text || '—'}"
     </div>
     {onEdit && (
       <button onClick={onEdit} style={{ background: 'transparent', border: `1px solid ${T.border}`,
-        color: T.inkDim, fontFamily: T.font, fontSize: 10.5, cursor: 'pointer',
-        padding: '4px 10px', letterSpacing: '0.1em', whiteSpace: 'nowrap' }}>
+        color: T.inkDim, fontFamily: T.font, fontSize: 11, cursor: 'pointer',
+        padding: '5px 12px', letterSpacing: '0.1em', whiteSpace: 'nowrap',
+        minHeight: 28, borderRadius: 3 }}>
         EDIT PITCH
       </button>
     )}

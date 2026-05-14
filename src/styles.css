@@ -1,3 +1,19 @@
+/* ── Design tokens ─────────────────────────────────────────────────────────── */
+:root {
+  --font-sans: Pretendard, Inter, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas,
+    "Liberation Mono", ui-monospace, Menlo, monospace;
+
+  --font-xs:    11px;
+  --font-sm:    12px;
+  --font-base:  13px;
+  --font-body:  14px;
+  --font-value: 18px;
+  --font-large: 22px;
+  --font-title: clamp(20px, 1.8vw, 28px);
+}
+
 *, *::before, *::after { box-sizing: border-box; }
 
 html, body {
@@ -5,22 +21,40 @@ html, body {
   padding: 0;
 }
 
+html, body {
+  min-height: 100vh;        /* fallback */
+  min-height: 100dvh;
+}
+
 body {
   background: #07090b;
   color: #e5e7eb;
-  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-sans);
   font-feature-settings: 'liga' 0, 'calt' 0;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  min-height: 100vh;
+  font-size: var(--font-body);
+  line-height: 1.45;
 }
 
 #root {
-  height: 100vh;
+  height: 100vh;            /* fallback */
+  height: 100dvh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
+/* ── Mono utility for numeric / code / ticker cells ────────────────────────── */
+.numeric,
+.terminal-code,
+.metric-value,
+.ticker-cell {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Selection / scrollbar ─────────────────────────────────────────────────── */
 ::selection {
   background: rgba(255, 149, 0, 0.35);
   color: #fff;
@@ -44,14 +78,39 @@ body {
   background: #374151;
 }
 
+/* ── Baseline click target for unstyled native controls ────────────────────── */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+/* ── Notebook-class screens (1440x900 and below, low-height laptops) ───────── */
+@media (max-width: 1440px), (max-height: 820px) {
+  :root {
+    --font-base: 12.5px;
+    --font-body: 13.5px;
+  }
+}
+
+@media (max-width: 1024px) {
+  :root {
+    --font-base: 12px;
+    --font-body: 13px;
+  }
+}
+
+/* ── Boot error fallback ───────────────────────────────────────────────────── */
 .boot-error {
   min-height: 100vh;
+  min-height: 100dvh;
   background: #07090b;
   color: #e5e7eb;
   display: grid;
   place-items: center;
   padding: 24px;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: var(--font-sans);
 }
 
 .boot-error__panel {
@@ -67,6 +126,7 @@ body {
   letter-spacing: .14em;
   font-weight: 800;
   margin-bottom: 10px;
+  font-family: var(--font-mono);
 }
 
 .boot-error__title {
@@ -80,4 +140,5 @@ body {
   font-size: 12px;
   line-height: 1.6;
   white-space: pre-wrap;
+  font-family: var(--font-mono);
 }

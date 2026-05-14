@@ -3966,7 +3966,7 @@ function LoginScreen({ onSession }) {
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: T.bg, display: 'grid', placeItems: 'center', padding: 24, fontFamily: T.font }}>
+    <div style={{ minHeight: '100dvh', background: T.bg, display: 'grid', placeItems: 'center', padding: 24, fontFamily: T.fontSans }}>
       <div style={{ width: 'min(380px, 100%)', border: `1px solid ${T.border}`, background: T.surface, padding: 28 }}>
         <div style={{ color: T.amber, fontSize: 11, letterSpacing: '0.14em', fontWeight: 800, marginBottom: 6 }}>THESISTRACK</div>
         <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 22 }}>
@@ -4018,13 +4018,13 @@ class AppErrorBoundary extends React.Component {
     const msg = this.state.error?.message || 'Unknown render error';
     return (
       <div style={{
-        minHeight: '100vh',
+        minHeight: '100dvh',
         background: T.bg,
         color: T.ink,
         display: 'grid',
         placeItems: 'center',
         padding: 24,
-        fontFamily: T.font,
+        fontFamily: T.fontSans,
       }}>
         <div style={{ width: 'min(720px, 100%)', border: `1px solid ${T.border}`, background: T.surface, padding: 22 }}>
           <div style={{ color: T.red, fontSize: 11, letterSpacing: '0.14em', fontWeight: 800, marginBottom: 10 }}>
@@ -4942,7 +4942,7 @@ function App({ initialData }) {
   // ── Auth gates (placed after all hooks) ───────────────────────────────────
   if (sbConfigured && authLoading) {
     return (
-      <div style={{ minHeight: '100vh', background: T.bg, display: 'grid', placeItems: 'center', fontFamily: T.font, color: T.inkDim, fontSize: 12 }}>
+      <div style={{ minHeight: '100dvh', background: T.bg, display: 'grid', placeItems: 'center', fontFamily: T.font, color: T.inkDim, fontSize: 12 }}>
         BOOTING...
       </div>
     );
@@ -5050,7 +5050,7 @@ function App({ initialData }) {
       display: 'flex',
       flexDirection: 'column',
       width: `${100 / APP_UI_SCALE}vw`,
-      height: `${100 / APP_UI_SCALE}vh`,
+      height: `${100 / APP_UI_SCALE}dvh`,
       transform: `scale(${APP_UI_SCALE})`,
       transformOrigin: 'top left',
       background: T.bg,
@@ -5070,11 +5070,11 @@ function App({ initialData }) {
               ['Esc', '검색/다이얼로그 닫기'],
             ].map(([key, desc]) => (
               <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '5px 0', borderBottom: `1px solid ${T.borderSoft}` }}>
-                <kbd style={{ fontFamily: T.font, fontSize: 11, background: T.bg, border: `1px solid ${T.border}`, padding: '2px 8px', borderRadius: 3, color: T.inkDim, minWidth: 56, textAlign: 'center', flexShrink: 0 }}>{key}</kbd>
-                <span style={{ color: T.inkDim, fontSize: 12, fontFamily: T.font }}>{desc}</span>
+                <kbd style={{ fontFamily: T.font, fontSize: 11.5, background: T.bg, border: `1px solid ${T.border}`, padding: '3px 8px', borderRadius: 3, color: T.inkDim, minWidth: 56, textAlign: 'center', flexShrink: 0 }}>{key}</kbd>
+                <span style={{ color: T.inkDim, fontSize: 13, fontFamily: T.fontSans }}>{desc}</span>
               </div>
             ))}
-            <div style={{ marginTop: 12, color: T.inkFaint, fontSize: 10, fontFamily: T.font }}>배경 클릭 또는 Esc로 닫기</div>
+            <div style={{ marginTop: 12, color: T.inkFaint, fontSize: 11, fontFamily: T.fontSans }}>배경 클릭 또는 Esc로 닫기</div>
           </div>
         </div>
       )}
@@ -5093,9 +5093,9 @@ function App({ initialData }) {
       <PitchHeadline text={stock.oneLine} onEdit={() => setPitchEditId(stock.id)}/>
 
       {/* Panel selector tabs */}
-      <div style={{ display: 'flex', alignItems: 'center', background: T.surface, borderBottom: `1px solid ${T.border}`, height: 36, flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', background: T.surface, borderBottom: `1px solid ${T.border}`, height: 40, flexShrink: 0 }}>
         {/* 탭 목록 — 독립적으로 가로 스크롤 */}
-        <div style={{ display: 'flex', flex: 1, overflowX: 'auto', overflowY: 'hidden', height: '100%' }}>
+        <div style={{ display: 'flex', flex: 1, overflowX: 'auto', overflowY: 'hidden', height: '100%', minWidth: 0 }}>
           {PANEL_DEFS.map(({ k, label }) => {
             const on = activePanel === k;
             return (
@@ -5104,11 +5104,12 @@ function App({ initialData }) {
                   background: on ? `${T.amber}18` : 'transparent',
                   border: 'none', borderRight: `1px solid ${T.borderSoft}`,
                   borderBottom: `2px solid ${on ? T.amber : 'transparent'}`,
-                  color: on ? T.amber : T.inkFaint, fontFamily: T.font, fontSize: 12,
+                  color: on ? T.amber : T.inkFaint, fontFamily: T.font, fontSize: 12.5,
                   fontWeight: on ? 700 : 500, letterSpacing: '0.1em',
-                  padding: '0 12px', height: '100%', cursor: 'pointer', flex: '0 0 auto',
+                  padding: '0 14px', height: '100%', cursor: 'pointer', flex: '0 0 auto',
+                  minHeight: 32,
                 }}>
-                <kbd style={{ ...kbdStyle, fontSize: 10.5, marginRight: 5 }}>{k}</kbd>{label}
+                <kbd style={{ ...kbdStyle, fontSize: 11, marginRight: 6 }}>{k}</kbd>{label}
               </button>
             );
           })}
@@ -5116,16 +5117,16 @@ function App({ initialData }) {
         {/* REMOVE — 항상 우측 고정 */}
         <div style={{ flexShrink: 0, borderLeft: `1px solid ${T.border}`, padding: '0 14px', height: '100%', display: 'flex', alignItems: 'center' }}>
           <button onClick={() => { if (window.confirm(`"${stock.name || stock.symbol}" 을(를) 워치리스트에서 제거하시겠습니까?`)) handleRemove(stock.id); }}
-            style={{ background: 'transparent', border: 0, color: T.red, fontFamily: T.font, fontSize: 10, cursor: 'pointer', letterSpacing: '0.08em', opacity: 0.7 }}>
+            style={{ background: 'transparent', border: 0, color: T.red, fontFamily: T.font, fontSize: 10.5, cursor: 'pointer', letterSpacing: '0.08em', opacity: 0.75, minHeight: 28 }}>
             REMOVE
           </button>
         </div>
       </div>
 
       {/* Main layout */}
-      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '220px 1fr', gap: 0, overflow: 'hidden' }}>
+      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'minmax(200px, 220px) 1fr', gap: 0, overflow: 'hidden', minHeight: 0 }}>
         {/* Sidebar */}
-        <div style={{ borderRight: `1px solid ${T.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ borderRight: `1px solid ${T.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0, minWidth: 0 }}>
           <WatchlistPanel
             stocks={stocks} watchlistIds={watchlistIds} activeId={activeId}
             watchlists={watchlists} activeWatchlistId={activeWatchlistId}
@@ -5139,8 +5140,8 @@ function App({ initialData }) {
         </div>
 
         {/* Panel area */}
-        <div style={{ overflow: 'hidden', padding: 10, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          <div style={{ flex: '1 1 auto', minHeight: 0, overflow: 'auto' }}>
+        <div style={{ overflow: 'hidden', padding: 10, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 }}>
+          <div style={{ flex: '1 1 auto', minHeight: 0, minWidth: 0, overflow: 'auto' }}>
             {panelContent[activePanel] || panelContent.F1}
           </div>
         </div>
@@ -5180,7 +5181,7 @@ function AppWrapper() {
   if (!initial) {
     return (
       <div style={{
-        minHeight: '100vh', background: '#0a0a0a', color: '#e5e7eb', display: 'grid', placeItems: 'center', fontFamily: '"JetBrains Mono", monospace'
+        minHeight: '100dvh', background: '#0a0a0a', color: '#e5e7eb', display: 'grid', placeItems: 'center', fontFamily: '"JetBrains Mono", monospace'
       }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 16, color: '#22d3ee' }}>THESISTRACK</div>
