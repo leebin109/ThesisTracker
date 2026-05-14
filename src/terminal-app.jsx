@@ -4,7 +4,7 @@
 /* global TT_KEY, DEFAULT_STOCKS, DEFAULT_WATCHLIST_IDS, DEFAULT_API_SETTINGS, DEFAULT_DART_CORP_MAP, DEFAULT_MARKET_TICKERS */
 /* global DEFAULT_ALERT_SETTINGS, ALERT_RETENTION_DAYS */
 /* global loadAppState, saveAppState, computeScores, computeQuantScores, applyQuantScores, computeDynamicQuality, getDaysLeft */
-/* global fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp */
+/* global fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp, searchSecTickerExact */
 /* global fetchYahooChartOhlc, toYahooSymbol */
 /* global fetchAlertsForStock, pruneAlerts, isPersonalOnlyError */
 /* global fetchSecFinancialHistory, fetchDartFinancialHistory, fetchYahooFinancialHistory */
@@ -1486,7 +1486,7 @@ function FinancialHistorySection({ stock, apiSettings, dartCorpMap, onSaveHistor
   const [error, setError]     = useState('');
   const history = stock.metricsHistory || [];
   const isKRX        = stock.currency === 'KRW' || stock.market === 'KRX' || stock.country === '한국';
-  const isSecEligible = ['NASDAQ', 'NYSE', 'AMEX'].includes(stock.market) || stock.country === '미국';
+  const isSecEligible = Boolean(stock.secCik) || ['NASDAQ', 'NYSE', 'AMEX'].includes(stock.market) || stock.country === '미국';
   const sourceHint   = isKRX ? 'DART (API 키 필요)' : isSecEligible ? 'SEC EDGAR → Yahoo 폴백' : 'Yahoo Finance';
 
   const handleFetch = async () => {
@@ -1498,7 +1498,7 @@ function FinancialHistorySection({ stock, apiSettings, dartCorpMap, onSaveHistor
         data = await fetchDartFinancialHistory(stock, apiSettings, dartCorpMap);
       } else if (isSecEligible) {
         try {
-          data = await fetchSecFinancialHistory(stock);
+          data = await fetchSecFinancialHistory(stock, apiSettings);
         } catch (secErr) {
           if (apiSettings?.dataMode === 'commercialSafe') throw secErr;
           data = await fetchYahooFinancialHistory(stock, apiSettings);
@@ -2754,12 +2754,14 @@ function SearchOverlay({ apiSettings, dartCorpMap, stocks, onAdd, onClose }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [noResults, setNoResults] = useState(false);
+  const [policyNotice, setPolicyNotice] = useState('');
   const inputRef = useRef(null);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
   const isKorean = q => /[가-힣ㄱ-ㅎㅏ-ㅣ]/.test(q);
   const commercialSafe = apiSettings?.dataMode === 'commercialSafe';
+  const isUsTickerInput = q => /^[A-Za-z][A-Za-z0-9.-]{0,9}$/.test(String(q || '').trim());
 
   const searchKorean = (q) => {
     const map = dartCorpMap || {};
@@ -2814,22 +2816,46 @@ function SearchOverlay({ apiSettings, dartCorpMap, stocks, onAdd, onClose }) {
   };
 
   const doSearch = useCallback(async (q) => {
-    if (!q.trim()) { setResults([]); setNoResults(false); return; }
+    if (!q.trim()) { setResults([]); setNoResults(false); setPolicyNotice(''); return; }
     if (isKorean(q)) {
       const rows = searchKorean(q);
       setResults(rows);
       setNoResults(rows.length === 0);
+      setPolicyNotice('');
       return;
     }
     if (commercialSafe) {
-      const rows = searchLocalStocks(q);
-      setLoading(false);
-      setResults(rows);
-      setNoResults(rows.length === 0);
+      setLoading(true);
       setError('');
+      setNoResults(false);
+      setPolicyNotice('Commercial-Safe mode does not use Yahoo/FMP/Alpha search.');
+      let rows = [];
+      try {
+        rows = searchLocalStocks(q);
+        let secFallback = null;
+        if (isUsTickerInput(q) && typeof searchSecTickerExact === 'function') {
+          secFallback = await searchSecTickerExact(q, apiSettings);
+        }
+        const merged = secFallback ? [...rows, secFallback] : rows;
+        setResults(merged);
+        setNoResults(merged.length === 0);
+        if (secFallback) {
+          setPolicyNotice(`${secFallback.symbol} can be added from SEC EDGAR public disclosure data.`);
+        } else if (!merged.length) {
+          setPolicyNotice(isUsTickerInput(q)
+            ? 'Commercial-Safe mode does not use Yahoo search, and no SEC EDGAR ticker match was found.'
+            : 'Commercial-Safe mode needs an official filing source or user import for this market.');
+        }
+      } catch (e) {
+        setResults(rows);
+        setNoResults(rows.length === 0);
+        setPolicyNotice(e?.message || 'Commercial-Safe SEC ticker lookup failed.');
+      } finally {
+        setLoading(false);
+      }
       return;
     }
-    setLoading(true); setError(''); setNoResults(false);
+    setLoading(true); setError(''); setNoResults(false); setPolicyNotice('');
     try {
       const [yahoo, fmp] = await Promise.allSettled([
         searchWithYahoo(q, apiSettings),
@@ -2878,9 +2904,14 @@ function SearchOverlay({ apiSettings, dartCorpMap, stocks, onAdd, onClose }) {
         </div>
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {error && <div style={{ padding: 12, fontSize: 11, color: T.red }}>{error}</div>}
+          {!error && policyNotice && (
+            <div style={{ padding: '10px 12px', fontSize: 11, color: T.yellow, borderBottom: `1px solid ${T.borderSoft}` }}>
+              {policyNotice}
+            </div>
+          )}
           {!error && noResults && <div style={{ padding: 12, fontSize: 11, color: T.inkFaint }}>검색 결과 없음</div>}
           {results.map((r, i) => (
-            <div key={i} onClick={() => { onAdd(r); onClose(); }}
+            <div key={`${r.market || 'M'}:${r.symbol}:${r.sourceType || i}`} onClick={() => { onAdd(r); onClose(); }}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                 padding: '10px 14px', borderBottom: `1px solid ${T.borderSoft}`, cursor: 'pointer' }}
               onMouseEnter={(e) => e.currentTarget.style.background = T.surface2}
@@ -2892,9 +2923,14 @@ function SearchOverlay({ apiSettings, dartCorpMap, stocks, onAdd, onClose }) {
                   <span style={{ fontSize: 9, padding: '1px 6px', border: `1px solid ${T.border}`, color: T.inkFaint }}>{r.market}</span>
                 </div>
                 <div style={{ fontSize: 11, color: T.inkDim, marginTop: 2 }}>{r.name}</div>
+                {r.sourceType === 'secFallback' && (
+                  <div style={{ fontSize: 9.5, color: T.yellow, marginTop: 3 }}>
+                    SEC EDGAR fallback · CIK {r.secCik} · {r.sourceMeta?.commercialStatus || 'public_disclosure'}
+                  </div>
+                )}
               </div>
               <span style={{ fontSize: 9.5, color: T.cyan, padding: '3px 10px', border: `1px solid ${T.cyan}44`, cursor: 'pointer' }}>
-                + ADD
+                {r.sourceType === 'secFallback' ? 'SEC ADD' : '+ ADD'}
               </span>
             </div>
           ))}
@@ -4525,11 +4561,23 @@ function App({ initialData }) {
         id, symbol: id, name: result.name || id,
         market: result.market || result.marketKey || 'CUSTOM',
         currency: result.currency || 'USD',
+        ...(result.secCik ? { secCik: String(result.secCik).replace(/\D/g, '').padStart(10, '0') } : {}),
+        ...(result.source ? { source: result.source } : {}),
+        ...(result.sourceMeta ? { sourceMeta: result.sourceMeta } : {}),
+        ...(result.policyStatus ? { policyStatus: result.policyStatus } : {}),
+        ...(result.priceSrc ? { priceSrc: result.priceSrc } : {}),
         flag: result.flag || '🏷️', country: result.country || '기타',
       });
       const newWatchlistIds = [...new Set([...normalizeIdList(watchlistIdsRef.current), id].filter(Boolean))];
       setStocks(prev => {
-        const next = prev[id] ? prev : ({ ...prev, [id]: newStock });
+        const next = prev[id]
+          ? { ...prev, [id]: {
+              ...prev[id],
+              ...(result.secCik ? { secCik: newStock.secCik } : {}),
+              ...(result.sourceMeta ? { sourceMeta: result.sourceMeta } : {}),
+              ...(result.policyStatus ? { policyStatus: result.policyStatus } : {}),
+            } }
+          : ({ ...prev, [id]: newStock });
         return applyQuantScores(next, newWatchlistIds);
       });
       setWatchlistIds(newWatchlistIds);

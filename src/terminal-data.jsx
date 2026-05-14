@@ -88,6 +88,16 @@ const DATA_SOURCE_REGISTRY = {
     usedInScore: true,
     blockedInCommercialSafe: false,
   },
+  secEdgarTickerMap: {
+    label: 'SEC EDGAR ticker map',
+    cost: 'free',
+    commercialStatus: 'public_disclosure',
+    licenseUrl: 'https://www.sec.gov/os/accessing-edgar-data',
+    rateLimit: '10 requests/second fair access guidance',
+    confidence: 'A',
+    usedInScore: false,
+    blockedInCommercialSafe: false,
+  },
   dataGoKrStockPrice: {
     label: 'data.go.kr stock price',
     cost: 'free',
@@ -210,7 +220,7 @@ const DATA_ENDPOINT_REGISTRY = {
     blockedInCommercialSafe: false,
   },
   'sec.companyTickers': {
-    sourceId: 'secEdgar',
+    sourceId: 'secEdgarTickerMap',
     label: 'SEC company ticker map',
     service: 'sec',
     path: 'files/company_tickers.json',
@@ -356,7 +366,7 @@ function findEndpointByUrl(url) {
     if (host === 'data.sec.gov') return endpointMatchesPath(endpoint, pathname.replace(/^api\/xbrl\//, ''));
     if (host === 'www.sec.gov') {
       const lowerPath = pathname.toLowerCase();
-      if (pathname === 'files/company_tickers.json') return endpoint.path === 'files/company_tickers.json';
+      if (lowerPath === 'files/company_tickers') return endpointMatchesPath(endpoint, pathname);
       if (lowerPath.startsWith('archives/edgar/data')) return endpoint.pathPrefix === 'archives/';
     }
     if (host.includes('finance.yahoo.com')) {
@@ -2419,7 +2429,7 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
       throw new Error(`${stock.symbol}: Commercial-Safe mode needs an official filing source or user import for this market`);
     }
     onStatus('SEC EDGAR financials (commercial-safe) loading...');
-    const history = await fetchSecFinancialHistory(stock);
+    const history = await fetchSecFinancialHistory(stock, apiSettings);
     const payload = { ...mapSecHistoryPayload(stock, history), replaceMetrics: true };
     const conf = computeDataConfidence(payload.metrics, payload.metricsMeta);
     const sourceMeta = makeCacheSourceMeta({ provider: 'secEdgar', sourceId: 'secEdgar', endpointIds: ['sec.companyfacts', 'sec.companyTickers'], mode: apiSettings.dataMode, confidence: conf.grade, completeness: { usedCount: conf.usedCount, totalCoreCount: conf.totalCoreCount } });
@@ -2657,11 +2667,12 @@ function pickAnnualFY(gaap, concepts) {
   return [];
 }
 
-async function fetchSecFinancialHistory(stock) {
+async function fetchSecFinancialHistory(stock, apiSettings = null) {
   if (!isSecEligibleStock(stock)) throw new Error('미국 상장 종목만 지원');
-  const company = await resolveSecCompany(stock);
+  const company = await resolveSecCompany(stock, apiSettings);
   const url = buildSecApiUrl(`companyfacts/CIK${company.cik}.json`);
   const data = await fetchJsonWithDiagnostics('SEC companyfacts', url, {
+    apiSettings,
     fetchOptions: { headers: { 'User-Agent': 'ThesisTrack research@example.com', 'Accept': 'application/json' } },
   });
   const gaap = data?.facts?.['us-gaap'] || {};
@@ -2860,13 +2871,15 @@ function normalizeSecTicker(symbol) {
 }
 
 function isSecEligibleStock(stock) {
+  if (stock?.secCik) return true;
   return ['NASDAQ', 'NYSE', 'AMEX'].includes(stock?.market) || stock?.country === '미국';
 }
 
-async function fetchSecTickerMap() {
+async function fetchSecTickerMap(apiSettings = null) {
+  assertEndpointAllowed('sec.companyTickers', apiSettings, 'SEC ticker map');
   if (!secTickerMapPromise) {
     secTickerMapPromise = (async () => {
-      const data = await fetchJsonWithDiagnostics('SEC ticker map', buildSecApiUrl('files/company_tickers.json'));
+      const data = await fetchJsonWithDiagnostics('SEC ticker map', buildSecApiUrl('files/company_tickers.json'), { apiSettings });
       const map = {};
       for (const row of Object.values(data || {})) {
         const ticker = normalizeSecTicker(row?.ticker);
@@ -2885,14 +2898,49 @@ async function fetchSecTickerMap() {
   return secTickerMapPromise;
 }
 
-async function resolveSecCompany(stock) {
+
+function isSecTickerQuery(query) {
+  const q = normalizeSecTicker(query);
+  return /^[A-Z][A-Z0-9-]{0,9}$/.test(q);
+}
+
+async function searchSecTickerExact(query, apiSettings = null) {
+  const ticker = normalizeSecTicker(query);
+  if (!isSecTickerQuery(ticker)) return null;
+  const map = await fetchSecTickerMap(apiSettings);
+  const hit = map[ticker];
+  if (!hit) return null;
+  const sourceMeta = makeCacheSourceMeta({
+    provider: 'secEdgarTickerMap',
+    sourceId: 'secEdgarTickerMap',
+    endpointIds: ['sec.companyTickers'],
+    mode: apiSettings?.dataMode,
+    confidence: 'A',
+  });
+  return {
+    symbol: ticker,
+    name: hit.title || ticker,
+    market: 'SEC',
+    currency: 'USD',
+    flag: 'US',
+    country: 'United States',
+    source: 'SEC EDGAR ticker map',
+    sourceType: 'secFallback',
+    policyStatus: 'commercial_safe_sec_fallback',
+    secCik: hit.cik,
+    cik: hit.cik,
+    sourceMeta,
+    priceSrc: 'SEC EDGAR ticker map',
+  };
+}
+async function resolveSecCompany(stock, apiSettings = null) {
   if (stock?.secCik) {
     return {
       cik: String(stock.secCik).replace(/\D/g, '').padStart(10, '0'),
       title: stock.name || stock.symbol,
     };
   }
-  const map = await fetchSecTickerMap();
+  const map = await fetchSecTickerMap(apiSettings);
   const key = normalizeSecTicker(stock?.symbol);
   const hit = map[key];
   if (!hit) throw new Error(`${stock?.symbol || 'symbol'} SEC CIK 매핑 없음`);
@@ -3306,7 +3354,7 @@ Object.assign(window, {
   makeMetricMeta, setMetricWithMeta, computeDataConfidence, buildMetricCoverage, makeCacheSourceMeta, attachDataViews,
   loadAppState, saveAppState,
   computeScores, computeQuantScores, applyQuantScores, computeDynamicQuality,
-  getDaysLeft, fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp,
+  getDaysLeft, fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp, searchSecTickerExact,
   normalizeKrxStockCode, getDartCorpEntry, fetchLocalDartCorpMap,
   inferMarketFromExchange, normalizeSymbolForMarket, getMarketProfile, buildYahooChartUrl, buildYahooSearchUrl,
   DEFAULT_SCORE, INDUSTRY_CFG,
@@ -3315,3 +3363,4 @@ Object.assign(window, {
   fetchYahooChartOhlc, toYahooSymbol, fetchMacroIndicators,
   fetchSecFinancialHistory, fetchDartFinancialHistory, fetchYahooFinancialHistory,
 });
+
