@@ -486,19 +486,23 @@ function attachDataViews(payload, sourceMeta, opts = {}) {
   const metricsMeta = { ...(payload?.metricsMeta || {}) };
   const scoringMetrics = opts.scoringMetrics ? { ...opts.scoringMetrics } : metrics;
   const scoringMetricsMeta = opts.scoringMetricsMeta ? { ...opts.scoringMetricsMeta } : metricsMeta;
+  const metricCoverage = opts.metricCoverage || payload?.metricCoverage || null;
   return {
     ...payload,
     sourceMeta,
+    metricCoverage,
     displayData: {
       metrics,
       metricsMeta,
       sourceMeta,
+      metricCoverage,
       updatedAt: new Date().toISOString(),
     },
     scoringData: {
       metrics: scoringMetrics,
       metricsMeta: scoringMetricsMeta,
       sourceMeta,
+      metricCoverage,
       updatedAt: new Date().toISOString(),
     },
   };
@@ -1015,6 +1019,7 @@ function computePiotroski(metrics, ind) {
 function computeQuantScores(universe) {
   const N = universe.length;
   const metricBag = s => s.scoringData?.metrics || s.metrics || {};
+  const metaBag = s => s.scoringData?.metricsMeta || s.metricsMeta || {};
   const getMetric = (s, key) => toNumber(metricBag(s)?.[key]);
   const nonNullArray = a => a.filter(v => v != null);
 
@@ -1022,6 +1027,33 @@ function computeQuantScores(universe) {
   for (let i = 0; i < N; i++) {
     const stock = universe[i];
     const ind = stock.industryGroup || 'ALL';
+    const coverage = stock.metricCoverage
+      || stock.scoringData?.metricCoverage
+      || buildMetricCoverage(metricBag(stock), metaBag(stock), {
+        provider: stock.scoringData?.sourceMeta?.provider || stock.sourceMeta?.provider || null,
+        sourceId: stock.scoringData?.sourceMeta?.sourceId || stock.sourceMeta?.sourceId || null,
+      });
+
+    if (coverage.status === 'limited_metrics') {
+      updates[stock.id] = {
+        overall: null,
+        profitability: null,
+        stability: null,
+        growth: null,
+        valuation: null,
+        risk: null,
+        riskFlagCount: 0,
+        riskFlagMax: 8,
+        piotroskiScore: null,
+        piotroskiSignals: [],
+        weights: { profitability: 30, stability: 20, growth: 20, valuation: 30, risk: 10 },
+        industryGroup: stock.industryGroup || null,
+        isRelative: true,
+        scoreStatus: 'limited_metrics',
+        metricCoverage: coverage,
+      };
+      continue;
+    }
 
     const rawPer = getMetric(stock, 'per');
     const rawPbr = getMetric(stock, 'pbr');
@@ -1078,7 +1110,9 @@ function computeQuantScores(universe) {
       piotroskiSignals: pio.signals,
       weights: { profitability: 30, stability: 20, growth: 20, valuation: 30, risk: 10 },
       industryGroup: stock.industryGroup || null,
-      isRelative: true
+      isRelative: true,
+      scoreStatus: 'ok',
+      metricCoverage: coverage,
     };
   }
   return updates;
@@ -1092,7 +1126,12 @@ function applyQuantScores(stocksMap, watchlistIds) {
   for (const [id, newScores] of Object.entries(scoreUpdates)) {
     const old = next[id];
     if (old) {
-      next[id] = { ...old, scores: newScores };
+      next[id] = {
+        ...old,
+        scores: newScores,
+        scoreStatus: newScores.scoreStatus || old.scoreStatus || 'ok',
+        metricCoverage: newScores.metricCoverage || old.metricCoverage || null,
+      };
       changed = true;
     }
   }
@@ -1219,6 +1258,21 @@ function buildKrPriceCacheKey(stock) {
 
 // Core metrics used in scoring (for computeDataConfidence)
 const CORE_METRIC_KEYS = ['per', 'pbr', 'roe', 'opMargin', 'fcfMargin', 'debtRatio', 'currentRatio', 'revGrowth', 'epsGrowth', 'evEbitda'];
+const MIN_SCORING_METRIC_COUNT = 4;
+const PRICE_REQUIRED_METRICS = ['per', 'pbr', 'marketCap'];
+const SCORE_METRIC_LABELS = {
+  per: 'PER',
+  pbr: 'PBR',
+  marketCap: 'Market Cap',
+  roe: 'ROE',
+  opMargin: 'OP Margin',
+  fcfMargin: 'FCF Margin',
+  debtRatio: 'Debt/Eq',
+  currentRatio: 'Current Ratio',
+  revGrowth: 'Revenue Growth',
+  epsGrowth: 'EPS Growth',
+  evEbitda: 'EV/EBITDA',
+};
 
 /**
  * makeMetricMeta — create a metricsMeta entry for a single metric.
@@ -1633,6 +1687,39 @@ async function fetchLivePrice(stock, apiSettings = null) {
     throw lastErr || new Error('Yahoo live KRX 실패');
   }
   return fetchLivePriceForSymbol(stock, toYahooSymbol(stock), apiSettings);
+}
+
+function buildMetricCoverage(metrics, metricsMeta, opts = {}) {
+  const minScoringMetricCount = opts.minScoringMetricCount || MIN_SCORING_METRIC_COUNT;
+  const presentScoringMetrics = CORE_METRIC_KEYS.filter(key => {
+    const val = metrics?.[key];
+    const meta = metricsMeta?.[key];
+    return Number.isFinite(toNumber(val)) && meta?.usedInScore !== false;
+  });
+  const missingCoreMetrics = CORE_METRIC_KEYS.filter(key => !presentScoringMetrics.includes(key));
+  const priceRequiredMetrics = opts.requiresPrice ? PRICE_REQUIRED_METRICS.filter(key => {
+    if (key === 'marketCap') return true;
+    return !Number.isFinite(toNumber(metrics?.[key]));
+  }) : [];
+  const status = presentScoringMetrics.length >= minScoringMetricCount ? 'ok' : 'limited_metrics';
+  return {
+    status,
+    scoreStatus: status,
+    provider: opts.provider || null,
+    sourceId: opts.sourceId || null,
+    minScoringMetricCount,
+    presentScoringMetrics,
+    presentScoringMetricLabels: presentScoringMetrics.map(key => SCORE_METRIC_LABELS[key] || key),
+    missingCoreMetrics,
+    missingCoreMetricLabels: missingCoreMetrics.map(key => SCORE_METRIC_LABELS[key] || key),
+    priceRequiredMetrics,
+    priceRequiredMetricLabels: priceRequiredMetrics.map(key => SCORE_METRIC_LABELS[key] || key),
+    usedCount: presentScoringMetrics.length,
+    totalCoreCount: CORE_METRIC_KEYS.length,
+    message: status === 'limited_metrics'
+      ? `Only ${presentScoringMetrics.length}/${CORE_METRIC_KEYS.length} scoring metrics available`
+      : 'Scoring metric coverage is sufficient',
+  };
 }
 
 async function fetchAlphaVantage(fn, symbol, key, apiSettings = null) {
@@ -2655,13 +2742,19 @@ function mapSecHistoryPayload(stock, history) {
       periodEnd: latest.fy ? `${latest.fy}-12-31` : null,
     });
   }
+  const metricCoverage = buildMetricCoverage(metrics, metricsMeta, {
+    provider: 'SEC EDGAR',
+    sourceId: 'secEdgar',
+    requiresPrice: true,
+    minScoringMetricCount: MIN_SCORING_METRIC_COUNT,
+  });
   return {
     name: stock.name,
     currency: stock.currency || 'USD',
     metrics,
     metricsMeta,
-    metricsMeta,
-    metricsMeta,
+    metricCoverage,
+    scoreStatus: metricCoverage.scoreStatus,
     financialHistory: rows,
     asOf: latest.fy ? `${latest.fy}-12-31` : new Date().toISOString().slice(0, 10),
     priceSrc: stock.priceSrc || 'User/static price',
@@ -3210,7 +3303,7 @@ Object.assign(window, {
   ALERT_RETENTION_DAYS,
   CACHE_SCHEMA_VERSION, CORE_METRIC_KEYS, DATA_SOURCE_REGISTRY, DATA_ENDPOINT_REGISTRY, BLOCKED_COMMERCIAL_SAFE_HOSTS,
   isCommercialSafeMode, assertSourceAllowed, assertEndpointAllowed, assertUrlAllowed, isPersonalOnlyError, getSourcePolicyRows, getEndpointPolicyRows,
-  makeMetricMeta, setMetricWithMeta, computeDataConfidence, makeCacheSourceMeta, attachDataViews,
+  makeMetricMeta, setMetricWithMeta, computeDataConfidence, buildMetricCoverage, makeCacheSourceMeta, attachDataViews,
   loadAppState, saveAppState,
   computeScores, computeQuantScores, applyQuantScores, computeDynamicQuality,
   getDaysLeft, fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp,

@@ -1777,19 +1777,23 @@ function attachDataViews(payload, sourceMeta, opts = {}) {
   const metricsMeta = { ...(payload?.metricsMeta || {}) };
   const scoringMetrics = opts.scoringMetrics ? { ...opts.scoringMetrics } : metrics;
   const scoringMetricsMeta = opts.scoringMetricsMeta ? { ...opts.scoringMetricsMeta } : metricsMeta;
+  const metricCoverage = opts.metricCoverage || payload?.metricCoverage || null;
   return {
     ...payload,
     sourceMeta,
+    metricCoverage,
     displayData: {
       metrics,
       metricsMeta,
       sourceMeta,
+      metricCoverage,
       updatedAt: new Date().toISOString(),
     },
     scoringData: {
       metrics: scoringMetrics,
       metricsMeta: scoringMetricsMeta,
       sourceMeta,
+      metricCoverage,
       updatedAt: new Date().toISOString(),
     },
   };
@@ -2306,6 +2310,7 @@ function computePiotroski(metrics, ind) {
 function computeQuantScores(universe) {
   const N = universe.length;
   const metricBag = s => s.scoringData?.metrics || s.metrics || {};
+  const metaBag = s => s.scoringData?.metricsMeta || s.metricsMeta || {};
   const getMetric = (s, key) => toNumber(metricBag(s)?.[key]);
   const nonNullArray = a => a.filter(v => v != null);
 
@@ -2313,6 +2318,33 @@ function computeQuantScores(universe) {
   for (let i = 0; i < N; i++) {
     const stock = universe[i];
     const ind = stock.industryGroup || 'ALL';
+    const coverage = stock.metricCoverage
+      || stock.scoringData?.metricCoverage
+      || buildMetricCoverage(metricBag(stock), metaBag(stock), {
+        provider: stock.scoringData?.sourceMeta?.provider || stock.sourceMeta?.provider || null,
+        sourceId: stock.scoringData?.sourceMeta?.sourceId || stock.sourceMeta?.sourceId || null,
+      });
+
+    if (coverage.status === 'limited_metrics') {
+      updates[stock.id] = {
+        overall: null,
+        profitability: null,
+        stability: null,
+        growth: null,
+        valuation: null,
+        risk: null,
+        riskFlagCount: 0,
+        riskFlagMax: 8,
+        piotroskiScore: null,
+        piotroskiSignals: [],
+        weights: { profitability: 30, stability: 20, growth: 20, valuation: 30, risk: 10 },
+        industryGroup: stock.industryGroup || null,
+        isRelative: true,
+        scoreStatus: 'limited_metrics',
+        metricCoverage: coverage,
+      };
+      continue;
+    }
 
     const rawPer = getMetric(stock, 'per');
     const rawPbr = getMetric(stock, 'pbr');
@@ -2369,7 +2401,9 @@ function computeQuantScores(universe) {
       piotroskiSignals: pio.signals,
       weights: { profitability: 30, stability: 20, growth: 20, valuation: 30, risk: 10 },
       industryGroup: stock.industryGroup || null,
-      isRelative: true
+      isRelative: true,
+      scoreStatus: 'ok',
+      metricCoverage: coverage,
     };
   }
   return updates;
@@ -2383,7 +2417,12 @@ function applyQuantScores(stocksMap, watchlistIds) {
   for (const [id, newScores] of Object.entries(scoreUpdates)) {
     const old = next[id];
     if (old) {
-      next[id] = { ...old, scores: newScores };
+      next[id] = {
+        ...old,
+        scores: newScores,
+        scoreStatus: newScores.scoreStatus || old.scoreStatus || 'ok',
+        metricCoverage: newScores.metricCoverage || old.metricCoverage || null,
+      };
       changed = true;
     }
   }
@@ -2510,6 +2549,21 @@ function buildKrPriceCacheKey(stock) {
 
 // Core metrics used in scoring (for computeDataConfidence)
 const CORE_METRIC_KEYS = ['per', 'pbr', 'roe', 'opMargin', 'fcfMargin', 'debtRatio', 'currentRatio', 'revGrowth', 'epsGrowth', 'evEbitda'];
+const MIN_SCORING_METRIC_COUNT = 4;
+const PRICE_REQUIRED_METRICS = ['per', 'pbr', 'marketCap'];
+const SCORE_METRIC_LABELS = {
+  per: 'PER',
+  pbr: 'PBR',
+  marketCap: 'Market Cap',
+  roe: 'ROE',
+  opMargin: 'OP Margin',
+  fcfMargin: 'FCF Margin',
+  debtRatio: 'Debt/Eq',
+  currentRatio: 'Current Ratio',
+  revGrowth: 'Revenue Growth',
+  epsGrowth: 'EPS Growth',
+  evEbitda: 'EV/EBITDA',
+};
 
 /**
  * makeMetricMeta — create a metricsMeta entry for a single metric.
@@ -2924,6 +2978,39 @@ async function fetchLivePrice(stock, apiSettings = null) {
     throw lastErr || new Error('Yahoo live KRX 실패');
   }
   return fetchLivePriceForSymbol(stock, toYahooSymbol(stock), apiSettings);
+}
+
+function buildMetricCoverage(metrics, metricsMeta, opts = {}) {
+  const minScoringMetricCount = opts.minScoringMetricCount || MIN_SCORING_METRIC_COUNT;
+  const presentScoringMetrics = CORE_METRIC_KEYS.filter(key => {
+    const val = metrics?.[key];
+    const meta = metricsMeta?.[key];
+    return Number.isFinite(toNumber(val)) && meta?.usedInScore !== false;
+  });
+  const missingCoreMetrics = CORE_METRIC_KEYS.filter(key => !presentScoringMetrics.includes(key));
+  const priceRequiredMetrics = opts.requiresPrice ? PRICE_REQUIRED_METRICS.filter(key => {
+    if (key === 'marketCap') return true;
+    return !Number.isFinite(toNumber(metrics?.[key]));
+  }) : [];
+  const status = presentScoringMetrics.length >= minScoringMetricCount ? 'ok' : 'limited_metrics';
+  return {
+    status,
+    scoreStatus: status,
+    provider: opts.provider || null,
+    sourceId: opts.sourceId || null,
+    minScoringMetricCount,
+    presentScoringMetrics,
+    presentScoringMetricLabels: presentScoringMetrics.map(key => SCORE_METRIC_LABELS[key] || key),
+    missingCoreMetrics,
+    missingCoreMetricLabels: missingCoreMetrics.map(key => SCORE_METRIC_LABELS[key] || key),
+    priceRequiredMetrics,
+    priceRequiredMetricLabels: priceRequiredMetrics.map(key => SCORE_METRIC_LABELS[key] || key),
+    usedCount: presentScoringMetrics.length,
+    totalCoreCount: CORE_METRIC_KEYS.length,
+    message: status === 'limited_metrics'
+      ? `Only ${presentScoringMetrics.length}/${CORE_METRIC_KEYS.length} scoring metrics available`
+      : 'Scoring metric coverage is sufficient',
+  };
 }
 
 async function fetchAlphaVantage(fn, symbol, key, apiSettings = null) {
@@ -3946,13 +4033,19 @@ function mapSecHistoryPayload(stock, history) {
       periodEnd: latest.fy ? `${latest.fy}-12-31` : null,
     });
   }
+  const metricCoverage = buildMetricCoverage(metrics, metricsMeta, {
+    provider: 'SEC EDGAR',
+    sourceId: 'secEdgar',
+    requiresPrice: true,
+    minScoringMetricCount: MIN_SCORING_METRIC_COUNT,
+  });
   return {
     name: stock.name,
     currency: stock.currency || 'USD',
     metrics,
     metricsMeta,
-    metricsMeta,
-    metricsMeta,
+    metricCoverage,
+    scoreStatus: metricCoverage.scoreStatus,
     financialHistory: rows,
     asOf: latest.fy ? `${latest.fy}-12-31` : new Date().toISOString().slice(0, 10),
     priceSrc: stock.priceSrc || 'User/static price',
@@ -4501,7 +4594,7 @@ Object.assign(window, {
   ALERT_RETENTION_DAYS,
   CACHE_SCHEMA_VERSION, CORE_METRIC_KEYS, DATA_SOURCE_REGISTRY, DATA_ENDPOINT_REGISTRY, BLOCKED_COMMERCIAL_SAFE_HOSTS,
   isCommercialSafeMode, assertSourceAllowed, assertEndpointAllowed, assertUrlAllowed, isPersonalOnlyError, getSourcePolicyRows, getEndpointPolicyRows,
-  makeMetricMeta, setMetricWithMeta, computeDataConfidence, makeCacheSourceMeta, attachDataViews,
+  makeMetricMeta, setMetricWithMeta, computeDataConfidence, buildMetricCoverage, makeCacheSourceMeta, attachDataViews,
   loadAppState, saveAppState,
   computeScores, computeQuantScores, applyQuantScores, computeDynamicQuality,
   getDaysLeft, fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp,
@@ -4655,6 +4748,10 @@ function normalizeStockRecord(stock, fallbackId = '') {
   next.metricsMeta = (stock?.metricsMeta && typeof stock.metricsMeta === 'object' && !Array.isArray(stock.metricsMeta))
     ? { ...stock.metricsMeta }
     : {};
+  next.metricCoverage = (stock?.metricCoverage && typeof stock.metricCoverage === 'object' && !Array.isArray(stock.metricCoverage))
+    ? { ...stock.metricCoverage }
+    : null;
+  next.scoreStatus = stock?.scoreStatus || stock?.scores?.scoreStatus || null;
   next.scores = {
     ...base.scores,
     ...(stock?.scores || {}),
@@ -4969,6 +5066,17 @@ function ScoreBreakdown({ scores, activeDim, onDimClick }) {
   return (
     <Cell label="SCORE BREAKDOWN" accent={T.amber} style={{ height: '100%' }}>
       <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {scores.scoreStatus === 'limited_metrics' && (
+          <div style={{ fontSize: 9.5, color: T.yellow, background: `${T.yellow}12`, border: `1px solid ${T.yellow}44`, padding: '7px 8px', lineHeight: 1.5 }}>
+            <div style={{ fontWeight: 800, letterSpacing: '0.08em' }}>LIMITED SCORE</div>
+            <div>SEC data partially available. Overall score is withheld until {scores.metricCoverage?.minScoringMetricCount || 4}+ scoring metrics are present.</div>
+            {scores.metricCoverage?.missingCoreMetricLabels?.length > 0 && (
+              <div style={{ color: T.inkFaint, marginTop: 3 }}>
+                Missing: {scores.metricCoverage.missingCoreMetricLabels.slice(0, 6).join(', ')}
+              </div>
+            )}
+          </div>
+        )}
         {dims.map(d => {
           const v = scores[d.key];
           const w = scores.weights?.[d.key] ?? 20;
@@ -6144,6 +6252,7 @@ function OverviewPanel({ stock, apiSettings, dartCorpMap, onSaveHistory, onSaveI
         <MetricsGrid
           metrics={stock.metrics}
           metricsMeta={stock.metricsMeta}
+          metricCoverage={stock.metricCoverage}
           currency={stock.currency}
           activeDim={activeDim}
           refreshedAt={stock.refreshedAt}
@@ -6161,7 +6270,7 @@ function OverviewPanel({ stock, apiSettings, dartCorpMap, onSaveHistory, onSaveI
 }
 
 // ─── Metrics grid ─────────────────────────────────────────────────────────────
-function MetricsGrid({ metrics, metricsMeta, currency, activeDim, refreshedAt, dataMode }) {
+function MetricsGrid({ metrics, metricsMeta, metricCoverage, currency, activeDim, refreshedAt, dataMode }) {
   const categories = [
     {
       label: 'PROFITABILITY', color: T.amber,
@@ -6250,6 +6359,18 @@ function MetricsGrid({ metrics, metricsMeta, currency, activeDim, refreshedAt, d
           </div>
         )}
 
+        {metricCoverage?.status === 'limited_metrics' && (
+          <div style={{ fontSize: 9, color: T.yellow, background: `${T.yellow}12`, border: `1px solid ${T.yellow}44`, padding: '5px 8px', lineHeight: 1.55 }}>
+            SEC data partially available: {metricCoverage.usedCount} / {metricCoverage.totalCoreCount} scoring metrics.
+            {metricCoverage.priceRequiredMetricLabels?.length > 0 && (
+              <span> Price needed for {metricCoverage.priceRequiredMetricLabels.join(', ')}.</span>
+            )}
+            {metricCoverage.missingCoreMetricLabels?.length > 0 && (
+              <span> Missing: {metricCoverage.missingCoreMetricLabels.slice(0, 6).join(', ')}.</span>
+            )}
+          </div>
+        )}
+
         {categories.map(cat => {
           const isActive = !dimKey || cat.label === dimKey;
           return (
@@ -6266,14 +6387,15 @@ function MetricsGrid({ metrics, metricsMeta, currency, activeDim, refreshedAt, d
                 {cat.items.map(({ key, label, fmt }) => {
                   const v    = metrics?.[key];
                   const meta = metricsMeta?.[key];
-                  const display = Number.isFinite(Number(v)) ? fmt(v) : '–';
+                  const needsPrice = metricCoverage?.priceRequiredMetrics?.includes(key);
+                  const display = Number.isFinite(Number(v)) ? fmt(v) : needsPrice ? 'PRICE NEEDED' : '–';
                   const badgeProvider = meta?.provider ? providerShort(meta.provider) : null;
                   const badgeConf     = meta?.confidence || null;
                   const badgeColor    = badgeConf ? gradeColor(badgeConf) : T.inkFaint;
                   return (
                     <div key={key} style={{ background: T.surface2, padding: '7px 10px', border: `1px solid ${isActive && dimKey ? cat.color + '55' : T.borderSoft}` }}>
                       <div style={{ fontSize: 8.5, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 3 }}>{label}</div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: colorFor(key, v), fontVariantNumeric: 'tabular-nums' }}>
+                      <div style={{ fontSize: needsPrice && !Number.isFinite(Number(v)) ? 10 : 14, fontWeight: 700, color: needsPrice && !Number.isFinite(Number(v)) ? T.yellow : colorFor(key, v), fontVariantNumeric: 'tabular-nums' }}>
                         {display}
                       </div>
                       {badgeProvider && Number.isFinite(Number(v)) && (
@@ -8923,6 +9045,8 @@ function App({ initialData }) {
           ...(payload.priceHistory !== undefined ? { priceHistory: payload.priceHistory } : {}),
           ...(payload.asOf !== undefined ? { asOf: payload.asOf } : {}),
           ...(payload.priceSrc !== undefined ? { priceSrc: payload.priceSrc } : {}),
+          ...(payload.scoreStatus !== undefined ? { scoreStatus: payload.scoreStatus } : {}),
+          ...(payload.metricCoverage !== undefined ? { metricCoverage: payload.metricCoverage } : {}),
           ...(newIndustryGroup ? { industryGroup: newIndustryGroup } : {}),
           refreshedAt: now,
           metrics: newMetrics,

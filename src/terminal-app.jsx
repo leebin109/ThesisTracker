@@ -136,6 +136,10 @@ function normalizeStockRecord(stock, fallbackId = '') {
   next.metricsMeta = (stock?.metricsMeta && typeof stock.metricsMeta === 'object' && !Array.isArray(stock.metricsMeta))
     ? { ...stock.metricsMeta }
     : {};
+  next.metricCoverage = (stock?.metricCoverage && typeof stock.metricCoverage === 'object' && !Array.isArray(stock.metricCoverage))
+    ? { ...stock.metricCoverage }
+    : null;
+  next.scoreStatus = stock?.scoreStatus || stock?.scores?.scoreStatus || null;
   next.scores = {
     ...base.scores,
     ...(stock?.scores || {}),
@@ -450,6 +454,17 @@ function ScoreBreakdown({ scores, activeDim, onDimClick }) {
   return (
     <Cell label="SCORE BREAKDOWN" accent={T.amber} style={{ height: '100%' }}>
       <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {scores.scoreStatus === 'limited_metrics' && (
+          <div style={{ fontSize: 9.5, color: T.yellow, background: `${T.yellow}12`, border: `1px solid ${T.yellow}44`, padding: '7px 8px', lineHeight: 1.5 }}>
+            <div style={{ fontWeight: 800, letterSpacing: '0.08em' }}>LIMITED SCORE</div>
+            <div>SEC data partially available. Overall score is withheld until {scores.metricCoverage?.minScoringMetricCount || 4}+ scoring metrics are present.</div>
+            {scores.metricCoverage?.missingCoreMetricLabels?.length > 0 && (
+              <div style={{ color: T.inkFaint, marginTop: 3 }}>
+                Missing: {scores.metricCoverage.missingCoreMetricLabels.slice(0, 6).join(', ')}
+              </div>
+            )}
+          </div>
+        )}
         {dims.map(d => {
           const v = scores[d.key];
           const w = scores.weights?.[d.key] ?? 20;
@@ -1625,6 +1640,7 @@ function OverviewPanel({ stock, apiSettings, dartCorpMap, onSaveHistory, onSaveI
         <MetricsGrid
           metrics={stock.metrics}
           metricsMeta={stock.metricsMeta}
+          metricCoverage={stock.metricCoverage}
           currency={stock.currency}
           activeDim={activeDim}
           refreshedAt={stock.refreshedAt}
@@ -1642,7 +1658,7 @@ function OverviewPanel({ stock, apiSettings, dartCorpMap, onSaveHistory, onSaveI
 }
 
 // ─── Metrics grid ─────────────────────────────────────────────────────────────
-function MetricsGrid({ metrics, metricsMeta, currency, activeDim, refreshedAt, dataMode }) {
+function MetricsGrid({ metrics, metricsMeta, metricCoverage, currency, activeDim, refreshedAt, dataMode }) {
   const categories = [
     {
       label: 'PROFITABILITY', color: T.amber,
@@ -1731,6 +1747,18 @@ function MetricsGrid({ metrics, metricsMeta, currency, activeDim, refreshedAt, d
           </div>
         )}
 
+        {metricCoverage?.status === 'limited_metrics' && (
+          <div style={{ fontSize: 9, color: T.yellow, background: `${T.yellow}12`, border: `1px solid ${T.yellow}44`, padding: '5px 8px', lineHeight: 1.55 }}>
+            SEC data partially available: {metricCoverage.usedCount} / {metricCoverage.totalCoreCount} scoring metrics.
+            {metricCoverage.priceRequiredMetricLabels?.length > 0 && (
+              <span> Price needed for {metricCoverage.priceRequiredMetricLabels.join(', ')}.</span>
+            )}
+            {metricCoverage.missingCoreMetricLabels?.length > 0 && (
+              <span> Missing: {metricCoverage.missingCoreMetricLabels.slice(0, 6).join(', ')}.</span>
+            )}
+          </div>
+        )}
+
         {categories.map(cat => {
           const isActive = !dimKey || cat.label === dimKey;
           return (
@@ -1747,14 +1775,15 @@ function MetricsGrid({ metrics, metricsMeta, currency, activeDim, refreshedAt, d
                 {cat.items.map(({ key, label, fmt }) => {
                   const v    = metrics?.[key];
                   const meta = metricsMeta?.[key];
-                  const display = Number.isFinite(Number(v)) ? fmt(v) : '–';
+                  const needsPrice = metricCoverage?.priceRequiredMetrics?.includes(key);
+                  const display = Number.isFinite(Number(v)) ? fmt(v) : needsPrice ? 'PRICE NEEDED' : '–';
                   const badgeProvider = meta?.provider ? providerShort(meta.provider) : null;
                   const badgeConf     = meta?.confidence || null;
                   const badgeColor    = badgeConf ? gradeColor(badgeConf) : T.inkFaint;
                   return (
                     <div key={key} style={{ background: T.surface2, padding: '7px 10px', border: `1px solid ${isActive && dimKey ? cat.color + '55' : T.borderSoft}` }}>
                       <div style={{ fontSize: 8.5, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 3 }}>{label}</div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: colorFor(key, v), fontVariantNumeric: 'tabular-nums' }}>
+                      <div style={{ fontSize: needsPrice && !Number.isFinite(Number(v)) ? 10 : 14, fontWeight: 700, color: needsPrice && !Number.isFinite(Number(v)) ? T.yellow : colorFor(key, v), fontVariantNumeric: 'tabular-nums' }}>
                         {display}
                       </div>
                       {badgeProvider && Number.isFinite(Number(v)) && (
@@ -4404,6 +4433,8 @@ function App({ initialData }) {
           ...(payload.priceHistory !== undefined ? { priceHistory: payload.priceHistory } : {}),
           ...(payload.asOf !== undefined ? { asOf: payload.asOf } : {}),
           ...(payload.priceSrc !== undefined ? { priceSrc: payload.priceSrc } : {}),
+          ...(payload.scoreStatus !== undefined ? { scoreStatus: payload.scoreStatus } : {}),
+          ...(payload.metricCoverage !== undefined ? { metricCoverage: payload.metricCoverage } : {}),
           ...(newIndustryGroup ? { industryGroup: newIndustryGroup } : {}),
           refreshedAt: now,
           metrics: newMetrics,
