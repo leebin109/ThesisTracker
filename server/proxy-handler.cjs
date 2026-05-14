@@ -8,6 +8,21 @@ const YAHOO_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (
 const OPENDART_ENDPOINTS = new Set(['fnlttSinglAcntAll', 'fnlttSinglAcnt', 'list', 'stockInfo']);
 const YAHOO_SYMBOL_ENDPOINTS = new Set(['chart', 'quoteSummary', 'timeseries']);
 const SEC_SECTIONS = new Set(['files', 'submissions', 'archives', 'companyfacts']);
+const PROXY_ENDPOINTS = [
+  { id: 'opendart.fnlttSinglAcntAll', service: 'opendart', path: 'fnlttSinglAcntAll', blockedInCommercialSafe: false },
+  { id: 'opendart.fnlttSinglAcnt', service: 'opendart', path: 'fnlttSinglAcnt', blockedInCommercialSafe: false },
+  { id: 'opendart.stockInfo', service: 'opendart', path: 'stockInfo', blockedInCommercialSafe: false },
+  { id: 'opendart.list', service: 'opendart', path: 'list', blockedInCommercialSafe: false },
+  { id: 'sec.companyfacts', service: 'sec', pathPrefix: 'companyfacts/', blockedInCommercialSafe: false },
+  { id: 'sec.submissions', service: 'sec', pathPrefix: 'submissions/', blockedInCommercialSafe: false },
+  { id: 'sec.companyTickers', service: 'sec', path: 'files/company_tickers.json', blockedInCommercialSafe: false },
+  { id: 'sec.archives', service: 'sec', pathPrefix: 'archives/', blockedInCommercialSafe: false },
+  { id: 'yahoo.search', service: 'yahoo', path: 'search', blockedInCommercialSafe: true },
+  { id: 'yahoo.quote', service: 'yahoo', path: 'quote', blockedInCommercialSafe: true },
+  { id: 'yahoo.chart', service: 'yahoo', path: 'chart', blockedInCommercialSafe: true },
+  { id: 'yahoo.quoteSummary', service: 'yahoo', path: 'quoteSummary', blockedInCommercialSafe: true },
+  { id: 'yahoo.timeseries', service: 'yahoo', path: 'timeseries', blockedInCommercialSafe: true },
+];
 
 let yahooSession = null;
 
@@ -50,6 +65,81 @@ function sendJson(res, status, payload) {
   res.status(status).json(payload);
 }
 
+function isTruthyEnv(value) {
+  return /^(1|true|yes|on)$/i.test(String(value || '').trim());
+}
+
+function isYahooProxyDisabled() {
+  return isTruthyEnv(process.env.DISABLE_YAHOO_PROXY)
+    || isTruthyEnv(process.env.YAHOO_PROXY_DISABLED)
+    || (process.env.VERCEL_ENV === 'production' && isTruthyEnv(process.env.DISABLE_YAHOO_PROXY_PROD));
+}
+
+function isCommercialSafeProxyRequest(req) {
+  const headerMode = req.headers?.['x-data-mode'] || req.headers?.['X-Data-Mode'];
+  const queryMode = one(req.query?.dataMode);
+  return String(headerMode || queryMode || '').toLowerCase() === 'commercialsafe';
+}
+
+function endpointMatchesPath(endpoint, path) {
+  const clean = cleanSegment(path).replace(/\.json$/i, '');
+  if (endpoint.path) return clean === endpoint.path;
+  if (endpoint.pathPrefix) return clean.startsWith(endpoint.pathPrefix);
+  return true;
+}
+
+function findProxyEndpoint(service, path) {
+  const [first] = cleanSegment(path).split('/');
+  return PROXY_ENDPOINTS.find(endpoint => {
+    if (endpoint.service !== service) return false;
+    if (service === 'yahoo') return endpoint.path === first;
+    return endpointMatchesPath(endpoint, path);
+  }) || null;
+}
+
+function assertProxyPolicy(req, service, path) {
+  const endpoint = findProxyEndpoint(service, path);
+  if (!endpoint) {
+    return {
+      ok: false,
+      status: 404,
+      payload: {
+        status: 'PROXY_ENDPOINT_NOT_REGISTERED',
+        message: `${service}/${path || ''} is not registered in proxy policy`,
+        service,
+        path,
+      },
+    };
+  }
+  if (service === 'yahoo' && isYahooProxyDisabled()) {
+    return {
+      ok: false,
+      status: 403,
+      payload: {
+        status: 'YAHOO_PROXY_DISABLED',
+        message: 'Yahoo proxy is disabled in this environment',
+        service,
+        path,
+        endpointId: endpoint.id,
+      },
+    };
+  }
+  if (isCommercialSafeProxyRequest(req) && endpoint.blockedInCommercialSafe) {
+    return {
+      ok: false,
+      status: 403,
+      payload: {
+        status: 'SOURCE_POLICY_BLOCKED',
+        message: `${endpoint.id} is Personal mode only`,
+        service,
+        path,
+        endpointId: endpoint.id,
+      },
+    };
+  }
+  return { ok: true, endpoint };
+}
+
 function upstreamHttpError(res, upstream, body, service, path) {
   const contentType = upstream.headers.get('content-type') || '';
   return sendJson(res, upstream.status, {
@@ -86,6 +176,11 @@ function normalizeRoute(req) {
   }
 
   return { service, path };
+}
+
+function routeForPolicy(service, path) {
+  if (service === 'yahoo') return cleanSegment(path).split('/')[0] || path;
+  return path;
 }
 
 function validateOpenDartPath(path) {
@@ -180,6 +275,9 @@ module.exports = async function handler(req, res) {
   if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
 
   const { service, path } = normalizeRoute(req);
+  const policyPath = routeForPolicy(service, path);
+  const policy = assertProxyPolicy(req, service, policyPath);
+  if (!policy.ok) return sendJson(res, policy.status, policy.payload);
   let upstream;
 
   try {

@@ -4342,8 +4342,19 @@ function App({ initialData }) {
       setStocks(prev => {
         const updated = { ...prev };
         const old = { ...updated[stockId] };
-        const newMetrics = replaceMetrics ? { ...(payload.metrics || {}) } : { ...old.metrics, ...(payload.metrics || {}) };
+        const oldDisplayMetrics = old.displayData?.metrics || old.metrics || {};
+        const oldScoringMetrics = old.scoringData?.metrics || old.metrics || {};
+        const newDisplayMetrics = replaceMetrics ? { ...(payload.metrics || {}) } : { ...oldDisplayMetrics, ...(payload.metrics || {}) };
+        const incomingScoringMetrics = payload.scoringData?.metrics || payload.metrics || {};
+        const newScoringMetrics = replaceMetrics
+          ? { ...incomingScoringMetrics }
+          : { ...oldScoringMetrics, ...incomingScoringMetrics };
+        const newMetrics = newDisplayMetrics;
         const newIndustryGroup = payload.industryGroup || old.industryGroup || null;
+        const oldDisplayMeta = old.displayData?.metricsMeta || old.metricsMeta || {};
+        const oldScoringMeta = old.scoringData?.metricsMeta || old.metricsMeta || {};
+        const incomingDisplayMeta = payload.displayData?.metricsMeta || payload.metricsMeta || {};
+        const incomingScoringMeta = payload.scoringData?.metricsMeta || payload.metricsMeta || {};
         
         // Push the old score to history before computing the new one
         const now = new Date().toISOString().slice(0, 10);
@@ -4361,12 +4372,26 @@ function App({ initialData }) {
           ...(newIndustryGroup ? { industryGroup: newIndustryGroup } : {}),
           refreshedAt: now,
           metrics: newMetrics,
+          displayData: {
+            ...(old.displayData || {}),
+            metrics: newDisplayMetrics,
+            metricsMeta: replaceMetrics ? { ...incomingDisplayMeta } : { ...oldDisplayMeta, ...incomingDisplayMeta },
+            sourceMeta: payload.displayData?.sourceMeta || payload.sourceMeta || old.displayData?.sourceMeta || null,
+            updatedAt: now,
+          },
+          scoringData: {
+            ...(old.scoringData || {}),
+            metrics: newScoringMetrics,
+            metricsMeta: replaceMetrics ? { ...incomingScoringMeta } : { ...oldScoringMeta, ...incomingScoringMeta },
+            sourceMeta: payload.scoringData?.sourceMeta || payload.sourceMeta || old.scoringData?.sourceMeta || null,
+            updatedAt: now,
+          },
           // Merge metricsMeta: new payload's entries win over old, preserving any manually-set ones
           metricsMeta: replaceMetrics
-            ? { ...(payload.metricsMeta || {}) }
+            ? { ...incomingDisplayMeta }
             : {
-                ...(old.metricsMeta || {}),
-                ...(payload.metricsMeta || {}),
+                ...oldDisplayMeta,
+                ...incomingDisplayMeta,
               },
           scoreHistory: newScoreHistory,
         };

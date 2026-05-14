@@ -1341,7 +1341,7 @@ const DEFAULT_API_SETTINGS = {
 };
 
 // Cache schema version — bump when cache payload shape changes significantly
-const CACHE_SCHEMA_VERSION = 5;
+const CACHE_SCHEMA_VERSION = 6;
 
 const DEFAULT_DART_CORP_MAP = {
   '005930': { corpCode: '00126380', corpName: '삼성전자' },
@@ -1749,6 +1749,50 @@ function getEndpointPolicyRows(apiSettings) {
       allowed: !(isCommercialSafeMode(apiSettings) && blocked),
     };
   });
+}
+
+function makeCacheSourceMeta({ provider, sourceId, endpointIds = [], mode, confidence, completeness } = {}) {
+  const sourceInfo = getDataSourceMeta(sourceId) || inferSourceIdFromProvider(provider) && getDataSourceMeta(inferSourceIdFromProvider(provider)) || {};
+  const endpointList = endpointIds.map(id => ({ id, ...(getEndpointMeta(id) || {}) }));
+  const blocked = endpointList.some(e => e.blockedInCommercialSafe) || sourceInfo.blockedInCommercialSafe || false;
+  return {
+    provider: provider || sourceInfo.label || 'unknown',
+    sourceId: sourceId || inferSourceIdFromProvider(provider) || null,
+    endpointIds,
+    mode: mode || 'personal',
+    cost: sourceInfo.cost || 'unknown',
+    commercialStatus: sourceInfo.commercialStatus || 'unknown',
+    licenseUrl: sourceInfo.licenseUrl || '',
+    rateLimit: sourceInfo.rateLimit || '',
+    confidence: confidence || sourceInfo.confidence || 'D',
+    completeness: completeness || null,
+    commercialSafe: !blocked,
+    blockedInCommercialSafe: Boolean(blocked),
+    capturedAt: new Date().toISOString(),
+  };
+}
+
+function attachDataViews(payload, sourceMeta, opts = {}) {
+  const metrics = { ...(payload?.metrics || {}) };
+  const metricsMeta = { ...(payload?.metricsMeta || {}) };
+  const scoringMetrics = opts.scoringMetrics ? { ...opts.scoringMetrics } : metrics;
+  const scoringMetricsMeta = opts.scoringMetricsMeta ? { ...opts.scoringMetricsMeta } : metricsMeta;
+  return {
+    ...payload,
+    sourceMeta,
+    displayData: {
+      metrics,
+      metricsMeta,
+      sourceMeta,
+      updatedAt: new Date().toISOString(),
+    },
+    scoringData: {
+      metrics: scoringMetrics,
+      metricsMeta: scoringMetricsMeta,
+      sourceMeta,
+      updatedAt: new Date().toISOString(),
+    },
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2261,7 +2305,8 @@ function computePiotroski(metrics, ind) {
 
 function computeQuantScores(universe) {
   const N = universe.length;
-  const getMetric = (s, key) => toNumber(s.metrics?.[key]);
+  const metricBag = s => s.scoringData?.metrics || s.metrics || {};
+  const getMetric = (s, key) => toNumber(metricBag(s)?.[key]);
   const nonNullArray = a => a.filter(v => v != null);
 
   const updates = {};
@@ -2309,7 +2354,7 @@ function computeQuantScores(universe) {
     const riskPenalty = riskFlags * 0.4;
     const zComp = 0.3 * valueNeut + 0.3 * qualityNeut + 0.2 * safetyNeut + 0.2 * growthNeut - riskPenalty;
 
-    const pio = computePiotroski(stock.metrics, ind);
+    const pio = computePiotroski(metricBag(stock), ind);
 
     updates[stock.id] = {
       overall: zToScore(zComp),
@@ -3487,7 +3532,15 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
           const item = await fetchKoreanStockPrice(stock.symbol, apiSettings.dataGoKrKey, apiSettings);
           results.price = mapKrPricePayload(stock, item);
           results.priceKey = priceKey;
-          results.priceCacheEntry = { fetchedAt: new Date().toISOString(), provider: 'dataGoKrStockPrice', payload: results.price };
+          const priceSourceMeta = makeCacheSourceMeta({ provider: 'dataGoKrStockPrice', sourceId: 'dataGoKrStockPrice', endpointIds: ['dataGoKr.stockPrice'], mode: apiSettings.dataMode, confidence: 'B' });
+          results.price = attachDataViews(results.price, priceSourceMeta);
+          results.priceCacheEntry = {
+            fetchedAt: new Date().toISOString(),
+            provider: 'dataGoKrStockPrice',
+            schemaVersion: CACHE_SCHEMA_VERSION,
+            sourceMeta: priceSourceMeta,
+            payload: results.price,
+          };
         }
       } catch (e) {
         onStatus(commercialSafe
@@ -3526,9 +3579,16 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
         const raw = rawRes.value;
         const shares = sharesRes.status === 'fulfilled' ? sharesRes.value : null;
         const currentPrice = results.price?.price ?? Number(stock.price);
-        results.dart = mapOpenDartPayload(stock, raw, corp, currentPrice, shares);
+        const dartSourceMeta = makeCacheSourceMeta({ provider: 'openDart', sourceId: 'openDart', endpointIds: ['opendart.fnlttSinglAcntAll', 'opendart.fnlttSinglAcnt', 'opendart.stockInfo'], mode: apiSettings.dataMode, confidence: 'A' });
+        results.dart = attachDataViews(mapOpenDartPayload(stock, raw, corp, currentPrice, shares), dartSourceMeta);
         results.dartKey = dartKey;
-        results.dartCacheEntry = { fetchedAt: new Date().toISOString(), provider: 'openDart', schemaVersion: CACHE_SCHEMA_VERSION, payload: results.dart };
+        results.dartCacheEntry = {
+          fetchedAt: new Date().toISOString(),
+          provider: 'openDart',
+          schemaVersion: CACHE_SCHEMA_VERSION,
+          sourceMeta: dartSourceMeta,
+          payload: results.dart,
+        };
       }
     }
 
@@ -3545,9 +3605,12 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
         ...(results.dart.name ? { name: results.dart.name } : {}),  // prefer DART corpName for KRX
       } : {}),
     };
+    const mergedSourceMeta = results.dart?.sourceMeta || results.price?.sourceMeta || null;
+    const viewMerged = attachDataViews(merged, mergedSourceMeta);
     if (results.priceKey) merged.cacheUpdates[results.priceKey] = results.priceCacheEntry;
     if (results.dartKey) merged.cacheUpdates[results.dartKey] = results.dartCacheEntry;
-    return merged;
+    viewMerged.cacheUpdates = merged.cacheUpdates;
+    return viewMerged;
   }
 
   if (commercialSafe) {
@@ -3563,15 +3626,18 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
     const history = await fetchSecFinancialHistory(stock);
     const payload = { ...mapSecHistoryPayload(stock, history), replaceMetrics: true };
     const conf = computeDataConfidence(payload.metrics, payload.metricsMeta);
+    const sourceMeta = makeCacheSourceMeta({ provider: 'secEdgar', sourceId: 'secEdgar', endpointIds: ['sec.companyfacts', 'sec.companyTickers'], mode: apiSettings.dataMode, confidence: conf.grade, completeness: { usedCount: conf.usedCount, totalCoreCount: conf.totalCoreCount } });
+    const viewPayload = attachDataViews(payload, sourceMeta);
     const entry = {
       fetchedAt: new Date().toISOString(),
       provider: 'secEdgar',
       schemaVersion: CACHE_SCHEMA_VERSION,
       confidence: conf.grade,
       completeness: { usedCount: conf.usedCount, totalCoreCount: conf.totalCoreCount },
-      payload,
+      sourceMeta,
+      payload: viewPayload,
     };
-    return { ...payload, cacheUpdates: { [cacheKey]: entry } };
+    return { ...viewPayload, cacheUpdates: { [cacheKey]: entry } };
   }
 
   // Yahoo (price + basic metrics)
@@ -3599,15 +3665,18 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
       const payload = mapYahooPayload(stock, chartRes.value, yahooSym, quote, summary);
       // Compute completeness for smart cache TTL decisions
       const conf = computeDataConfidence(payload.metrics, payload.metricsMeta);
+      const sourceMeta = makeCacheSourceMeta({ provider: 'yahooExperimental', sourceId: 'yahooFinance', endpointIds: ['yahoo.chart', 'yahoo.quote', 'yahoo.quoteSummary', 'yahoo.timeseries'], mode: apiSettings.dataMode, confidence: conf.grade, completeness: { usedCount: conf.usedCount, totalCoreCount: conf.totalCoreCount } });
+      const viewPayload = attachDataViews(payload, sourceMeta);
       const entry = {
         fetchedAt: new Date().toISOString(),
         provider: 'yahooExperimental',
         schemaVersion: CACHE_SCHEMA_VERSION,
         confidence: conf.grade,
         completeness: { usedCount: conf.usedCount, totalCoreCount: conf.totalCoreCount },
-        payload,
+        sourceMeta,
+        payload: viewPayload,
       };
-      return { ...payload, cacheUpdates: { [cacheKey]: entry } };
+      return { ...viewPayload, cacheUpdates: { [cacheKey]: entry } };
     } catch (e) {
       const stale = getAnyCachedEntry(cache, cacheKey);
       if (stale) return { ...stale.payload, cacheUpdates: {}, fromCache: true, fromStaleCache: true, staleAgeDays: stale.ageDays, fetchError: e.message };
@@ -3636,8 +3705,15 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
         raw[req.key] = await fetchAlphaVantage(req.fn, stock.symbol, apiSettings.alphaVantageKey, apiSettings);
         if (i < requests.length - 1) await sleep(AV_DELAY);
       }
-      const payload = mapAlphaPayload(stock, raw);
-      const entry = { fetchedAt: new Date().toISOString(), provider: 'alphaVantage', payload };
+      const sourceMeta = makeCacheSourceMeta({ provider: 'alphaVantage', sourceId: 'alphaVantage', endpointIds: ['alphaVantage.query'], mode: apiSettings.dataMode, confidence: 'B' });
+      const payload = attachDataViews(mapAlphaPayload(stock, raw), sourceMeta);
+      const entry = {
+        fetchedAt: new Date().toISOString(),
+        provider: 'alphaVantage',
+        schemaVersion: CACHE_SCHEMA_VERSION,
+        sourceMeta,
+        payload,
+      };
       return { ...payload, cacheUpdates: { [cacheKey]: entry } };
     } catch (e) {
       const stale = getAnyCachedEntry(cache, cacheKey);
@@ -3673,8 +3749,15 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
         }
         if (i < endpoints.length - 1) await sleep(250);
       }
-      const payload = mapFmpPayload(stock, raw, fmpSym);
-      const entry = { fetchedAt: new Date().toISOString(), provider: 'fmp', payload };
+      const sourceMeta = makeCacheSourceMeta({ provider: 'fmp', sourceId: 'fmp', endpointIds: ['fmp.stable'], mode: apiSettings.dataMode, confidence: 'B' });
+      const payload = attachDataViews(mapFmpPayload(stock, raw, fmpSym), sourceMeta);
+      const entry = {
+        fetchedAt: new Date().toISOString(),
+        provider: 'fmp',
+        schemaVersion: CACHE_SCHEMA_VERSION,
+        sourceMeta,
+        payload,
+      };
       return { ...payload, cacheUpdates: { [cacheKey]: entry } };
     } catch (e) {
       const stale = getAnyCachedEntry(cache, cacheKey);
@@ -4418,7 +4501,7 @@ Object.assign(window, {
   ALERT_RETENTION_DAYS,
   CACHE_SCHEMA_VERSION, CORE_METRIC_KEYS, DATA_SOURCE_REGISTRY, DATA_ENDPOINT_REGISTRY, BLOCKED_COMMERCIAL_SAFE_HOSTS,
   isCommercialSafeMode, assertSourceAllowed, assertEndpointAllowed, assertUrlAllowed, isPersonalOnlyError, getSourcePolicyRows, getEndpointPolicyRows,
-  makeMetricMeta, setMetricWithMeta, computeDataConfidence,
+  makeMetricMeta, setMetricWithMeta, computeDataConfidence, makeCacheSourceMeta, attachDataViews,
   loadAppState, saveAppState,
   computeScores, computeQuantScores, applyQuantScores, computeDynamicQuality,
   getDaysLeft, fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp,
@@ -8778,8 +8861,19 @@ function App({ initialData }) {
       setStocks(prev => {
         const updated = { ...prev };
         const old = { ...updated[stockId] };
-        const newMetrics = replaceMetrics ? { ...(payload.metrics || {}) } : { ...old.metrics, ...(payload.metrics || {}) };
+        const oldDisplayMetrics = old.displayData?.metrics || old.metrics || {};
+        const oldScoringMetrics = old.scoringData?.metrics || old.metrics || {};
+        const newDisplayMetrics = replaceMetrics ? { ...(payload.metrics || {}) } : { ...oldDisplayMetrics, ...(payload.metrics || {}) };
+        const incomingScoringMetrics = payload.scoringData?.metrics || payload.metrics || {};
+        const newScoringMetrics = replaceMetrics
+          ? { ...incomingScoringMetrics }
+          : { ...oldScoringMetrics, ...incomingScoringMetrics };
+        const newMetrics = newDisplayMetrics;
         const newIndustryGroup = payload.industryGroup || old.industryGroup || null;
+        const oldDisplayMeta = old.displayData?.metricsMeta || old.metricsMeta || {};
+        const oldScoringMeta = old.scoringData?.metricsMeta || old.metricsMeta || {};
+        const incomingDisplayMeta = payload.displayData?.metricsMeta || payload.metricsMeta || {};
+        const incomingScoringMeta = payload.scoringData?.metricsMeta || payload.metricsMeta || {};
         
         // Push the old score to history before computing the new one
         const now = new Date().toISOString().slice(0, 10);
@@ -8797,12 +8891,26 @@ function App({ initialData }) {
           ...(newIndustryGroup ? { industryGroup: newIndustryGroup } : {}),
           refreshedAt: now,
           metrics: newMetrics,
+          displayData: {
+            ...(old.displayData || {}),
+            metrics: newDisplayMetrics,
+            metricsMeta: replaceMetrics ? { ...incomingDisplayMeta } : { ...oldDisplayMeta, ...incomingDisplayMeta },
+            sourceMeta: payload.displayData?.sourceMeta || payload.sourceMeta || old.displayData?.sourceMeta || null,
+            updatedAt: now,
+          },
+          scoringData: {
+            ...(old.scoringData || {}),
+            metrics: newScoringMetrics,
+            metricsMeta: replaceMetrics ? { ...incomingScoringMeta } : { ...oldScoringMeta, ...incomingScoringMeta },
+            sourceMeta: payload.scoringData?.sourceMeta || payload.sourceMeta || old.scoringData?.sourceMeta || null,
+            updatedAt: now,
+          },
           // Merge metricsMeta: new payload's entries win over old, preserving any manually-set ones
           metricsMeta: replaceMetrics
-            ? { ...(payload.metricsMeta || {}) }
+            ? { ...incomingDisplayMeta }
             : {
-                ...(old.metricsMeta || {}),
-                ...(payload.metricsMeta || {}),
+                ...oldDisplayMeta,
+                ...incomingDisplayMeta,
               },
           scoreHistory: newScoreHistory,
         };

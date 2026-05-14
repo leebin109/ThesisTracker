@@ -39,6 +39,16 @@ function writeJson(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
+function isTruthyEnv(value) {
+  return /^(1|true|yes|on)$/i.test(String(value || '').trim());
+}
+
+function isYahooProxyDisabled() {
+  return isTruthyEnv(process.env.DISABLE_YAHOO_PROXY)
+    || isTruthyEnv(process.env.YAHOO_PROXY_DISABLED)
+    || isTruthyEnv(process.env.DISABLE_YAHOO_PROXY_PROD);
+}
+
 function queryObjectFromUrl(url) {
   const out = {};
   for (const [key, value] of url.searchParams.entries()) {
@@ -288,6 +298,15 @@ async function fetchYahooWithFallback(targetUrl, crumbInfo) {
 }
 
 async function proxyYahoo(req, res, url) {
+  if (isYahooProxyDisabled()) {
+    writeJson(res, 403, {
+      status: 'YAHOO_PROXY_DISABLED',
+      message: 'Yahoo proxy is disabled in this environment',
+      service: 'yahoo',
+      path: url.pathname.slice('/api/yahoo/'.length),
+    });
+    return;
+  }
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'access-control-allow-origin': '*',

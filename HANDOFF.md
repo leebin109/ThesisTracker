@@ -3,6 +3,8 @@
 ## Current commercial-safe policy
 - `apiSettings.dataMode === 'commercialSafe'` blocks Yahoo, FMP, Alpha Vantage, and unclear news sources before network calls.
 - Endpoint policy is enforced through `DATA_ENDPOINT_REGISTRY`; unknown endpoints default-block in Commercial-Safe mode.
+- Server proxy also enforces endpoint policy. Set `DISABLE_YAHOO_PROXY=1` or `YAHOO_PROXY_DISABLED=1` to disable Yahoo proxy; `DISABLE_YAHOO_PROXY_PROD=1` disables it only when `VERCEL_ENV=production`.
+- Cache entries include `sourceMeta`; refreshed payloads separate `displayData` from `scoringData`.
 - Personal mode preserves existing Yahoo/FMP/Alpha search, chart, refresh, macro, and news functionality.
 - No paid API or paid infrastructure dependency is introduced.
 

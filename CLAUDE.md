@@ -88,7 +88,9 @@ Helpers in `terminal-data.jsx` (exposed on `window`):
 
 `apiSettings.dataMode` is `'personal'` (default) or `'commercialSafe'`. Stored in localStorage. Surfaced in `SettingsDataPanel` (F12). In `commercialSafe` mode, Yahoo, FMP, Alpha Vantage, and unclear news sources are blocked before network calls. Personal mode preserves those existing features.
 
-`DATA_SOURCE_REGISTRY` defines source-level policy metadata. `DATA_ENDPOINT_REGISTRY` is the stricter runtime allowlist for service/path/host endpoints. In Commercial-Safe mode, unknown endpoints default-block until explicitly registered.
+`DATA_SOURCE_REGISTRY` defines source-level policy metadata. `DATA_ENDPOINT_REGISTRY` is the stricter runtime allowlist for service/path/host endpoints. In Commercial-Safe mode, unknown endpoints default-block until explicitly registered. The server proxy has a matching allowlist and supports `DISABLE_YAHOO_PROXY=1` / `YAHOO_PROXY_DISABLED=1` plus `DISABLE_YAHOO_PROXY_PROD=1` for Vercel production.
+
+Cache entries should include `sourceMeta` with source/license/rate-limit/commercial status. Refreshed stock payloads expose both `displayData` and `scoringData`; scoring uses `scoringData.metrics` when present so display-only values do not silently affect scores.
 
 ### Proxy routing
 

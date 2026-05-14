@@ -92,6 +92,23 @@ async function assertBlocked(label, fn) {
     'registered SEC endpoint should be allowed'
   );
 
+  const cacheMeta = w.makeCacheSourceMeta({
+    provider: 'secEdgar',
+    sourceId: 'secEdgar',
+    endpointIds: ['sec.companyfacts'],
+    mode: 'commercialSafe',
+    confidence: 'A',
+  });
+  assert.equal(cacheMeta.commercialSafe, true, 'SEC cache source metadata should be commercial-safe');
+  assert.equal(cacheMeta.licenseUrl.includes('sec.gov'), true, 'cache source metadata should include license URL');
+
+  const payload = w.attachDataViews({
+    metrics: { roe: 10, per: 20 },
+    metricsMeta: { roe: { commercialSafe: true } },
+  }, cacheMeta, { scoringMetrics: { roe: 10 } });
+  assert.equal(payload.displayData.metrics.per, 20, 'displayData should retain display metrics');
+  assert.equal(payload.scoringData.metrics.per, undefined, 'scoringData should be separable from displayData');
+
   assert.equal(fetchCalls.length, 0, `blocked hosts should have 0 fetch calls, saw ${fetchCalls.length}`);
   console.log('Commercial-Safe policy verified: blocked host fetch calls = 0');
 })();
