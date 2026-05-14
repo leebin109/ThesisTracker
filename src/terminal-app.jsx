@@ -12,7 +12,7 @@
 /* global inferMarketFromExchange, normalizeSymbolForMarket, getMarketProfile, buildYahooChartUrl, MARKET_PROFILES, COUNTRY_FLAGS, SCORE_CFG */
 /* global useTweaks, TweaksPanel */
 /* global supabase */
-/* global makeMetricMeta, computeDataConfidence, CORE_METRIC_KEYS, DATA_SOURCE_REGISTRY, getSourcePolicyRows */
+/* global makeMetricMeta, computeDataConfidence, CORE_METRIC_KEYS, DATA_SOURCE_REGISTRY, getSourcePolicyRows, getEndpointPolicyRows */
 
 // ─── Supabase config ──────────────────────────────────────────────────────────
 // After creating a Supabase project, replace both placeholder values below.
@@ -3003,7 +3003,9 @@ function SettingsDataPanel({
     }
     return acc;
   }, {});
-  const sourcePolicyRows = typeof getSourcePolicyRows === 'function' ? getSourcePolicyRows(s) : [];
+  const sourcePolicyRows = typeof getEndpointPolicyRows === 'function'
+    ? getEndpointPolicyRows(s)
+    : typeof getSourcePolicyRows === 'function' ? getSourcePolicyRows(s) : [];
   const statusColor = providerStatus?.kind === 'ok' ? T.green : providerStatus?.kind === 'warn' ? T.yellow : providerStatus?.kind === 'error' ? T.red : T.inkFaint;
 
   return (

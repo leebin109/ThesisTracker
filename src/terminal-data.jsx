@@ -160,12 +160,214 @@ const DATA_SOURCE_REGISTRY = {
   },
 };
 
+const DATA_ENDPOINT_REGISTRY = {
+  'opendart.fnlttSinglAcntAll': {
+    sourceId: 'openDart',
+    label: 'OpenDART financial statements all',
+    service: 'opendart',
+    path: 'fnlttSinglAcntAll',
+    hosts: ['opendart.fss.or.kr'],
+    blockedInCommercialSafe: false,
+  },
+  'opendart.fnlttSinglAcnt': {
+    sourceId: 'openDart',
+    label: 'OpenDART financial statements single',
+    service: 'opendart',
+    path: 'fnlttSinglAcnt',
+    hosts: ['opendart.fss.or.kr'],
+    blockedInCommercialSafe: false,
+  },
+  'opendart.stockInfo': {
+    sourceId: 'openDart',
+    label: 'OpenDART stock info',
+    service: 'opendart',
+    path: 'stockInfo',
+    hosts: ['opendart.fss.or.kr'],
+    blockedInCommercialSafe: false,
+  },
+  'opendart.list': {
+    sourceId: 'openDart',
+    label: 'OpenDART disclosures',
+    service: 'opendart',
+    path: 'list',
+    hosts: ['opendart.fss.or.kr'],
+    blockedInCommercialSafe: false,
+  },
+  'sec.companyfacts': {
+    sourceId: 'secEdgar',
+    label: 'SEC companyfacts',
+    service: 'sec',
+    pathPrefix: 'companyfacts/',
+    hosts: ['data.sec.gov'],
+    blockedInCommercialSafe: false,
+  },
+  'sec.submissions': {
+    sourceId: 'secEdgar',
+    label: 'SEC submissions',
+    service: 'sec',
+    pathPrefix: 'submissions/',
+    hosts: ['data.sec.gov'],
+    blockedInCommercialSafe: false,
+  },
+  'sec.companyTickers': {
+    sourceId: 'secEdgar',
+    label: 'SEC company ticker map',
+    service: 'sec',
+    path: 'files/company_tickers.json',
+    hosts: ['www.sec.gov'],
+    blockedInCommercialSafe: false,
+  },
+  'sec.archives': {
+    sourceId: 'secEdgar',
+    label: 'SEC archives',
+    service: 'sec',
+    pathPrefix: 'archives/',
+    hosts: ['www.sec.gov'],
+    blockedInCommercialSafe: false,
+  },
+  'dataGoKr.stockPrice': {
+    sourceId: 'dataGoKrStockPrice',
+    label: 'data.go.kr stock price',
+    hosts: ['apis.data.go.kr'],
+    blockedInCommercialSafe: false,
+  },
+  'yahoo.search': {
+    sourceId: 'yahooFinance',
+    label: 'Yahoo search',
+    service: 'yahoo',
+    path: 'search',
+    hosts: ['query1.finance.yahoo.com'],
+    blockedInCommercialSafe: true,
+  },
+  'yahoo.quote': {
+    sourceId: 'yahooFinance',
+    label: 'Yahoo quote',
+    service: 'yahoo',
+    path: 'quote',
+    hosts: ['query1.finance.yahoo.com'],
+    blockedInCommercialSafe: true,
+  },
+  'yahoo.chart': {
+    sourceId: 'yahooFinance',
+    label: 'Yahoo chart',
+    service: 'yahoo',
+    path: 'chart',
+    hosts: ['query1.finance.yahoo.com'],
+    blockedInCommercialSafe: true,
+  },
+  'yahoo.quoteSummary': {
+    sourceId: 'yahooFinance',
+    label: 'Yahoo quoteSummary',
+    service: 'yahoo',
+    path: 'quoteSummary',
+    hosts: ['query2.finance.yahoo.com'],
+    blockedInCommercialSafe: true,
+  },
+  'yahoo.timeseries': {
+    sourceId: 'yahooFinance',
+    label: 'Yahoo timeseries',
+    service: 'yahoo',
+    path: 'timeseries',
+    hosts: ['query1.finance.yahoo.com'],
+    blockedInCommercialSafe: true,
+  },
+  'yahoo.news': {
+    sourceId: 'yahooNews',
+    label: 'Yahoo news',
+    service: 'yahoo',
+    path: 'search',
+    hosts: ['query1.finance.yahoo.com'],
+    blockedInCommercialSafe: true,
+  },
+  'googleNews.rss': {
+    sourceId: 'googleNews',
+    label: 'Google News RSS',
+    hosts: ['news.google.com'],
+    blockedInCommercialSafe: true,
+  },
+  'alphaVantage.query': {
+    sourceId: 'alphaVantage',
+    label: 'Alpha Vantage query',
+    hosts: ['www.alphavantage.co'],
+    blockedInCommercialSafe: true,
+  },
+  'fmp.stable': {
+    sourceId: 'fmp',
+    label: 'FMP stable API',
+    hosts: ['financialmodelingprep.com'],
+    blockedInCommercialSafe: true,
+  },
+};
+
+const BLOCKED_COMMERCIAL_SAFE_HOSTS = new Set(
+  Object.values(DATA_ENDPOINT_REGISTRY)
+    .filter(e => e.blockedInCommercialSafe)
+    .flatMap(e => e.hosts || [])
+);
+
 function isCommercialSafeMode(apiSettings) {
   return apiSettings?.dataMode === 'commercialSafe';
 }
 
 function getDataSourceMeta(sourceId) {
   return DATA_SOURCE_REGISTRY[sourceId] || null;
+}
+
+function getEndpointMeta(endpointId) {
+  return DATA_ENDPOINT_REGISTRY[endpointId] || null;
+}
+
+function normalizeEndpointPath(path) {
+  return String(path || '').trim().replace(/^\/+|\/+$/g, '').replace(/\.json$/i, '');
+}
+
+function endpointMatchesPath(endpoint, path) {
+  const clean = normalizeEndpointPath(path);
+  if (endpoint.path) return clean === normalizeEndpointPath(endpoint.path);
+  if (endpoint.pathPrefix) return clean.startsWith(normalizeEndpointPath(endpoint.pathPrefix));
+  return true;
+}
+
+function findEndpointByProxy(service, path) {
+  const cleanService = String(service || '').trim().toLowerCase();
+  const cleanPath = normalizeEndpointPath(path);
+  return Object.entries(DATA_ENDPOINT_REGISTRY).find(([, endpoint]) => (
+    endpoint.service === cleanService && endpointMatchesPath(endpoint, cleanPath)
+  )) || null;
+}
+
+function findEndpointByUrl(url) {
+  let parsed;
+  try {
+    parsed = new URL(String(url), 'https://local.invalid');
+  } catch {
+    return null;
+  }
+  if (parsed.pathname === '/api/proxy') {
+    const service = parsed.searchParams.get('service');
+    const path = parsed.searchParams.get('path');
+    return findEndpointByProxy(service, path);
+  }
+  const host = parsed.hostname.toLowerCase();
+  const pathname = normalizeEndpointPath(parsed.pathname);
+  return Object.entries(DATA_ENDPOINT_REGISTRY).find(([, endpoint]) => {
+    if (!(endpoint.hosts || []).some(h => h.toLowerCase() === host)) return false;
+    if (host === 'opendart.fss.or.kr') return endpointMatchesPath(endpoint, pathname.replace(/^api\//, ''));
+    if (host === 'data.sec.gov') return endpointMatchesPath(endpoint, pathname.replace(/^api\/xbrl\//, ''));
+    if (host === 'www.sec.gov') {
+      const lowerPath = pathname.toLowerCase();
+      if (pathname === 'files/company_tickers.json') return endpoint.path === 'files/company_tickers.json';
+      if (lowerPath.startsWith('archives/edgar/data')) return endpoint.pathPrefix === 'archives/';
+    }
+    if (host.includes('finance.yahoo.com')) {
+      if (pathname.includes('/finance/search')) return endpoint.path === 'search';
+      if (pathname.includes('/finance/quote') && endpoint.path === 'quote') return true;
+      if (pathname.includes('/finance/chart/') && endpoint.path === 'chart') return true;
+      if (pathname.includes('/finance/quoteSummary/') && endpoint.path === 'quoteSummary') return true;
+      if (pathname.includes('/finance/timeseries/') && endpoint.path === 'timeseries') return true;
+    }
+    return !endpoint.path && !endpoint.pathPrefix;
+  }) || null;
 }
 
 function inferSourceIdFromProvider(provider) {
@@ -179,35 +381,83 @@ function inferSourceIdFromProvider(provider) {
   return null;
 }
 
-function makeSourcePolicyError(sourceId, context = '') {
-  const meta = getDataSourceMeta(sourceId);
-  const label = meta?.label || sourceId || 'source';
+function makeSourcePolicyError(sourceId, context = '', endpointId = null) {
+  const meta = getEndpointMeta(endpointId) || getDataSourceMeta(sourceId);
+  const label = meta?.label || endpointId || sourceId || 'source';
   const detail = context ? ` (${context})` : '';
   const err = new Error(`${label}${detail}: Personal mode only - blocked in Commercial-Safe mode`);
   err.code = 'SOURCE_POLICY_BLOCKED';
   err.sourceId = sourceId;
+  err.endpointId = endpointId;
   err.personalOnly = true;
   return err;
 }
 
-function assertSourceAllowed(sourceId, apiSettings, context = '') {
+function makeUnknownPolicyError(context = '', endpointId = null) {
+  const detail = context ? ` (${context})` : '';
+  const err = new Error(`${endpointId || 'unknown endpoint'}${detail}: blocked in Commercial-Safe mode until registered`);
+  err.code = 'SOURCE_POLICY_UNKNOWN';
+  err.endpointId = endpointId;
+  err.personalOnly = true;
+  return err;
+}
+
+function assertSourceAllowed(sourceId, apiSettings, context = '', endpointId = null) {
+  if (isCommercialSafeMode(apiSettings) && endpointId) {
+    const endpoint = getEndpointMeta(endpointId);
+    if (!endpoint) throw makeUnknownPolicyError(context, endpointId);
+    if (endpoint.blockedInCommercialSafe) {
+      throw makeSourcePolicyError(endpoint.sourceId || sourceId, context, endpointId);
+    }
+  }
   const meta = getDataSourceMeta(sourceId);
+  if (isCommercialSafeMode(apiSettings) && !meta) {
+    throw makeUnknownPolicyError(context, endpointId || sourceId);
+  }
   if (isCommercialSafeMode(apiSettings) && meta?.blockedInCommercialSafe) {
-    throw makeSourcePolicyError(sourceId, context);
+    throw makeSourcePolicyError(sourceId, context, endpointId);
   }
   return true;
 }
 
+function assertEndpointAllowed(endpointId, apiSettings, context = '') {
+  const endpoint = getEndpointMeta(endpointId);
+  if (isCommercialSafeMode(apiSettings) && !endpoint) throw makeUnknownPolicyError(context, endpointId);
+  return assertSourceAllowed(endpoint?.sourceId, apiSettings, context, endpointId);
+}
+
+function assertUrlAllowed(url, apiSettings, context = '') {
+  if (!isCommercialSafeMode(apiSettings)) return true;
+  const pair = findEndpointByUrl(url);
+  if (!pair) throw makeUnknownPolicyError(context, String(url).slice(0, 120));
+  const [endpointId] = pair;
+  return assertEndpointAllowed(endpointId, apiSettings, context);
+}
+
 function isPersonalOnlyError(err) {
-  return err?.code === 'SOURCE_POLICY_BLOCKED' || err?.personalOnly === true;
+  return err?.code === 'SOURCE_POLICY_BLOCKED' || err?.code === 'SOURCE_POLICY_UNKNOWN' || err?.personalOnly === true;
 }
 
 function getSourcePolicyRows(apiSettings) {
-  return Object.entries(DATA_SOURCE_REGISTRY).map(([id, meta]) => ({
+  const rows = Object.entries(DATA_SOURCE_REGISTRY).map(([id, meta]) => ({
     id,
     ...meta,
     allowed: !(isCommercialSafeMode(apiSettings) && meta.blockedInCommercialSafe),
   }));
+  return rows;
+}
+
+function getEndpointPolicyRows(apiSettings) {
+  return Object.entries(DATA_ENDPOINT_REGISTRY).map(([id, endpoint]) => {
+    const source = getDataSourceMeta(endpoint.sourceId) || {};
+    const blocked = endpoint.blockedInCommercialSafe || source.blockedInCommercialSafe || !source.label;
+    return {
+      id,
+      ...source,
+      ...endpoint,
+      allowed: !(isCommercialSafeMode(apiSettings) && blocked),
+    };
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1084,9 +1334,9 @@ function assertFmpResponse(data, ep, opts = {}) {
 // Fetch functions
 // ═══════════════════════════════════════════════════════════════
 async function fetchYahooChart(symbol, apiSettings = null) {
-  assertSourceAllowed('yahooFinance', apiSettings, 'chart');
+  assertEndpointAllowed('yahoo.chart', apiSettings, 'chart');
   const params = new URLSearchParams({ range: '3mo', interval: '1d', includePrePost: 'false', events: 'div,splits' });
-  const data = await fetchJsonWithDiagnostics('Yahoo chart', buildYahooChartUrl(symbol, params));
+  const data = await fetchJsonWithDiagnostics('Yahoo chart', buildYahooChartUrl(symbol, params), { apiSettings });
   const err = data?.chart?.error;
   if (err) throw new Error(err.description || err.code || 'chart error');
   return data;
@@ -1102,7 +1352,7 @@ function isCleanCompanyName(s) {
 }
 
 async function fetchKrxYahooPrice(stock, apiSettings = null) {
-  assertSourceAllowed('yahooFinance', apiSettings, 'KRX price fallback');
+  assertEndpointAllowed('yahoo.chart', apiSettings, 'KRX price fallback');
   const baseSym = String(stock.symbol || '').replace(/\D/g, '').padStart(6, '0');
   if (baseSym.length !== 6) throw new Error(`KRX 심볼 파싱 실패: ${stock.symbol}`);
   const candidates = [`${baseSym}.KS`, `${baseSym}.KQ`];
@@ -1137,29 +1387,29 @@ async function fetchKrxYahooPrice(stock, apiSettings = null) {
 }
 
 async function fetchYahooQuote(symbol, apiSettings = null) {
-  assertSourceAllowed('yahooFinance', apiSettings, 'quote');
+  assertEndpointAllowed('yahoo.quote', apiSettings, 'quote');
   const fields = 'symbol,shortName,longName,currency,regularMarketPrice,regularMarketTime,trailingPE,forwardPE,priceToBook,bookValue,epsTrailingTwelveMonths,epsForward,marketCap,sector,industry';
-  const data = await fetchJsonWithDiagnostics('Yahoo quote', buildYahooQuoteUrl([symbol], { fields }));
+  const data = await fetchJsonWithDiagnostics('Yahoo quote', buildYahooQuoteUrl([symbol], { fields }), { apiSettings });
   const quote = data?.quoteResponse?.result?.[0];
   if (!quote) throw new Error('Yahoo quote result 없음');
   return quote;
 }
 
 async function fetchYahooQuoteSummary(symbol, apiSettings = null) {
-  assertSourceAllowed('yahooFinance', apiSettings, 'quoteSummary');
+  assertEndpointAllowed('yahoo.quoteSummary', apiSettings, 'quoteSummary');
   const modules = 'financialData,defaultKeyStatistics,summaryDetail';
   const params = new URLSearchParams({ modules });
   const url = isProxiedOrigin()
     ? `/api/proxy?service=yahoo&path=quoteSummary&symbol=${encodeURIComponent(symbol)}&${params}`
     : `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?${params}`;
-  const data = await fetchJsonWithDiagnostics('Yahoo quoteSummary', url);
+  const data = await fetchJsonWithDiagnostics('Yahoo quoteSummary', url, { apiSettings });
   const result = data?.quoteSummary?.result?.[0];
   if (!result) throw new Error('Yahoo quoteSummary result 없음');
   return result;
 }
 
 async function fetchYahooTimeSeries(symbol, apiSettings = null) {
-  assertSourceAllowed('yahooFinance', apiSettings, 'timeseries');
+  assertEndpointAllowed('yahoo.timeseries', apiSettings, 'timeseries');
   const types = [
     'annualTotalRevenue', 'annualOperatingIncome', 'annualNetIncome', 'annualDilutedEPS',
     'annualStockholdersEquity', 'annualCurrentAssets', 'annualCurrentLiabilities',
@@ -1172,7 +1422,7 @@ async function fetchYahooTimeSeries(symbol, apiSettings = null) {
   const url = isProxiedOrigin()
     ? `/api/proxy?service=yahoo&path=timeseries&symbol=${encodeURIComponent(symbol)}&${qs}`
     : `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${encodeURIComponent(symbol)}?${qs}`;
-  const data = await fetchJsonWithDiagnostics('Yahoo timeseries', url);
+  const data = await fetchJsonWithDiagnostics('Yahoo timeseries', url, { apiSettings });
   const result = data?.timeseries?.result;
   if (!result) throw new Error('timeseries 응답 구조 오류');
   return result; // may be [] if no data
@@ -1237,7 +1487,7 @@ function parseTimeSeriesStatements(results) {
 }
 
 async function fetchYahooStatements(symbol, apiSettings = null) {
-  assertSourceAllowed('yahooFinance', apiSettings, 'statements');
+  assertEndpointAllowed('yahoo.quoteSummary', apiSettings, 'statements');
   // Progressive fallback: try all 3 modules, then 2, then income-only
   const combos = [
     'incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory',
@@ -1250,7 +1500,7 @@ async function fetchYahooStatements(symbol, apiSettings = null) {
       ? `/api/proxy?service=yahoo&path=quoteSummary&symbol=${encodeURIComponent(symbol)}&${params}`
       : `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?${params}`;
     try {
-      const data = await fetchJsonWithDiagnostics('Yahoo statements', url);
+      const data = await fetchJsonWithDiagnostics('Yahoo statements', url, { apiSettings });
       const result = data?.quoteSummary?.result?.[0];
       if (result) return result;
     } catch {}
@@ -1270,27 +1520,27 @@ async function fetchYahooStatements(symbol, apiSettings = null) {
 }
 
 async function fetchYahooEarnings(symbol, apiSettings = null) {
-  assertSourceAllowed('yahooFinance', apiSettings, 'earnings');
+  assertEndpointAllowed('yahoo.quoteSummary', apiSettings, 'earnings');
   const params = new URLSearchParams({ modules: 'earnings' });
   const url = isProxiedOrigin()
     ? `/api/proxy?service=yahoo&path=quoteSummary&symbol=${encodeURIComponent(symbol)}&${params}`
     : `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?${params}`;
   let data;
-  try { data = await fetchJsonWithDiagnostics('Yahoo earnings', url); }
+  try { data = await fetchJsonWithDiagnostics('Yahoo earnings', url, { apiSettings }); }
   catch { return null; }
   return data?.quoteSummary?.result?.[0] || null;
 }
 
 async function fetchLivePriceForSymbol(stock, yahooSym, apiSettings = null) {
-  assertSourceAllowed('yahooFinance', apiSettings, 'live price');
+  assertEndpointAllowed('yahoo.chart', apiSettings, 'live price');
   const params = new URLSearchParams({ range: '1d', interval: '1m', includePrePost: 'false' });
-  let data = await fetchJsonWithDiagnostics('Yahoo live', buildYahooChartUrl(yahooSym, params));
+  let data = await fetchJsonWithDiagnostics('Yahoo live', buildYahooChartUrl(yahooSym, params), { apiSettings });
   let result = data?.chart?.result?.[0];
   let closes = (result?.indicators?.quote?.[0]?.close || []).map(toNumber).filter(v => Number.isFinite(v) && v > 0);
 
   if (!result || !closes.length) {
     const fallback = new URLSearchParams({ range: '5d', interval: '1d', includePrePost: 'false' });
-    data = await fetchJsonWithDiagnostics('Yahoo live fallback', buildYahooChartUrl(yahooSym, fallback));
+    data = await fetchJsonWithDiagnostics('Yahoo live fallback', buildYahooChartUrl(yahooSym, fallback), { apiSettings });
     result = data?.chart?.result?.[0];
     closes = (result?.indicators?.quote?.[0]?.close || []).map(toNumber).filter(v => Number.isFinite(v) && v > 0);
   }
@@ -1326,7 +1576,7 @@ async function fetchLivePriceForSymbol(stock, yahooSym, apiSettings = null) {
 }
 
 async function fetchLivePrice(stock, apiSettings = null) {
-  assertSourceAllowed('yahooFinance', apiSettings, 'live price');
+  assertEndpointAllowed('yahoo.chart', apiSettings, 'live price');
   // KRX: try .KS then .KQ (KOSPI vs KOSDAQ are not encoded in our market field)
   if (stock.market === 'KRX') {
     const baseSym = String(stock.symbol || '').replace(/\D/g, '').padStart(6, '0');
@@ -1341,9 +1591,9 @@ async function fetchLivePrice(stock, apiSettings = null) {
 }
 
 async function fetchAlphaVantage(fn, symbol, key, apiSettings = null) {
-  assertSourceAllowed('alphaVantage', apiSettings, fn);
+  assertEndpointAllowed('alphaVantage.query', apiSettings, fn);
   const params = new URLSearchParams({ function: fn, symbol, apikey: key });
-  const res = await fetch(`https://www.alphavantage.co/query?${params}`);
+  const res = await fetchWithPolicy(`https://www.alphavantage.co/query?${params}`, { apiSettings, label: `Alpha Vantage ${fn}` });
   if (!res.ok) throw new Error(`Alpha Vantage HTTP ${res.status}`);
   const data = await res.json();
   assertAVResponse(data, fn);
@@ -1351,9 +1601,9 @@ async function fetchAlphaVantage(fn, symbol, key, apiSettings = null) {
 }
 
 async function fetchFmp(ep, params, key, opts = {}) {
-  assertSourceAllowed('fmp', opts.apiSettings, ep);
+  assertEndpointAllowed('fmp.stable', opts.apiSettings, ep);
   const query = new URLSearchParams({ ...params, apikey: key });
-  const res = await fetch(`https://financialmodelingprep.com/stable/${ep}?${query}`);
+  const res = await fetchWithPolicy(`https://financialmodelingprep.com/stable/${ep}?${query}`, { apiSettings: opts.apiSettings, label: `FMP ${ep}` });
   if (!res.ok) throw new Error(`FMP ${ep} HTTP ${res.status}`);
   const data = await res.json();
   assertFmpResponse(data, ep, opts);
@@ -1411,6 +1661,7 @@ async function describeOpenDartHttpError(res) {
 async function fetchJsonWithDiagnostics(label, url, opts = {}) {
   let res;
   try {
+    assertUrlAllowed(url, opts.apiSettings, label);
     res = await fetch(url, opts.fetchOptions);
   } catch (e) {
     throw new Error(`${label} network failed${e?.message ? ` · ${e.message}` : ''}`);
@@ -1467,14 +1718,14 @@ function buildYahooQuoteUrl(symbols, extra = {}) {
     : `https://query1.finance.yahoo.com/v7/finance/quote?${q}`;
 }
 
-async function fetchKoreanStockPrice(symbol, key) {
+async function fetchKoreanStockPrice(symbol, key, apiSettings = null) {
   const stockCode = symbol.padStart(6, '0');
   const url = buildPublicDataUrl(
     'https://apis.data.go.kr/1160100/service/GetStockSecuritiesInfoService/getStockPriceInfo',
     key,
     { numOfRows: '10', pageNo: '1', resultType: 'json', likeSrtnCd: stockCode }
   );
-  const res = await fetch(url);
+  const res = await fetchWithPolicy(url, { apiSettings, label: 'data.go.kr stock price' });
   if (!res.ok) throw new Error(`공공데이터 주가 HTTP ${res.status}`);
   const text = await res.text();
   let data;
@@ -1501,7 +1752,7 @@ async function fetchOpenDartStatements(corpCode, apiSettings) {
     for (const endpoint of ['fnlttSinglAcntAll', 'fnlttSinglAcnt']) {
       try {
         const params = new URLSearchParams({ crtfc_key: key, corp_code: corpCode, bsns_year: String(y), reprt_code: reportCode, fs_div: fsDiv });
-        const data = await fetchJsonWithDiagnostics(`OpenDART ${endpoint}/${fsDiv}/${y}`, buildOpenDartApiUrl(endpoint, params), { openDartOkStatuses: ['000'] });
+        const data = await fetchJsonWithDiagnostics(`OpenDART ${endpoint}/${fsDiv}/${y}`, buildOpenDartApiUrl(endpoint, params), { openDartOkStatuses: ['000'], apiSettings });
         if (Array.isArray(data.list) && data.list.length) {
           return { ...data, context: { year: y, reportCode, fsDiv, sourceType: endpoint === 'fnlttSinglAcntAll' ? 'all' : 'single' } };
         }
@@ -1515,9 +1766,9 @@ async function fetchOpenDartStatements(corpCode, apiSettings) {
   throw new Error(`OpenDART 재무제표 없음 · ${errors.join(' / ')}`);
 }
 
-async function fetchDartStockInfo(corpCode, apiKey) {
+async function fetchDartStockInfo(corpCode, apiKey, apiSettings = null) {
   const params = new URLSearchParams({ crtfc_key: apiKey, corp_code: corpCode });
-  const data = await fetchJsonWithDiagnostics('OpenDART stockInfo', buildOpenDartApiUrl('stockInfo', params), { openDartOkStatuses: ['000'] });
+  const data = await fetchJsonWithDiagnostics('OpenDART stockInfo', buildOpenDartApiUrl('stockInfo', params), { openDartOkStatuses: ['000'], apiSettings });
   if (!Array.isArray(data.list)) throw new Error(`stockInfo status ${data.status}`);
   // Sum common shares (보통주) across all rows — field names vary by DART version
   const commonRows = data.list.filter(r => String(r.stock_knd || r.bsis_se || '').includes('보통'));
@@ -1942,7 +2193,7 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
           results.price = priceCache.payload;
         } else {
           onStatus('공공데이터 주가 조회 중...');
-          const item = await fetchKoreanStockPrice(stock.symbol, apiSettings.dataGoKrKey);
+          const item = await fetchKoreanStockPrice(stock.symbol, apiSettings.dataGoKrKey, apiSettings);
           results.price = mapKrPricePayload(stock, item);
           results.priceKey = priceKey;
           results.priceCacheEntry = { fetchedAt: new Date().toISOString(), provider: 'dataGoKrStockPrice', payload: results.price };
@@ -1978,7 +2229,7 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
         onStatus('OpenDART 재무제표 조회 중...');
         const [rawRes, sharesRes] = await Promise.allSettled([
           fetchOpenDartStatements(corp.corpCode, apiSettings),
-          fetchDartStockInfo(corp.corpCode, apiSettings.openDartKey),
+          fetchDartStockInfo(corp.corpCode, apiSettings.openDartKey, apiSettings),
         ]);
         if (rawRes.status === 'rejected') throw rawRes.reason;
         const raw = rawRes.value;
@@ -2167,15 +2418,15 @@ function mapFmpSearchResult(row) {
 }
 
 async function searchWithYahoo(query, apiSettings = null) {
-  assertSourceAllowed('yahooFinance', apiSettings, 'search');
+  assertEndpointAllowed('yahoo.search', apiSettings, 'search');
   const params = new URLSearchParams({ q: query, quotesCount: '10', newsCount: '0' });
-  const data = await fetchJsonWithDiagnostics('Yahoo search', buildYahooSearchUrl(params));
+  const data = await fetchJsonWithDiagnostics('Yahoo search', buildYahooSearchUrl(params), { apiSettings });
   const rows = (data.quotes ?? []).filter(q => ['EQUITY','ETF'].includes(String(q.quoteType ?? '').toUpperCase()));
   return uniqueSearchResults(rows.map(mapYahooSearchResult).filter(Boolean));
 }
 
 async function searchWithFmp(query, key, apiSettings = null) {
-  assertSourceAllowed('fmp', apiSettings, 'search');
+  assertEndpointAllowed('fmp.stable', apiSettings, 'search');
   if (!key) throw new Error('FMP key 없음');
   const [r1, r2] = await Promise.allSettled([
     fetchFmp('search-symbol', { query, limit: '8' }, key, { allowEmpty: true }),
@@ -2279,6 +2530,11 @@ async function fetchSecFinancialHistory(stock) {
       unit: 'M', currency: 'USD',
     };
   });
+}
+
+async function fetchWithPolicy(url, opts = {}) {
+  assertUrlAllowed(url, opts.apiSettings, opts.label || 'fetch');
+  return fetch(url, opts.fetchOptions);
 }
 
 function mapSecHistoryPayload(stock, history) {
@@ -2618,11 +2874,11 @@ async function fetchInsiderTrades(stock) {
 }
 
 async function fetchYahooNewsExperimental(symbol, nameQuery, apiSettings = null) {
-  assertSourceAllowed('yahooNews', apiSettings, 'news');
+  assertEndpointAllowed('yahoo.news', apiSettings, 'news');
   if (!symbol) return [];
   const q = nameQuery || symbol;
   const params = new URLSearchParams({ q, newsCount: '20', quotesCount: '0' });
-  const data = await fetchJsonWithDiagnostics('Yahoo news', buildYahooSearchUrl(params));
+  const data = await fetchJsonWithDiagnostics('Yahoo news', buildYahooSearchUrl(params), { apiSettings });
   const news = Array.isArray(data?.news) ? data.news : [];
   return news.map(n => ({
     source: 'Yahoo',
@@ -2649,12 +2905,13 @@ function isNewsRelevant(title, stock) {
   return keywords.some(w => t.includes(w)) || (symBase.length >= 3 && t.includes(symBase));
 }
 
-async function fetchGoogleNewsRss(query, proxyPrefix = '') {
+async function fetchGoogleNewsRss(query, proxyPrefix = '', apiSettings = null) {
+  assertEndpointAllowed('googleNews.rss', apiSettings, 'news');
   if (!query) return [];
   // Korean locale by default; user can switch via stock-level hint later.
   const target = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=ko&gl=KR&ceid=KR:ko`;
   const url = proxyPrefix ? `${proxyPrefix}${encodeURIComponent(target)}` : target;
-  const res = await fetch(url);
+  const res = await fetchWithPolicy(url, { apiSettings, label: 'Google News RSS' });
   if (!res.ok) throw new Error(`Google News HTTP ${res.status}`);
   const text = await res.text();
   const doc = new DOMParser().parseFromString(text, 'application/xml');
@@ -2707,7 +2964,7 @@ async function fetchAlertsForStock(stock, dartCorpMap, apiSettings, alertSetting
     const sym = toYahooSymbol(stock);
     const nameQuery = stock.name || sym;
     try {
-      assertSourceAllowed('yahooNews', apiSettings, 'alerts');
+      assertEndpointAllowed('yahoo.news', apiSettings, 'alerts');
       tasks.push({
         label: 'Yahoo',
         run: async () => {
@@ -2722,10 +2979,10 @@ async function fetchAlertsForStock(stock, dartCorpMap, apiSettings, alertSetting
   if (sources.googleNews) {
     const q = stock.name || stock.symbol;
     try {
-      assertSourceAllowed('googleNews', apiSettings, 'alerts');
+      assertEndpointAllowed('googleNews.rss', apiSettings, 'alerts');
       tasks.push({
         label: 'GoogleNews',
-        run: () => fetchGoogleNewsRss(q, alertSettings.googleNewsProxy || ''),
+        run: () => fetchGoogleNewsRss(q, alertSettings.googleNewsProxy || '', apiSettings),
       });
     } catch (e) {
       errors.push({ source: 'GoogleNews', message: e?.message || String(e), personalOnly: isPersonalOnlyError(e) });
@@ -2768,9 +3025,9 @@ function pruneAlerts(alerts, retentionDays = ALERT_RETENTION_DAYS) {
 
 
 async function fetchYahooChartOhlc(symbol, range, interval, apiSettings = null) {
-  assertSourceAllowed('yahooFinance', apiSettings, 'chart OHLC');
+  assertEndpointAllowed('yahoo.chart', apiSettings, 'chart OHLC');
   const params = new URLSearchParams({ range, interval, includePrePost: 'false', events: 'div,splits' });
-  const data = await fetchJsonWithDiagnostics('Yahoo chart', buildYahooChartUrl(symbol, params));
+  const data = await fetchJsonWithDiagnostics('Yahoo chart', buildYahooChartUrl(symbol, params), { apiSettings });
   const err = data?.chart?.error;
   if (err) throw new Error(err.description || err.code || 'chart error');
   const result = data?.chart?.result?.[0];
@@ -2788,14 +3045,14 @@ async function fetchYahooChartOhlc(symbol, range, interval, apiSettings = null) 
 
 async function fetchMacroIndicators(apiSettings = null) {
   try {
-    assertSourceAllowed('yahooFinance', apiSettings, 'macro ticker');
+    assertEndpointAllowed('yahoo.quote', apiSettings, 'macro ticker');
   } catch (e) {
     if (isPersonalOnlyError(e)) return [];
     throw e;
   }
   try {
     const symbols = ['^GSPC', 'KRW=X', '^TNX', '^VIX'];
-    const data = await fetchJsonWithDiagnostics('Yahoo macro quote', buildYahooQuoteUrl(symbols));
+    const data = await fetchJsonWithDiagnostics('Yahoo macro quote', buildYahooQuoteUrl(symbols), { apiSettings });
     const resList = data?.quoteResponse?.result || [];
     return resList.map(r => ({
       symbol: r.symbol,
@@ -2812,7 +3069,7 @@ async function fetchMacroIndicators(apiSettings = null) {
 // ═══════════════════════════════════════════════════════════════
 // Expose to window
 async function fetchYahooFinancialHistory(stock, apiSettings = null) {
-  assertSourceAllowed('yahooFinance', apiSettings, 'financial history');
+  assertEndpointAllowed('yahoo.quoteSummary', apiSettings, 'financial history');
   const yahooSym = toYahooSymbol(stock);
   const summary = await fetchYahooStatements(yahooSym, apiSettings);
 
@@ -2868,8 +3125,8 @@ Object.assign(window, {
   DEFAULT_STOCKS, DEFAULT_WATCHLIST_IDS, DEFAULT_API_SETTINGS,
   DEFAULT_DART_CORP_MAP, DEFAULT_MARKET_TICKERS, DEFAULT_ALERT_SETTINGS,
   ALERT_RETENTION_DAYS,
-  CACHE_SCHEMA_VERSION, CORE_METRIC_KEYS, DATA_SOURCE_REGISTRY,
-  isCommercialSafeMode, assertSourceAllowed, isPersonalOnlyError, getSourcePolicyRows,
+  CACHE_SCHEMA_VERSION, CORE_METRIC_KEYS, DATA_SOURCE_REGISTRY, DATA_ENDPOINT_REGISTRY, BLOCKED_COMMERCIAL_SAFE_HOSTS,
+  isCommercialSafeMode, assertSourceAllowed, assertEndpointAllowed, assertUrlAllowed, isPersonalOnlyError, getSourcePolicyRows, getEndpointPolicyRows,
   makeMetricMeta, setMetricWithMeta, computeDataConfidence,
   loadAppState, saveAppState,
   computeScores, computeQuantScores, applyQuantScores, computeDynamicQuality,

@@ -2,6 +2,7 @@
 
 ## Current commercial-safe policy
 - `apiSettings.dataMode === 'commercialSafe'` blocks Yahoo, FMP, Alpha Vantage, and unclear news sources before network calls.
+- Endpoint policy is enforced through `DATA_ENDPOINT_REGISTRY`; unknown endpoints default-block in Commercial-Safe mode.
 - Personal mode preserves existing Yahoo/FMP/Alpha search, chart, refresh, macro, and news functionality.
 - No paid API or paid infrastructure dependency is introduced.
 

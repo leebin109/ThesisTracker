@@ -88,7 +88,7 @@ Helpers in `terminal-data.jsx` (exposed on `window`):
 
 `apiSettings.dataMode` is `'personal'` (default) or `'commercialSafe'`. Stored in localStorage. Surfaced in `SettingsDataPanel` (F12). In `commercialSafe` mode, Yahoo, FMP, Alpha Vantage, and unclear news sources are blocked before network calls. Personal mode preserves those existing features.
 
-`DATA_SOURCE_REGISTRY` defines source policy metadata: cost, commercial status, license URL, rate-limit note, confidence, score use, and whether the source is blocked in Commercial-Safe mode.
+`DATA_SOURCE_REGISTRY` defines source-level policy metadata. `DATA_ENDPOINT_REGISTRY` is the stricter runtime allowlist for service/path/host endpoints. In Commercial-Safe mode, unknown endpoints default-block until explicitly registered.
 
 ### Proxy routing
 
