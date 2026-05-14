@@ -1,12 +1,68 @@
 # ThesisTrack Terminal — 인수인계 문서
 
-## Current commercial-safe policy
+## 0. 현재 상태 스냅샷 (2026-05-14)
+
+- **빌드 시스템**: Vite + React 18 (`vite build` → `dist/`). `npm run dev` / `npm run build` / `npm run preview`.
+- **레거시**: 루트의 `terminal.html`과 `tools/build.js`는 Vite 마이그레이션 이전 인라인 번들 파이프라인의 산출물·도구. **현재 카논은 `src/main.jsx` 진입의 Vite 빌드**. 새 작업은 `src/`만 수정하고 빌드는 `npm run build`로 한다.
+- **데이터 정책**: Commercial-Safe 모드에서 Yahoo/FMP/Alpha Vantage/Google-like news 호출은 fetch 단계에서 차단. blocked host 호출 0건 자동화 검증 통과.
+- **데이터 분리**: 캐시 entry에 `sourceMeta` 포함. 새로고침 payload는 `displayData` / `scoringData` 분리되며 점수 계산은 `scoringData.metrics` 기준.
+- **SEC fallback**: Commercial-Safe 해외 검색은 SEC EDGAR fallback이 연결돼 있고, SEC XBRL metric coverage(`calculateSecMetrics`)는 7개 metric(revGrowth, opMargin, fcfMargin, epsGrowth, roe, debtRatio, currentRatio)을 결정적으로 산출.
+- **Personal 모드**: 기존 Yahoo/FMP/Alpha/Google News 검색·차트·새로고침·매크로·뉴스 기능 모두 유지.
+- **UI**: Pro Terminal UI는 가독성·반응형(`100dvh`, 노트북 폭 보호) 1차 정리 완료. 폰트 토큰(`--font-sans`/`--font-mono`)은 도입되어 있지만 **폰트 self-host는 아직 안 함** (Google Fonts CDN 그대로).
+- **미구현 / 의도적 보류**: Learn Mode, 단계별 해금 시스템, 폰트 self-host, Telegram/Discord webhook, Supabase Realtime 구독.
+
+## 1. 검증 / 감사 명령
+
+| 명령 | 목적 | PASS 기준 |
+|---|---|---|
+| `npm run build` | Vite 프로덕션 빌드 (`dist/`) | 0 exit |
+| `npm run verify:syntax` | `server/proxy-handler.cjs`, `api/proxy.mjs` 문법 체크 | 0 exit |
+| `npm run verify:policy:commercial` | Commercial-Safe 모드에서 blocked host fetch 0건 검증 | `blocked host fetch calls = 0` |
+| `npm run verify:policy:proxy` | 프록시 핸들러가 upstream fetch 없이 정책으로 차단함을 검증 | `upstream fetch calls = 0` |
+| `npm run verify:policy` | 위 두 정책 검증을 순차 실행 | 두 항목 모두 통과 |
+| `npm run verify:sec` | `calculateSecMetrics` 7개 metric + missing/zero/no-prev 케이스 검증 | 모든 assert 통과 |
+| `npm run verify` | 위 항목을 `tools/verify-all.cjs`가 일관된 `[PASS]/[FAIL]` 출력으로 통합 실행 | `[VERIFY] N/N steps passed` |
+| `npm run audit:hosts` | src/server/api 내 blocked host 문자열 위치 보고 (informational) | exit 0 — pass/fail 신호 아님 |
+
+`audit:hosts`는 문자열이 등장한다고 실패가 아니다. Personal 모드 코드 경로와 proxy allowlist는 host 문자열을 식별자로 보유하는 것이 정상이다. **Commercial-Safe 실제 fetch 0건 여부는 `verify:policy:commercial`로만 판단한다.**
+
+검증 스크립트 본체 위치:
+- `tools/verify-all.cjs` — orchestrator. cross-shell 호환(Windows PowerShell 포함).
+- `tools/verify-commercial-policy.cjs` — `terminal-data.jsx`를 vm sandbox에 로드, 차단/허용 경로 assert.
+- `tools/verify-proxy-policy.cjs` — `server/proxy-handler.cjs`를 직접 require해서 403/404/SOURCE_POLICY_BLOCKED 응답 assert.
+- `tools/verify-sec-metrics.cjs` — `calculateSecMetrics` 7개 metric 값 + `metricStatus` reason 코드 assert.
+- `tools/audit-hosts.cjs` — 정적 텍스트 검색. rg 비의존(Node only).
+
+## 2. Commercial-Safe vs Personal 모드
+
+`apiSettings.dataMode` 값:
+- `'personal'` (기본) — Yahoo, FMP, Alpha Vantage, Google News 모두 사용 가능. 사용자가 직접 API 키를 넣으면 그 키가 우선.
+- `'commercialSafe'` — Yahoo, FMP, Alpha Vantage, 정체불명 뉴스 소스의 **fetch 자체를 차단**. 데이터는 SEC EDGAR(미국), OpenDART(한국), 사용자 import로 한정. `DATA_ENDPOINT_REGISTRY`에 등록되지 않은 endpoint는 default-block.
+
+| 요소 | Personal | Commercial-Safe |
+|---|---|---|
+| Yahoo chart/quote/quoteSummary/timeseries/search | ✅ | ❌ (fetch 직전 차단) |
+| FMP search/profile | ✅ | ❌ |
+| Alpha Vantage OVERVIEW | ✅ | ❌ |
+| Google News RSS | ✅ | ❌ |
+| SEC EDGAR companyfacts/submissions | ✅ | ✅ |
+| OpenDART fnlttSinglAcntAll | ✅ | ✅ |
+| 새로고침 시 점수 계산 | scoringData 우선, fallback 허용 | scoringData만, 비안전 캐시 차단 |
+| 캐시 entry sourceMeta | 항상 기록 | 항상 기록 + commercialSafe 플래그 검사 |
+
+`server/proxy-handler.cjs`도 동일한 endpoint allowlist를 적용한다. 환경변수:
+- `DISABLE_YAHOO_PROXY=1` / `YAHOO_PROXY_DISABLED=1` — Yahoo 프록시 비활성 (개발 환경)
+- `DISABLE_YAHOO_PROXY_PROD=1` — `VERCEL_ENV=production`일 때만 Yahoo 프록시 비활성
+
+## 3. Commercial-Safe 정책 요약 (변경 금지)
+
 - `apiSettings.dataMode === 'commercialSafe'` blocks Yahoo, FMP, Alpha Vantage, and unclear news sources before network calls.
 - Endpoint policy is enforced through `DATA_ENDPOINT_REGISTRY`; unknown endpoints default-block in Commercial-Safe mode.
-- Server proxy also enforces endpoint policy. Set `DISABLE_YAHOO_PROXY=1` or `YAHOO_PROXY_DISABLED=1` to disable Yahoo proxy; `DISABLE_YAHOO_PROXY_PROD=1` disables it only when `VERCEL_ENV=production`.
+- Server proxy also enforces endpoint policy. `DISABLE_YAHOO_PROXY=1` / `YAHOO_PROXY_DISABLED=1` disables Yahoo proxy; `DISABLE_YAHOO_PROXY_PROD=1` disables it only when `VERCEL_ENV=production`.
 - Cache entries include `sourceMeta`; refreshed payloads separate `displayData` from `scoringData`.
 - Personal mode preserves existing Yahoo/FMP/Alpha search, chart, refresh, macro, and news functionality.
 - No paid API or paid infrastructure dependency is introduced.
+- Unknown 출처는 절대 safe로 간주하지 않는다 (`DATA_ENDPOINT_REGISTRY` default-block 유지).
 
 *이 문서는 AI 에이전트와 개발자가 프로젝트의 핵심 구조와 현황을 빠르게 파악할 수 있도록 최적화된 인수인계서입니다. 과거의 상세한 논의와 폐기된 기획 등은 `ARCHIVE_HANDOFF_OLD.md`를 참고하세요.*
 
@@ -18,14 +74,17 @@ Bloomberg Terminal 스타일의 주식 투자 관리 웹 애플리케이션입�
 - **목적**: 퀀트 기반 재무 점수화, 투자 아이디어(Pitch) 기록, 포트폴리오 관리, 뉴스 알림 통합.
 
 ## 2. 아키텍처 및 빌드 시스템 (Architecture)
-- **기술 스택**: React 18 (CDN), Babel Standalone (런타임 트랜스파일), Vanilla CSS.
+- **기술 스택**: React 18 + Vite (`@vitejs/plugin-react`), Supabase JS SDK, Vanilla CSS (CSS variables for fonts/sizes).
+- **진입점**: `index.html` → `src/main.jsx` → 동적 import로 `tweaks-panel.jsx` → `terminal-components.jsx` → `terminal-data.jsx` → `terminal-app.jsx` 순 로드.
 - **파일 구조**:
-  - `terminal-app.jsx`: 메인 앱 상태 관리 및 패널 라우팅.
-  - `terminal-components.jsx`: 공통 UI 컴포넌트 (버튼, 모달, 차트 등).
-  - `terminal-data.jsx`: API 호출, 퀀트 엔진(`computeQuantScores`), 로컬 스토리지 연동.
-  - `tweaks-panel.jsx`: 테마 및 UI 디버깅 패널.
-  - `terminal.html`: 위 4개의 JSX를 단일 파일로 인라인(Inline) 컴파일한 최종 배포본.
-- **빌드 방식**: 개발 후 **반드시** `tools/build-terminal-html.ps1` (Windows) 또는 `start.sh` (Mac/Linux)를 실행하여 `terminal.html`을 재생성한 뒤 배포(Git Push)해야 Vercel에 반영됩니다.
+  - `src/main.jsx`: Vite 부트. React/Supabase를 `window`에 등록 후 네 모듈 로드.
+  - `src/styles.css`: 글로벌 CSS 토큰 (`--font-sans`, `--font-mono`, 사이즈 스케일), `100dvh`, 스크롤바.
+  - `src/terminal-app.jsx`: 메인 앱 상태 · 패널 라우팅(F1–F12) · Supabase sync · in-app confirm modal (`window.appConfirm`).
+  - `src/terminal-components.jsx`: 공통 UI 컴포넌트.
+  - `src/terminal-data.jsx`: API 호출, `DATA_SOURCE_REGISTRY` / `DATA_ENDPOINT_REGISTRY` 정책, 퀀트 엔진(`computeQuantScores`), `calculateSecMetrics`, localStorage / Supabase 연동.
+  - `src/tweaks-panel.jsx`: 디자인 토큰 디버그 오버레이 (자체 스코프 CSS).
+- **빌드 방식**: `npm run build` → Vite가 `dist/`로 산출. Vercel은 이 산출물을 정적으로 서빙하고 `api/proxy.mjs` 함수를 실행한다.
+- **레거시**: 루트의 `terminal.html` 및 `tools/build.js` (Babel Standalone 인라인 번들 시절 산출물·도구)는 더 이상 빌드 경로에 포함되지 않는다. 새 작업은 `src/`만 수정하고 `npm run build` 사용.
 
 ## 3. 핵심 기능 및 패널 현황 (Panels)
 | 패널 | 이름 | 상태 | 주요 역할 |

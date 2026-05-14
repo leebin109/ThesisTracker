@@ -5,7 +5,14 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --configLoader runner",
     "build": "vite build --configLoader runner",
-    "preview": "vite preview --host 127.0.0.1 --configLoader runner"
+    "preview": "vite preview --host 127.0.0.1 --configLoader runner",
+    "verify:syntax": "node --check server/proxy-handler.cjs && node --check api/proxy.mjs",
+    "verify:policy:commercial": "node tools/verify-commercial-policy.cjs",
+    "verify:policy:proxy": "node tools/verify-proxy-policy.cjs",
+    "verify:policy": "node tools/verify-commercial-policy.cjs && node tools/verify-proxy-policy.cjs",
+    "verify:sec": "node tools/verify-sec-metrics.cjs",
+    "verify": "node tools/verify-all.cjs",
+    "audit:hosts": "node tools/audit-hosts.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.84.0",
