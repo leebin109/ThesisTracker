@@ -7,16 +7,15 @@
 const YAHOO_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 const OPENDART_ENDPOINTS = new Set(['fnlttSinglAcntAll', 'fnlttSinglAcnt', 'list', 'stockInfo']);
 const YAHOO_SYMBOL_ENDPOINTS = new Set(['chart', 'quoteSummary', 'timeseries']);
-const SEC_SECTIONS = new Set(['files', 'submissions', 'archives', 'companyfacts']);
 const PROXY_ENDPOINTS = [
   { id: 'opendart.fnlttSinglAcntAll', service: 'opendart', path: 'fnlttSinglAcntAll', blockedInCommercialSafe: false },
   { id: 'opendart.fnlttSinglAcnt', service: 'opendart', path: 'fnlttSinglAcnt', blockedInCommercialSafe: false },
   { id: 'opendart.stockInfo', service: 'opendart', path: 'stockInfo', blockedInCommercialSafe: false },
   { id: 'opendart.list', service: 'opendart', path: 'list', blockedInCommercialSafe: false },
-  { id: 'sec.companyfacts', service: 'sec', pathPrefix: 'companyfacts/', blockedInCommercialSafe: false },
-  { id: 'sec.submissions', service: 'sec', pathPrefix: 'submissions/', blockedInCommercialSafe: false },
+  { id: 'sec.companyfacts', service: 'sec', pattern: /^companyfacts\/CIK\d{10}\.json$/i, blockedInCommercialSafe: false },
+  { id: 'sec.submissions', service: 'sec', pattern: /^submissions\/CIK\d{10}\.json$/i, blockedInCommercialSafe: false },
   { id: 'sec.companyTickers', service: 'sec', path: 'files/company_tickers.json', blockedInCommercialSafe: false },
-  { id: 'sec.archives', service: 'sec', pathPrefix: 'archives/', blockedInCommercialSafe: false },
+  { id: 'sec.archives', service: 'sec', pattern: /^archives\/\d+\/\d{18}\/[A-Za-z0-9._-]+$/i, blockedInCommercialSafe: false },
   { id: 'yahoo.search', service: 'yahoo', path: 'search', blockedInCommercialSafe: true },
   { id: 'yahoo.quote', service: 'yahoo', path: 'quote', blockedInCommercialSafe: true },
   { id: 'yahoo.chart', service: 'yahoo', path: 'chart', blockedInCommercialSafe: true },
@@ -82,7 +81,8 @@ function isCommercialSafeProxyRequest(req) {
 }
 
 function endpointMatchesPath(endpoint, path) {
-  const clean = cleanSegment(path).replace(/\.json$/i, '');
+  const clean = cleanSegment(path);
+  if (endpoint.pattern) return endpoint.pattern.test(clean);
   if (endpoint.path) return clean === endpoint.path;
   if (endpoint.pathPrefix) return clean.startsWith(endpoint.pathPrefix);
   return true;
@@ -198,8 +198,7 @@ function validateYahooSymbol(symbol) {
 function validateSecPath(path) {
   const clean = cleanSegment(path);
   if (!clean || clean.includes('..') || clean.includes('//')) return null;
-  const [section] = clean.split('/');
-  if (!SEC_SECTIONS.has(section)) return null;
+  if (!findProxyEndpoint('sec', clean)) return null;
   return clean;
 }
 
