@@ -1,5 +1,10 @@
 # ThesisTrack Terminal — 인수인계 문서
 
+## Current commercial-safe policy
+- `apiSettings.dataMode === 'commercialSafe'` blocks Yahoo, FMP, Alpha Vantage, and unclear news sources before network calls.
+- Personal mode preserves existing Yahoo/FMP/Alpha search, chart, refresh, macro, and news functionality.
+- No paid API or paid infrastructure dependency is introduced.
+
 *이 문서는 AI 에이전트와 개발자가 프로젝트의 핵심 구조와 현황을 빠르게 파악할 수 있도록 최적화된 인수인계서입니다. 과거의 상세한 논의와 폐기된 기획 등은 `ARCHIVE_HANDOFF_OLD.md`를 참고하세요.*
 
 ---
@@ -133,9 +138,9 @@ stock.market ∈ {NASDAQ, NYSE, AMEX}        → fetchSecFinancialHistory
 
 ## 5-A. Yahoo Finance 데이터 아키텍처
 
-### Vercel Proxy 라우트 (api/proxy.js)
+### Vercel Proxy 라우트 (api/proxy.mjs + server/proxy-handler.cjs)
 
-모든 Yahoo 호출은 `/api/yahoo/<path>` → `api/proxy.js`의 `service=yahoo` 블록 경유. crumb은 Lambda 인스턴스 내 모듈 변수로 55분 캐시.
+현재 앱의 canonical API 경로는 `/api/proxy?service=...&path=...`이다. Vercel entrypoint는 `api/proxy.mjs`이고, 실제 OpenDART/SEC/Yahoo 포워딩 로직은 `server/proxy-handler.cjs`가 공유한다. Yahoo crumb은 Lambda 인스턴스 내 모듈 변수로 55분 캐시.
 
 | 프록시 경로 | 업스트림 URL | 용도 |
 |---|---|---|
@@ -251,7 +256,7 @@ epsGrowth:    fb(pct(fin, 'earningsGrowth'),   fbEpsGrowthEy)
 - **2026-05-11 (비US 종목 재무제표 fundamentals-timeseries 폴백 — §5-A 참조)**:
   - **증상**: TSE/LSE/XETRA 등 비US 종목에서 5Y Financial History "Yahoo statements 모두 실패" + 재무지표(ROE/OP Margin/FCF 등) 전부 "–" 동시 발생.
   - **근본 원인**: Yahoo Finance v10 `quoteSummary` API가 비US 종목에서 statement 모듈(`incomeStatementHistory`, `balanceSheetHistory`, `cashflowStatementHistory`) 전부를 HTTP 400으로 거부. 단일 모듈 요청도 동일. → `fetchYahooStatements`의 3-combo 재시도 전부 실패 → `stmts = null` → `mapYahooPayload`에서 재무제표 기반 fallback 지표 계산도 전부 NaN.
-  - **수정 1 — api/proxy.js**: `timeseries/` 라우트 신규 추가. `/api/yahoo/timeseries/{sym}?type=…` → `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{sym}` 포워딩 (crumb 포함).
+  - **수정 1 — server/proxy-handler.cjs**: `timeseries/` 라우트 신규 추가. `/api/proxy?service=yahoo&path=timeseries&symbol={sym}&type=…` → `https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{sym}` 포워딩 (crumb 포함).
   - **수정 2 — terminal-data.jsx**: `fetchYahooTimeSeries(symbol)` + `parseTimeSeriesStatements(results)` 신규 추가. timeseries 응답(`type`+`asOfDate`+`reportedValue[]` 구조)을 `incomeStatementHistory / balanceSheetHistory / cashflowStatementHistory` 구조로 변환 후 `fetchYahooStatements` 내 ④번 폴백으로 연결. 기존 `mapYahooPayload` / `fetchYahooFinancialHistory` 코드 **무변경**으로 동작.
   - **캐시 주의**: 기존 빈 metrics로 저장된 캐시는 Settings → Clear Cache 후 재조회 필요.
 - **2026-05-11 (UI/UX 개선 2종)**:
@@ -385,7 +390,7 @@ epsGrowth:    fb(pct(fin, 'earningsGrowth'),   fbEpsGrowthEy)
 
 #### Phase 12-A: 내부자 거래 추적 (Insider Trading Tracker)
 - **구현**: [Quiver Quantitative](https://api.quiverquant.com/) 무료 API → SEC Form 4 파싱. 워치리스트 종목별 최근 내부자 매수/매도 뱃지 표시 (F7 Peers 또는 F1 Overview 사이드바)
-- **난이도**: 중간 — API 키 등록 필요, CORS 이슈 시 `/api/proxy.js`에 라우트 추가
+- **난이도**: 중간 — API 키 등록 필요, CORS 이슈 시 `server/proxy-handler.cjs`에 라우트 추가
 - **효과**: 경영진 매수는 강력한 bullish 시그널 — EQS Screener 조건식 통합 가능
 
 #### Phase 8-B: Service Worker 백그라운드 Fetch

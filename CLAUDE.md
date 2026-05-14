@@ -36,9 +36,10 @@ The PowerShell shortcut `tools/build-terminal-html.ps1` is equivalent (`node $PS
 | `src/terminal-data.jsx` | All data fetching, caching, state persistence, score computation, `metricsMeta` helpers. Exports via `window.*`. |
 | `src/terminal-app.jsx` | React component tree: panels (F1–F12), `MetricsGrid`, `SettingsDataPanel`, stock state management, Supabase sync |
 | `src/tweaks-panel.jsx` | Debug/zoom overlay (independent) |
-| `api/proxy.js` | Vercel serverless function — CORS proxy for OpenDART, SEC EDGAR, and Yahoo Finance |
+| `api/proxy.mjs` | Vercel serverless entrypoint for the unified API proxy |
+| `server/proxy-handler.cjs` | Shared proxy handler for OpenDART, SEC EDGAR, and Yahoo Finance |
 | `tools/local-http-server.cjs` | Local Node server with identical proxy routes for development |
-| `vercel.json` | Rewrites `/api/opendart/*`, `/api/sec/*`, `/api/yahoo/*` → `api/proxy.js` |
+| `vercel.json` | Compatibility rewrites plus canonical `/api/proxy?service=...&path=...` route |
 
 ### Data flow
 
@@ -46,9 +47,9 @@ All state lives in `localStorage` under key `tt-terminal-v1`. Supabase is used f
 
 **Stock data fetch path** (`fetchStockData` in `terminal-data.jsx`):
 1. `getCachedEntry` — smart TTL: full-metrics = `cacheDays` days; partial (<5 core metrics) = 12 h; empty = 30 min; error state = 10 min
-2. Parallel fetch: `fetchYahooQuoteSummary` (price/overview modules) + `fetchYahooStatements` (financial statements)
-3. `fetchYahooStatements` tries `quoteSummary` with progressive module fallback, then falls back to `fetchYahooTimeSeries`
-4. `mapYahooPayload` normalizes the raw Yahoo response into `metrics` + `metricsMeta` with 3-tier fallbacks per field
+2. Commercial-Safe mode blocks personal-only sources before network calls.
+3. KRX uses data.go.kr + OpenDART. US Commercial-Safe refresh uses SEC EDGAR financial history.
+4. Personal mode keeps Yahoo/FMP/Alpha paths available; Yahoo normalizes data through `mapYahooPayload`.
 
 **Financial history fetch path** (F1 panel):
 - Korean stocks (KRX): `fetchDartFinancialHistory` → OpenDART API via `/api/opendart/`
@@ -63,6 +64,7 @@ Every stock has `stock.metricsMeta: { [metricKey]: MetricMeta }`. `MetricMeta` s
 {
   provider: string;      // 'Yahoo Finance' | 'OpenDART' | 'SEC EDGAR' | 'FMP' | ...
   source: string;        // human-readable description
+  sourceId: string|null; // key in DATA_SOURCE_REGISTRY when known
   method: string;        // 'financialData' | 'calculated-stmts' | 'official-filing' | 'fallback'
   confidence: 'A'|'B'|'C'|'D'; // A=official filing, B=direct API field, C=calculated, D=unknown/missing
   commercialSafe: boolean;
@@ -70,6 +72,10 @@ Every stock has `stock.metricsMeta: { [metricKey]: MetricMeta }`. `MetricMeta` s
   fiscalYear: number|null;
   fetchedAt: string;     // ISO timestamp
   usedInScore: boolean;
+  cost: string;
+  commercialStatus: string;
+  licenseUrl: string;
+  rateLimit: string;
 }
 ```
 
@@ -80,7 +86,9 @@ Helpers in `terminal-data.jsx` (exposed on `window`):
 
 ### dataMode
 
-`apiSettings.dataMode` is `'personal'` (default) or `'commercialSafe'`. Stored in localStorage. Surfaced in `SettingsDataPanel` (F12). In `commercialSafe` mode, `MetricsGrid` shows a warning banner when non-commercial-safe metrics are present. It does not block fetches.
+`apiSettings.dataMode` is `'personal'` (default) or `'commercialSafe'`. Stored in localStorage. Surfaced in `SettingsDataPanel` (F12). In `commercialSafe` mode, Yahoo, FMP, Alpha Vantage, and unclear news sources are blocked before network calls. Personal mode preserves those existing features.
+
+`DATA_SOURCE_REGISTRY` defines source policy metadata: cost, commercial status, license URL, rate-limit note, confidence, score use, and whether the source is blocked in Commercial-Safe mode.
 
 ### Proxy routing
 
@@ -91,15 +99,15 @@ In development (`isProxiedOrigin()` = true when `window.location.hostname === 'l
 - `/api/opendart/fnlttSinglAcntAll.json?...` — OpenDART financials
 - `/api/sec/submissions/CIK##########.json` — SEC EDGAR submissions
 
-In production (Vercel): same paths, routed via `vercel.json` rewrites to `api/proxy.js`.
+In production (Vercel): `api/proxy.mjs` delegates to `server/proxy-handler.cjs`. App code should use canonical `/api/proxy?service=...&path=...` URLs.
 
 ## Key implementation details
 
-**Yahoo timeseries `type` param**: Must use literal commas, not `%2C`. `local-http-server.cjs` preserves commas via `url.search.slice(1)`; `api/proxy.js` reconstructs the query string manually to avoid `URLSearchParams` encoding.
+**Yahoo timeseries `type` param**: Must use literal commas, not `%2C`. `local-http-server.cjs` preserves commas via `url.search.slice(1)`; `server/proxy-handler.cjs` reconstructs the query string manually to avoid `URLSearchParams` encoding.
 
 **Yahoo timeseries response parsing**: `item.type` is `undefined`. The type name is in `item.meta.type[0]`. Always access via `item.type ?? item.meta?.type?.[0]`.
 
-**Cache schema version**: Current = `CACHE_SCHEMA_VERSION = 3` (includes `metricsMeta`). Entries with `schemaVersion < 2` (missing timeseries) are treated as stale. Entries with `schemaVersion < 3` (missing `metricsMeta`) will re-fetch on next cache miss.
+**Cache schema version**: Current = `CACHE_SCHEMA_VERSION = 5` (source policy metadata + Commercial-Safe cache separation).
 
 **React Rules of Hooks**: All `useState`/`useEffect`/`useMemo`/`useCallback` calls must appear before any early return in a component.
 
@@ -119,4 +127,4 @@ In production (Vercel): same paths, routed via `vercel.json` rewrites to `api/pr
 vercel --prod    # deploy to production
 ```
 
-No build command needed in Vercel config. Vercel serves `terminal.html` as static and runs `api/proxy.js` as a serverless function.
+No build command needed in Vercel config. Vercel serves `terminal.html` as static and runs `api/proxy.mjs` as a serverless function.

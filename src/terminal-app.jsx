@@ -12,7 +12,7 @@
 /* global inferMarketFromExchange, normalizeSymbolForMarket, getMarketProfile, buildYahooChartUrl, MARKET_PROFILES, COUNTRY_FLAGS, SCORE_CFG */
 /* global useTweaks, TweaksPanel */
 /* global supabase */
-/* global makeMetricMeta, computeDataConfidence, CORE_METRIC_KEYS */
+/* global makeMetricMeta, computeDataConfidence, CORE_METRIC_KEYS, DATA_SOURCE_REGISTRY, getSourcePolicyRows */
 
 // ─── Supabase config ──────────────────────────────────────────────────────────
 // After creating a Supabase project, replace both placeholder values below.
@@ -1059,7 +1059,7 @@ function weeklyReturns(closes) {
   return r;
 }
 
-function ToolsPanel({ stock, stocks, watchlistIds }) {
+function ToolsPanel({ stock, stocks, watchlistIds, apiSettings }) {
   const [tab, setTab] = useState('MACRO');
   const tabs = ['MACRO', 'AI'];
   return (
@@ -1077,14 +1077,14 @@ function ToolsPanel({ stock, stocks, watchlistIds }) {
         ))}
       </div>
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-        {tab === 'MACRO' && <MacroPanel stock={stock} stocks={stocks} watchlistIds={watchlistIds}/>}
+        {tab === 'MACRO' && <MacroPanel stock={stock} stocks={stocks} watchlistIds={watchlistIds} apiSettings={apiSettings}/>}
         {tab === 'AI'    && <AIPanel stock={stock}/>}
       </div>
     </div>
   );
 }
 
-function MacroPanel({ stock, stocks, watchlistIds }) {
+function MacroPanel({ stock, stocks, watchlistIds, apiSettings }) {
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
@@ -1095,8 +1095,8 @@ function MacroPanel({ stock, stocks, watchlistIds }) {
     try {
       const yahooSym = toYahooSymbol(stock);
       const [stockRes, ...macroResults] = await Promise.allSettled([
-        fetchYahooChartOhlc(yahooSym, '1y', '1wk'),
-        ...MACRO_TICKERS.map(m => fetchYahooChartOhlc(m.sym, '1y', '1wk')),
+        fetchYahooChartOhlc(yahooSym, '1y', '1wk', apiSettings),
+        ...MACRO_TICKERS.map(m => fetchYahooChartOhlc(m.sym, '1y', '1wk', apiSettings)),
       ]);
       if (stockRes.status === 'rejected') throw new Error(`${stock.symbol} 차트 실패: ${stockRes.reason?.message}`);
       const stockCloses = stockRes.value.map(c => c.close);
@@ -1453,10 +1453,10 @@ function FinancialHistorySection({ stock, apiSettings, dartCorpMap, onSaveHistor
         try {
           data = await fetchSecFinancialHistory(stock);
         } catch {
-          data = await fetchYahooFinancialHistory(stock);
+          data = await fetchYahooFinancialHistory(stock, apiSettings);
         }
       } else {
-        data = await fetchYahooFinancialHistory(stock);
+        data = await fetchYahooFinancialHistory(stock, apiSettings);
       }
       if (!data?.length) throw new Error('데이터 없음');
       onSaveHistory(stock.id, data);
@@ -1749,7 +1749,7 @@ const CHART_PERIODS = [
   { label: '1Y', range: '1y',  interval: '1wk' },
 ];
 
-function ChartPanel({ stock, onRefresh, refreshing, fetchStatus, period: periodProp, chartType: chartTypeProp, onPeriodChange, onChartTypeChange }) {
+function ChartPanel({ stock, apiSettings, onRefresh, refreshing, fetchStatus, period: periodProp, chartType: chartTypeProp, onPeriodChange, onChartTypeChange }) {
   const [localPeriod, setLocalPeriod] = useState('3M');
   const [localChartType, setLocalChartType] = useState('line');
   const period = periodProp ?? localPeriod;
@@ -1770,11 +1770,11 @@ function ChartPanel({ stock, onRefresh, refreshing, fetchStatus, period: periodP
     let cancelled = false;
     setChartLoading(true);
     setChartErr('');
-    fetchYahooChartOhlc(sym, periodDef.range, periodDef.interval)
+    fetchYahooChartOhlc(sym, periodDef.range, periodDef.interval, apiSettings)
       .then(data => { if (!cancelled) { setOhlcData(data); setChartLoading(false); } })
       .catch(e => { if (!cancelled) { setChartErr(e.message); setChartLoading(false); } });
     return () => { cancelled = true; };
-  }, [sym, period]);
+  }, [sym, period, apiSettings]);
 
   const lineData = ohlcData ? ohlcData.map(c => c.close) : (stock.priceHistory || []);
 
@@ -2686,7 +2686,7 @@ function PeersPanel({ stock, stocks, watchlistIds, onSelect, onSavePeers, onAddP
 }
 
 // ─── Search overlay ───────────────────────────────────────────────────────────
-function SearchOverlay({ apiSettings, dartCorpMap, onAdd, onClose }) {
+function SearchOverlay({ apiSettings, dartCorpMap, stocks, onAdd, onClose }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -2697,6 +2697,7 @@ function SearchOverlay({ apiSettings, dartCorpMap, onAdd, onClose }) {
   useEffect(() => { inputRef.current?.focus(); }, []);
 
   const isKorean = q => /[가-힣ㄱ-ㅎㅏ-ㅣ]/.test(q);
+  const commercialSafe = apiSettings?.dataMode === 'commercialSafe';
 
   const searchKorean = (q) => {
     const map = dartCorpMap || {};
@@ -2713,6 +2714,43 @@ function SearchOverlay({ apiSettings, dartCorpMap, onAdd, onClose }) {
       }));
   };
 
+  const searchLocalStocks = (q) => {
+    const needle = String(q || '').trim().toUpperCase();
+    const pool = { ...DEFAULT_STOCKS, ...(stocks || {}) };
+    const localRows = Object.values(pool)
+      .filter(s => {
+        const hay = `${s.symbol || ''} ${s.name || ''} ${s.market || ''}`.toUpperCase();
+        return hay.includes(needle);
+      })
+      .map(s => ({
+        symbol: s.symbol,
+        name: s.name || s.symbol,
+        market: s.market || 'CUSTOM',
+        currency: s.currency || 'USD',
+        flag: s.flag || '',
+        country: s.country || '',
+        source: 'Local',
+      }));
+    const dartRows = Object.entries(dartCorpMap || {})
+      .filter(([ticker, v]) => `${ticker} ${v?.corpName || ''}`.toUpperCase().includes(needle))
+      .map(([ticker, v]) => ({
+        symbol: ticker,
+        name: v.corpName || ticker,
+        market: 'KRX',
+        currency: 'KRW',
+        flag: 'KR',
+        country: 'Korea',
+        source: 'OpenDART map',
+      }));
+    const seen = new Set();
+    return [...localRows, ...dartRows].filter(r => {
+      const key = `${r.market}:${r.symbol}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 30);
+  };
+
   const doSearch = useCallback(async (q) => {
     if (!q.trim()) { setResults([]); setNoResults(false); return; }
     if (isKorean(q)) {
@@ -2721,11 +2759,19 @@ function SearchOverlay({ apiSettings, dartCorpMap, onAdd, onClose }) {
       setNoResults(rows.length === 0);
       return;
     }
+    if (commercialSafe) {
+      const rows = searchLocalStocks(q);
+      setLoading(false);
+      setResults(rows);
+      setNoResults(rows.length === 0);
+      setError('');
+      return;
+    }
     setLoading(true); setError(''); setNoResults(false);
     try {
       const [yahoo, fmp] = await Promise.allSettled([
-        searchWithYahoo(q),
-        apiSettings.fmpKey ? searchWithFmp(q, apiSettings.fmpKey) : Promise.resolve([]),
+        searchWithYahoo(q, apiSettings),
+        apiSettings.fmpKey ? searchWithFmp(q, apiSettings.fmpKey, apiSettings) : Promise.resolve([]),
       ]);
       const all = [
         ...(yahoo.status === 'fulfilled' ? yahoo.value : []),
@@ -2747,7 +2793,7 @@ function SearchOverlay({ apiSettings, dartCorpMap, onAdd, onClose }) {
     } finally {
       setLoading(false);
     }
-  }, [apiSettings.fmpKey, dartCorpMap]);
+  }, [apiSettings, commercialSafe, dartCorpMap, stocks]);
 
   useEffect(() => {
     const t = setTimeout(() => doSearch(query), 500);
@@ -2957,6 +3003,7 @@ function SettingsDataPanel({
     }
     return acc;
   }, {});
+  const sourcePolicyRows = typeof getSourcePolicyRows === 'function' ? getSourcePolicyRows(s) : [];
   const statusColor = providerStatus?.kind === 'ok' ? T.green : providerStatus?.kind === 'warn' ? T.yellow : providerStatus?.kind === 'error' ? T.red : T.inkFaint;
 
   return (
@@ -2981,12 +3028,12 @@ function SettingsDataPanel({
           <SettingRow label="DATA MODE">
             <select value={s.dataMode || 'personal'} onChange={(e) => setS({ ...s, dataMode: e.target.value })}
               style={{ ...inputSt, width: '100%' }}>
-              <option value="personal">🔒 Personal — Yahoo 등 비공식 API 사용 가능</option>
-              <option value="commercialSafe">🛡️ Commercial-Safe — 비상업용 데이터에 경고 표시</option>
+              <option value="personal">Personal - Yahoo/FMP/Alpha enabled</option>
+              <option value="commercialSafe">Commercial-Safe - blocks personal-only sources</option>
             </select>
             <div style={{ fontSize: 9, color: T.inkFaint, marginTop: 4, lineHeight: 1.5 }}>
-              Commercial-Safe 모드는 Yahoo 비공식 API 사용을 차단하지 않습니다.
-              다만 KEY METRICS 패널에 비상업 데이터 출처를 시각적으로 표시합니다.
+              Commercial-Safe mode blocks Yahoo, FMP, Alpha Vantage, and unclear news sources before network calls.
+              Personal mode keeps the current experimental data features available.
             </div>
           </SettingRow>
 
@@ -3058,7 +3105,20 @@ function SettingsDataPanel({
           </div>
 
           <div style={{ background: T.surface2, border: `1px solid ${T.borderSoft}`, padding: 12 }}>
-            <div style={{ fontSize: 10, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 6 }}>CACHE HEALTH</div>
+            <div style={{ fontSize: 10, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 6 }}>API HEALTH</div>
+            <div style={{ color: s.dataMode === 'commercialSafe' ? T.green : T.yellow, fontSize: 11, marginBottom: 8, fontWeight: 700 }}>
+              {s.dataMode === 'commercialSafe' ? 'Commercial-Safe policy active' : 'Personal data mode active'}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 4, marginBottom: 10 }}>
+              {sourcePolicyRows.map(src => (
+                <React.Fragment key={src.id}>
+                  <span style={{ color: T.inkFaint, fontSize: 10 }}>{src.label}</span>
+                  <span style={{ color: src.allowed ? T.green : T.red, fontSize: 10, fontWeight: 700 }}>
+                    {src.allowed ? src.commercialStatus : 'PERSONAL ONLY'}
+                  </span>
+                </React.Fragment>
+              ))}
+            </div>
             <div style={{ color: T.ink, fontSize: 12, marginBottom: 8 }}>{cacheCount} entries total</div>
             {Object.entries(cacheByProvider).map(([p, { count, oldest }]) => (
               <div key={p} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: T.inkDim, marginBottom: 4 }}>
@@ -3930,7 +3990,7 @@ function App({ initialData }) {
     let cancelled = false;
     const fetchMacros = async () => {
       try {
-        const macros = await fetchMacroIndicators();
+        const macros = await fetchMacroIndicators(apiSettings);
         if (cancelled || !macros || macros.length === 0) return;
         setMarketTickers(macros.map(m => {
           return {
@@ -3944,7 +4004,7 @@ function App({ initialData }) {
     fetchMacros();
     const iv = setInterval(fetchMacros, 60000);
     return () => { cancelled = true; clearInterval(iv); };
-  }, []);
+  }, [apiSettings]);
   const [alerts, setAlerts]                 = useState(initial.alerts);
   const [alertSettings, setAlertSettings]   = useState(initial.alertSettings);
   const [alertErrors, setAlertErrors]       = useState([]);
@@ -4146,6 +4206,7 @@ function App({ initialData }) {
   }, [loadLocalDartMap]);
 
   const refreshMarketTickers = useCallback(async () => {
+    if (apiSettings?.dataMode === 'commercialSafe') return;
     const next = await Promise.all(DEFAULT_MARKET_TICKERS.map(async (ticker) => {
       const yahoo = tickerYahooMap[ticker.symbol];
       if (!yahoo) return ticker;
@@ -4176,13 +4237,14 @@ function App({ initialData }) {
       }
     }));
     setMarketTickers(next);
-  }, []);
+  }, [apiSettings]);
 
   useEffect(() => {
     refreshMarketTickers();
   }, [refreshMarketTickers]);
 
   const refreshLivePrices = useCallback(async (ids = watchlistIdsRef.current, opts = {}) => {
+    if (apiSettings?.dataMode === 'commercialSafe') return;
     if (liveRefreshRef.current) return;
     const idList = [...new Set(ids || [])].filter(id => stocksRef.current[id]);
     if (!idList.length) return;
@@ -4194,7 +4256,7 @@ function App({ initialData }) {
       for (const id of idList) {
         const s = stocksRef.current[id];
         try {
-          updates[id] = await fetchLivePrice(s);
+          updates[id] = await fetchLivePrice(s, apiSettings);
           ok += 1;
         } catch {
           // Live quotes are best-effort; full data refresh remains available.
@@ -4233,7 +4295,7 @@ function App({ initialData }) {
     } finally {
       liveRefreshRef.current = false;
     }
-  }, [toast]);
+  }, [apiSettings, toast]);
 
   useEffect(() => {
     refreshLivePrices(undefined, { silent: true });
@@ -4273,12 +4335,12 @@ function App({ initialData }) {
     setProviderStatus({ kind: 'idle', label: providerLabels[apiSettings.globalProvider] || 'DATA', text: `${providerLabels[apiSettings.globalProvider] || 'DATA'} 요청 중` });
     try {
       const result = await fetchStockData(s, apiSettings, dataCache, dartCorpMap, setFetchStatus);
-      const { cacheUpdates, fromCache, fromStaleCache, staleAgeDays, fetchError, ...payload } = result;
+      const { cacheUpdates, fromCache, fromStaleCache, staleAgeDays, fetchError, replaceMetrics, ...payload } = result;
 
       setStocks(prev => {
         const updated = { ...prev };
         const old = { ...updated[stockId] };
-        const newMetrics = { ...old.metrics, ...(payload.metrics || {}) };
+        const newMetrics = replaceMetrics ? { ...(payload.metrics || {}) } : { ...old.metrics, ...(payload.metrics || {}) };
         const newIndustryGroup = payload.industryGroup || old.industryGroup || null;
         
         // Push the old score to history before computing the new one
@@ -4298,10 +4360,12 @@ function App({ initialData }) {
           refreshedAt: now,
           metrics: newMetrics,
           // Merge metricsMeta: new payload's entries win over old, preserving any manually-set ones
-          metricsMeta: {
-            ...(old.metricsMeta || {}),
-            ...(payload.metricsMeta || {}),
-          },
+          metricsMeta: replaceMetrics
+            ? { ...(payload.metricsMeta || {}) }
+            : {
+                ...(old.metricsMeta || {}),
+                ...(payload.metricsMeta || {}),
+              },
           scoreHistory: newScoreHistory,
         };
 
@@ -4775,7 +4839,7 @@ function App({ initialData }) {
     F5: (
       <div style={{ height: '100%' }}>
         <ChartPanel
-          stock={stock} onRefresh={handleRefresh} refreshing={refreshing} fetchStatus={fetchStatus}
+          stock={stock} apiSettings={apiSettings} onRefresh={handleRefresh} refreshing={refreshing} fetchStatus={fetchStatus}
           period={chartPrefs[stock?.id]?.period}
           chartType={chartPrefs[stock?.id]?.chartType}
           onPeriodChange={v => setChartPrefs(p => ({ ...p, [stock.id]: { ...(p[stock.id] || {}), period: v } }))}
@@ -4815,7 +4879,7 @@ function App({ initialData }) {
       <BacktestPanel stocks={stocks} watchlistIds={watchlistIds} trades={trades} onAddTrade={handleAddTrade} onDeleteTrade={handleDeleteTrade}/>
     ),
     F11: (
-      <ToolsPanel stock={stock} stocks={stocks} watchlistIds={watchlistIds}/>
+      <ToolsPanel stock={stock} stocks={stocks} watchlistIds={watchlistIds} apiSettings={apiSettings}/>
     ),
     F12: (
       <SettingsDataPanel
@@ -4942,7 +5006,7 @@ function App({ initialData }) {
 
       {/* Overlays */}
       {searchMode && (
-        <SearchOverlay apiSettings={apiSettings} dartCorpMap={dartCorpMap} onAdd={searchMode === 'watchlist' ? handleAddFromSearch : handleAddPeerFromSearch} onClose={() => setSearchMode(null)}/>
+        <SearchOverlay apiSettings={apiSettings} dartCorpMap={dartCorpMap} stocks={stocks} onAdd={searchMode === 'watchlist' ? handleAddFromSearch : handleAddPeerFromSearch} onClose={() => setSearchMode(null)}/>
       )}
       {settingsOpen && (
         <ApiSettingsModal settings={apiSettings} dartCorpMap={dartCorpMap} onSave={handleSaveSettings} onClose={() => setSettingsOpen(false)}/>

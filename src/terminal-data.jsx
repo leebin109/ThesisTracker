@@ -45,13 +45,12 @@ const DEFAULT_API_SETTINGS = {
   dataGoKrKey: '',
   cacheDays: 3,
   // 'personal' = may use Yahoo + experimental endpoints
-  // 'commercialSafe' = marks Yahoo-derived metrics as non-commercial-safe,
-  //                    prefers official filings when available
+  // 'commercialSafe' = blocks personal-only/unclear sources before network calls
   dataMode: 'personal',
 };
 
 // Cache schema version — bump when cache payload shape changes significantly
-const CACHE_SCHEMA_VERSION = 4;
+const CACHE_SCHEMA_VERSION = 5;
 
 const DEFAULT_DART_CORP_MAP = {
   '005930': { corpCode: '00126380', corpName: '삼성전자' },
@@ -67,6 +66,149 @@ const DEFAULT_ALERT_SETTINGS = {
 };
 
 const ALERT_RETENTION_DAYS = 30;
+
+const DATA_SOURCE_REGISTRY = {
+  openDart: {
+    label: 'OpenDART',
+    cost: 'free',
+    commercialStatus: 'official-public-api',
+    licenseUrl: 'https://opendart.fss.or.kr/intro/main.do',
+    rateLimit: 'OpenDART account limits apply',
+    confidence: 'A',
+    usedInScore: true,
+    blockedInCommercialSafe: false,
+  },
+  secEdgar: {
+    label: 'SEC EDGAR',
+    cost: 'free',
+    commercialStatus: 'official-public-data',
+    licenseUrl: 'https://www.sec.gov/os/accessing-edgar-data',
+    rateLimit: '10 requests/second fair access guidance',
+    confidence: 'A',
+    usedInScore: true,
+    blockedInCommercialSafe: false,
+  },
+  dataGoKrStockPrice: {
+    label: 'data.go.kr stock price',
+    cost: 'free',
+    commercialStatus: 'public-data',
+    licenseUrl: 'https://www.data.go.kr/odmc/intro/index.do',
+    rateLimit: 'API-key quota applies',
+    confidence: 'B',
+    usedInScore: false,
+    blockedInCommercialSafe: false,
+  },
+  yahooFinance: {
+    label: 'Yahoo Finance',
+    cost: 'free',
+    commercialStatus: 'personal-only',
+    licenseUrl: 'https://legal.yahoo.com/us/en/yahoo/terms/product-atos/apiforydn/index.html',
+    rateLimit: 'unofficial endpoint; unstable',
+    confidence: 'B',
+    usedInScore: true,
+    blockedInCommercialSafe: true,
+  },
+  yahooNews: {
+    label: 'Yahoo News',
+    cost: 'free',
+    commercialStatus: 'personal-only',
+    licenseUrl: 'https://legal.yahoo.com/us/en/yahoo/terms/product-atos/apiforydn/index.html',
+    rateLimit: 'unofficial endpoint; unstable',
+    confidence: 'C',
+    usedInScore: false,
+    blockedInCommercialSafe: true,
+  },
+  googleNews: {
+    label: 'Google News RSS',
+    cost: 'free',
+    commercialStatus: 'unclear',
+    licenseUrl: 'https://news.google.com/',
+    rateLimit: 'RSS/proxy dependent',
+    confidence: 'C',
+    usedInScore: false,
+    blockedInCommercialSafe: true,
+  },
+  alphaVantage: {
+    label: 'Alpha Vantage',
+    cost: 'free-key',
+    commercialStatus: 'requires-plan-review',
+    licenseUrl: 'https://www.alphavantage.co/terms_of_service/',
+    rateLimit: 'free tier quota applies',
+    confidence: 'B',
+    usedInScore: true,
+    blockedInCommercialSafe: true,
+  },
+  fmp: {
+    label: 'Financial Modeling Prep',
+    cost: 'free-key',
+    commercialStatus: 'requires-plan-review',
+    licenseUrl: 'https://site.financialmodelingprep.com/terms-of-service',
+    rateLimit: 'free tier quota applies',
+    confidence: 'B',
+    usedInScore: true,
+    blockedInCommercialSafe: true,
+  },
+  userImport: {
+    label: 'User import/manual',
+    cost: 'free',
+    commercialStatus: 'user-responsibility',
+    licenseUrl: '',
+    rateLimit: 'none',
+    confidence: 'C',
+    usedInScore: true,
+    blockedInCommercialSafe: false,
+  },
+};
+
+function isCommercialSafeMode(apiSettings) {
+  return apiSettings?.dataMode === 'commercialSafe';
+}
+
+function getDataSourceMeta(sourceId) {
+  return DATA_SOURCE_REGISTRY[sourceId] || null;
+}
+
+function inferSourceIdFromProvider(provider) {
+  const p = String(provider || '').toLowerCase();
+  if (p.includes('opendart') || p.includes('dart')) return 'openDart';
+  if (p.includes('sec')) return 'secEdgar';
+  if (p.includes('data.go.kr') || p.includes('datagokr')) return 'dataGoKrStockPrice';
+  if (p.includes('yahoo')) return 'yahooFinance';
+  if (p.includes('alpha')) return 'alphaVantage';
+  if (p.includes('fmp') || p.includes('financial modeling')) return 'fmp';
+  return null;
+}
+
+function makeSourcePolicyError(sourceId, context = '') {
+  const meta = getDataSourceMeta(sourceId);
+  const label = meta?.label || sourceId || 'source';
+  const detail = context ? ` (${context})` : '';
+  const err = new Error(`${label}${detail}: Personal mode only - blocked in Commercial-Safe mode`);
+  err.code = 'SOURCE_POLICY_BLOCKED';
+  err.sourceId = sourceId;
+  err.personalOnly = true;
+  return err;
+}
+
+function assertSourceAllowed(sourceId, apiSettings, context = '') {
+  const meta = getDataSourceMeta(sourceId);
+  if (isCommercialSafeMode(apiSettings) && meta?.blockedInCommercialSafe) {
+    throw makeSourcePolicyError(sourceId, context);
+  }
+  return true;
+}
+
+function isPersonalOnlyError(err) {
+  return err?.code === 'SOURCE_POLICY_BLOCKED' || err?.personalOnly === true;
+}
+
+function getSourcePolicyRows(apiSettings) {
+  return Object.entries(DATA_SOURCE_REGISTRY).map(([id, meta]) => ({
+    id,
+    ...meta,
+    allowed: !(isCommercialSafeMode(apiSettings) && meta.blockedInCommercialSafe),
+  }));
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Default market tickers (static headline display)
@@ -761,7 +903,11 @@ function toFmpSymbol(stock) {
 // Cache helpers
 // ═══════════════════════════════════════════════════════════════
 function buildCacheKey(stock, apiSettings, mode = 'all') {
-  const provider = stock.market === 'KRX' ? 'openDart' : (apiSettings.globalProvider || 'yahooExperimental');
+  const provider = stock.market === 'KRX'
+    ? 'openDart'
+    : isCommercialSafeMode(apiSettings)
+      ? 'commercialSafe'
+      : (apiSettings.globalProvider || 'yahooExperimental');
   const reportPart = stock.market === 'KRX'
     ? `:${apiSettings.dartFiscalYear}:${apiSettings.dartReportCode}:${apiSettings.dartFsDiv}`
     : '';
@@ -791,17 +937,29 @@ const CORE_METRIC_KEYS = ['per', 'pbr', 'roe', 'opMargin', 'fcfMargin', 'debtRat
  * @param {number=} opts.fiscalYear
  * @param {boolean=} opts.usedInScore
  */
-function makeMetricMeta({ provider, source, method, confidence, commercialSafe, periodEnd, fiscalYear, usedInScore } = {}) {
+function makeMetricMeta({ provider, source, sourceId, method, confidence, commercialSafe, periodEnd, fiscalYear, usedInScore } = {}) {
+  const resolvedSourceId = sourceId || inferSourceIdFromProvider(provider);
+  const sourceInfo = getDataSourceMeta(resolvedSourceId);
+  const resolvedCommercialSafe = commercialSafe != null
+    ? Boolean(commercialSafe)
+    : sourceInfo
+      ? !sourceInfo.blockedInCommercialSafe
+      : false;
   return {
     source:         source         || provider || 'unknown',
     provider:       provider       || 'unknown',
+    sourceId:       resolvedSourceId || null,
     method:         method         || 'direct',
     periodEnd:      periodEnd      || null,
     fiscalYear:     fiscalYear     || null,
     fetchedAt:      new Date().toISOString(),
-    confidence:     confidence     || 'D',
-    commercialSafe: commercialSafe != null ? Boolean(commercialSafe) : false,
-    usedInScore:    usedInScore    != null ? Boolean(usedInScore)    : true,
+    confidence:     confidence     || sourceInfo?.confidence || 'D',
+    commercialSafe: resolvedCommercialSafe,
+    usedInScore:    usedInScore    != null ? Boolean(usedInScore) : sourceInfo?.usedInScore ?? true,
+    cost:           sourceInfo?.cost || 'unknown',
+    commercialStatus: sourceInfo?.commercialStatus || 'unknown',
+    licenseUrl:     sourceInfo?.licenseUrl || '',
+    rateLimit:      sourceInfo?.rateLimit || '',
   };
 }
 
@@ -925,7 +1083,8 @@ function assertFmpResponse(data, ep, opts = {}) {
 // ═══════════════════════════════════════════════════════════════
 // Fetch functions
 // ═══════════════════════════════════════════════════════════════
-async function fetchYahooChart(symbol) {
+async function fetchYahooChart(symbol, apiSettings = null) {
+  assertSourceAllowed('yahooFinance', apiSettings, 'chart');
   const params = new URLSearchParams({ range: '3mo', interval: '1d', includePrePost: 'false', events: 'div,splits' });
   const data = await fetchJsonWithDiagnostics('Yahoo chart', buildYahooChartUrl(symbol, params));
   const err = data?.chart?.error;
@@ -942,14 +1101,15 @@ function isCleanCompanyName(s) {
   return true;
 }
 
-async function fetchKrxYahooPrice(stock) {
+async function fetchKrxYahooPrice(stock, apiSettings = null) {
+  assertSourceAllowed('yahooFinance', apiSettings, 'KRX price fallback');
   const baseSym = String(stock.symbol || '').replace(/\D/g, '').padStart(6, '0');
   if (baseSym.length !== 6) throw new Error(`KRX 심볼 파싱 실패: ${stock.symbol}`);
   const candidates = [`${baseSym}.KS`, `${baseSym}.KQ`];
   let lastErr = null;
   for (const sym of candidates) {
     try {
-      const data = await fetchYahooChart(sym);
+      const data = await fetchYahooChart(sym, apiSettings);
       const result = data?.chart?.result?.[0];
       if (!result) continue;
       const meta = result.meta || {};
@@ -976,7 +1136,8 @@ async function fetchKrxYahooPrice(stock) {
   throw new Error(`Yahoo KRX 가격 조회 실패: ${lastErr?.message || 'no data'}`);
 }
 
-async function fetchYahooQuote(symbol) {
+async function fetchYahooQuote(symbol, apiSettings = null) {
+  assertSourceAllowed('yahooFinance', apiSettings, 'quote');
   const fields = 'symbol,shortName,longName,currency,regularMarketPrice,regularMarketTime,trailingPE,forwardPE,priceToBook,bookValue,epsTrailingTwelveMonths,epsForward,marketCap,sector,industry';
   const data = await fetchJsonWithDiagnostics('Yahoo quote', buildYahooQuoteUrl([symbol], { fields }));
   const quote = data?.quoteResponse?.result?.[0];
@@ -984,7 +1145,8 @@ async function fetchYahooQuote(symbol) {
   return quote;
 }
 
-async function fetchYahooQuoteSummary(symbol) {
+async function fetchYahooQuoteSummary(symbol, apiSettings = null) {
+  assertSourceAllowed('yahooFinance', apiSettings, 'quoteSummary');
   const modules = 'financialData,defaultKeyStatistics,summaryDetail';
   const params = new URLSearchParams({ modules });
   const url = isProxiedOrigin()
@@ -996,7 +1158,8 @@ async function fetchYahooQuoteSummary(symbol) {
   return result;
 }
 
-async function fetchYahooTimeSeries(symbol) {
+async function fetchYahooTimeSeries(symbol, apiSettings = null) {
+  assertSourceAllowed('yahooFinance', apiSettings, 'timeseries');
   const types = [
     'annualTotalRevenue', 'annualOperatingIncome', 'annualNetIncome', 'annualDilutedEPS',
     'annualStockholdersEquity', 'annualCurrentAssets', 'annualCurrentLiabilities',
@@ -1073,7 +1236,8 @@ function parseTimeSeriesStatements(results) {
   };
 }
 
-async function fetchYahooStatements(symbol) {
+async function fetchYahooStatements(symbol, apiSettings = null) {
+  assertSourceAllowed('yahooFinance', apiSettings, 'statements');
   // Progressive fallback: try all 3 modules, then 2, then income-only
   const combos = [
     'incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory',
@@ -1095,7 +1259,7 @@ async function fetchYahooStatements(symbol) {
   // Fall back to the fundamentals-timeseries endpoint which Yahoo Finance website uses internally
   let tsReason = '알 수 없음';
   try {
-    const tsResults = await fetchYahooTimeSeries(symbol);
+    const tsResults = await fetchYahooTimeSeries(symbol, apiSettings);
     const parsed = parseTimeSeriesStatements(tsResults);
     if (parsed) return parsed;
     tsReason = `데이터 없음 (${tsResults.length}개 타입 수신)`;
@@ -1105,7 +1269,8 @@ async function fetchYahooStatements(symbol) {
   throw new Error(`Yahoo statements 모두 실패 (${tsReason})`);
 }
 
-async function fetchYahooEarnings(symbol) {
+async function fetchYahooEarnings(symbol, apiSettings = null) {
+  assertSourceAllowed('yahooFinance', apiSettings, 'earnings');
   const params = new URLSearchParams({ modules: 'earnings' });
   const url = isProxiedOrigin()
     ? `/api/proxy?service=yahoo&path=quoteSummary&symbol=${encodeURIComponent(symbol)}&${params}`
@@ -1116,7 +1281,8 @@ async function fetchYahooEarnings(symbol) {
   return data?.quoteSummary?.result?.[0] || null;
 }
 
-async function fetchLivePriceForSymbol(stock, yahooSym) {
+async function fetchLivePriceForSymbol(stock, yahooSym, apiSettings = null) {
+  assertSourceAllowed('yahooFinance', apiSettings, 'live price');
   const params = new URLSearchParams({ range: '1d', interval: '1m', includePrePost: 'false' });
   let data = await fetchJsonWithDiagnostics('Yahoo live', buildYahooChartUrl(yahooSym, params));
   let result = data?.chart?.result?.[0];
@@ -1159,21 +1325,23 @@ async function fetchLivePriceForSymbol(stock, yahooSym) {
   };
 }
 
-async function fetchLivePrice(stock) {
+async function fetchLivePrice(stock, apiSettings = null) {
+  assertSourceAllowed('yahooFinance', apiSettings, 'live price');
   // KRX: try .KS then .KQ (KOSPI vs KOSDAQ are not encoded in our market field)
   if (stock.market === 'KRX') {
     const baseSym = String(stock.symbol || '').replace(/\D/g, '').padStart(6, '0');
     let lastErr = null;
     for (const suffix of ['.KS', '.KQ']) {
-      try { return await fetchLivePriceForSymbol(stock, `${baseSym}${suffix}`); }
+      try { return await fetchLivePriceForSymbol(stock, `${baseSym}${suffix}`, apiSettings); }
       catch (e) { lastErr = e; }
     }
     throw lastErr || new Error('Yahoo live KRX 실패');
   }
-  return fetchLivePriceForSymbol(stock, toYahooSymbol(stock));
+  return fetchLivePriceForSymbol(stock, toYahooSymbol(stock), apiSettings);
 }
 
-async function fetchAlphaVantage(fn, symbol, key) {
+async function fetchAlphaVantage(fn, symbol, key, apiSettings = null) {
+  assertSourceAllowed('alphaVantage', apiSettings, fn);
   const params = new URLSearchParams({ function: fn, symbol, apikey: key });
   const res = await fetch(`https://www.alphavantage.co/query?${params}`);
   if (!res.ok) throw new Error(`Alpha Vantage HTTP ${res.status}`);
@@ -1183,6 +1351,7 @@ async function fetchAlphaVantage(fn, symbol, key) {
 }
 
 async function fetchFmp(ep, params, key, opts = {}) {
+  assertSourceAllowed('fmp', opts.apiSettings, ep);
   const query = new URLSearchParams({ ...params, apikey: key });
   const res = await fetch(`https://financialmodelingprep.com/stable/${ep}?${query}`);
   if (!res.ok) throw new Error(`FMP ${ep} HTTP ${res.status}`);
@@ -1444,6 +1613,7 @@ function mapYahooPayload(stock, chart, yahooSym, quote, summary) {
   const hasStmts = incomeStmts.length > 0;
   const makeYMeta = (method) => makeMetricMeta({
     provider: 'Yahoo Finance',
+    sourceId: 'yahooFinance',
     source: `Yahoo Finance quoteSummary (${yahooSym})`,
     method,
     confidence: method === 'financialData' ? 'B' : 'C',
@@ -1567,6 +1737,14 @@ function mapAlphaPayload(stock, raw) {
     gpa,
     roa, // stored for display; ROIC omitted — AV OVERVIEW lacks invested-capital data
   });
+  const metricsMeta = Object.fromEntries(Object.keys(metrics).map(k => [k, makeMetricMeta({
+    provider: 'Alpha Vantage',
+    sourceId: 'alphaVantage',
+    source: 'Alpha Vantage API',
+    method: 'api',
+    confidence: 'B',
+    commercialSafe: false,
+  })]));
   const industryGroup = detectIndustry(overview.Sector, overview.Industry);
   return {
     name: overview.Name || stock.name,
@@ -1610,6 +1788,14 @@ function mapFmpPayload(stock, raw, fmpSym) {
     evEbitda: firstFinite(ratios.enterpriseValueMultipleTTM, keyMetrics.enterpriseValueOverEBITDATTM),
     roic: decimalToPercent(firstFinite(ratios.returnOnCapitalEmployedTTM, ratios.returnOnInvestedCapitalTTM)),
   });
+  const metricsMeta = Object.fromEntries(Object.keys(metrics).map(k => [k, makeMetricMeta({
+    provider: 'FMP',
+    sourceId: 'fmp',
+    source: `FMP (${fmpSym})`,
+    method: 'api',
+    confidence: 'B',
+    commercialSafe: false,
+  })]));
   const industryGroup = detectIndustry(profile.sector, profile.industry);
   return {
     name: profile.companyName || quote.name || stock.name,
@@ -1712,6 +1898,7 @@ function mapOpenDartPayload(stock, raw, corp, currentPrice, shares) {
   // metricsMeta: OpenDART = official filing → confidence A, commercialSafe true
   const dartMetaBase = makeMetricMeta({
     provider: 'OpenDART',
+    sourceId: 'openDart',
     source: srcName,
     method: 'official-filing',
     confidence: 'A',
@@ -1741,6 +1928,7 @@ function mapOpenDartPayload(stock, raw, corp, currentPrice, shares) {
 // ═══════════════════════════════════════════════════════════════
 async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus = () => {}) {
   const mode = 'all';
+  const commercialSafe = isCommercialSafeMode(apiSettings);
 
   // Korean stocks: data.go.kr + OpenDART
   if (stock.market === 'KRX') {
@@ -1760,18 +1948,22 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
           results.priceCacheEntry = { fetchedAt: new Date().toISOString(), provider: 'dataGoKrStockPrice', payload: results.price };
         }
       } catch (e) {
-        onStatus(`data.go.kr 실패 — Yahoo로 폴백 (${e.message?.slice(0, 50)})`);
+        onStatus(commercialSafe
+          ? `data.go.kr failed - commercial-safe mode will not use Yahoo (${e.message?.slice(0, 50)})`
+          : `data.go.kr 실패 — Yahoo로 폴백 (${e.message?.slice(0, 50)})`);
       }
     }
 
     // Fallback: Yahoo Finance for KRX price if data.go.kr unavailable/failed
-    if (!results.price) {
+    if (!results.price && !commercialSafe) {
       try {
         onStatus('Yahoo 한국주식 가격 조회 중...');
-        results.price = await fetchKrxYahooPrice(stock);
+        results.price = await fetchKrxYahooPrice(stock, apiSettings);
       } catch (e) {
         onStatus(`Yahoo 폴백 실패 (${e.message?.slice(0, 50)})`);
       }
+    } else if (!results.price && commercialSafe) {
+      onStatus('Commercial-Safe mode: Yahoo KRX price fallback blocked');
     }
 
     if (apiSettings.openDartKey) {
@@ -1802,6 +1994,7 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
 
     const merged = {
       cacheUpdates: {},
+      replaceMetrics: commercialSafe,
       ...results.price,
       ...(results.dart ? {
         metrics: { ...(results.price?.metrics ?? {}), ...results.dart.metrics },
@@ -1815,6 +2008,30 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
     return merged;
   }
 
+  if (commercialSafe) {
+    const cacheKey = buildCacheKey(stock, apiSettings, mode);
+    const cached = getCachedEntry(cache, cacheKey, apiSettings.cacheDays);
+    if (cached && (cached.schemaVersion ?? 1) >= CACHE_SCHEMA_VERSION) {
+      return { ...cached.payload, cacheUpdates: {}, fromCache: true, replaceMetrics: true };
+    }
+    if (!isSecEligibleStock(stock)) {
+      throw new Error(`${stock.symbol}: Commercial-Safe mode needs an official filing source or user import for this market`);
+    }
+    onStatus('SEC EDGAR financials (commercial-safe) loading...');
+    const history = await fetchSecFinancialHistory(stock);
+    const payload = { ...mapSecHistoryPayload(stock, history), replaceMetrics: true };
+    const conf = computeDataConfidence(payload.metrics, payload.metricsMeta);
+    const entry = {
+      fetchedAt: new Date().toISOString(),
+      provider: 'secEdgar',
+      schemaVersion: CACHE_SCHEMA_VERSION,
+      confidence: conf.grade,
+      completeness: { usedCount: conf.usedCount, totalCoreCount: conf.totalCoreCount },
+      payload,
+    };
+    return { ...payload, cacheUpdates: { [cacheKey]: entry } };
+  }
+
   // Yahoo (price + basic metrics)
   if (apiSettings.globalProvider === 'yahooExperimental') {
     const cacheKey = buildCacheKey(stock, apiSettings, mode);
@@ -1825,11 +2042,11 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
     const yahooSym = toYahooSymbol(stock);
     try {
       const [chartRes, quoteRes, summaryRes, stmtRes, earningsRes] = await Promise.allSettled([
-        fetchYahooChart(yahooSym),
-        fetchYahooQuote(yahooSym),
-        fetchYahooQuoteSummary(yahooSym),
-        fetchYahooStatements(yahooSym),
-        fetchYahooEarnings(yahooSym),
+        fetchYahooChart(yahooSym, apiSettings),
+        fetchYahooQuote(yahooSym, apiSettings),
+        fetchYahooQuoteSummary(yahooSym, apiSettings),
+        fetchYahooStatements(yahooSym, apiSettings),
+        fetchYahooEarnings(yahooSym, apiSettings),
       ]);
       if (chartRes.status === 'rejected') throw new Error(`Yahoo chart 실패: ${chartRes.reason?.message}`);
       const quote    = quoteRes.status   === 'fulfilled' ? quoteRes.value   : null;
@@ -1858,6 +2075,7 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
 
   // Alpha Vantage
   if (apiSettings.globalProvider === 'alphaVantage') {
+    assertSourceAllowed('alphaVantage', apiSettings, 'stock refresh');
     if (!apiSettings.alphaVantageKey) throw new Error('Alpha Vantage API key를 먼저 저장해 주세요.');
     const cacheKey = buildCacheKey(stock, apiSettings, mode);
     const cached = getCachedEntry(cache, cacheKey, apiSettings.cacheDays);
@@ -1873,7 +2091,7 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
       const raw = {};
       for (const [i, req] of requests.entries()) {
         onStatus(`Alpha Vantage ${i+1}/${requests.length} · ${req.label} 요청 중`);
-        raw[req.key] = await fetchAlphaVantage(req.fn, stock.symbol, apiSettings.alphaVantageKey);
+        raw[req.key] = await fetchAlphaVantage(req.fn, stock.symbol, apiSettings.alphaVantageKey, apiSettings);
         if (i < requests.length - 1) await sleep(AV_DELAY);
       }
       const payload = mapAlphaPayload(stock, raw);
@@ -1888,6 +2106,7 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
 
   // FMP
   if (apiSettings.globalProvider === 'fmp') {
+    assertSourceAllowed('fmp', apiSettings, 'stock refresh');
     if (!apiSettings.fmpKey) throw new Error('FMP API key를 먼저 저장해 주세요.');
     const cacheKey = buildCacheKey(stock, apiSettings, mode);
     const cached = getCachedEntry(cache, cacheKey, apiSettings.cacheDays);
@@ -1905,7 +2124,7 @@ async function fetchStockData(stock, apiSettings, cache, dartCorpMap, onStatus =
       for (const [i, req] of endpoints.entries()) {
         onStatus(`FMP ${i+1}/${endpoints.length} · ${req.label} 요청 중`);
         try {
-          raw[req.key] = await fetchFmp(req.ep, { symbol: fmpSym }, apiSettings.fmpKey, { allowEmpty: req.key !== 'quote' });
+          raw[req.key] = await fetchFmp(req.ep, { symbol: fmpSym }, apiSettings.fmpKey, { allowEmpty: req.key !== 'quote', apiSettings });
         } catch (e) {
           if (req.key === 'quote') throw e;
           raw[req.key] = [];
@@ -1947,14 +2166,16 @@ function mapFmpSearchResult(row) {
   return { symbol: normalizeSymbolForMarket(sym, prof.key), name: row.name ?? row.companyName ?? sym, marketKey: prof.key, market: prof.market, country: prof.country, currency: row.currency ?? prof.currency, flag: COUNTRY_FLAGS[prof.country] ?? '🏷️', source: 'FMP' };
 }
 
-async function searchWithYahoo(query) {
+async function searchWithYahoo(query, apiSettings = null) {
+  assertSourceAllowed('yahooFinance', apiSettings, 'search');
   const params = new URLSearchParams({ q: query, quotesCount: '10', newsCount: '0' });
   const data = await fetchJsonWithDiagnostics('Yahoo search', buildYahooSearchUrl(params));
   const rows = (data.quotes ?? []).filter(q => ['EQUITY','ETF'].includes(String(q.quoteType ?? '').toUpperCase()));
   return uniqueSearchResults(rows.map(mapYahooSearchResult).filter(Boolean));
 }
 
-async function searchWithFmp(query, key) {
+async function searchWithFmp(query, key, apiSettings = null) {
+  assertSourceAllowed('fmp', apiSettings, 'search');
   if (!key) throw new Error('FMP key 없음');
   const [r1, r2] = await Promise.allSettled([
     fetchFmp('search-symbol', { query, limit: '8' }, key, { allowEmpty: true }),
@@ -2058,6 +2279,54 @@ async function fetchSecFinancialHistory(stock) {
       unit: 'M', currency: 'USD',
     };
   });
+}
+
+function mapSecHistoryPayload(stock, history) {
+  const rows = Array.isArray(history) ? history : [];
+  const latest = rows[0] || {};
+  const prev = rows[1] || {};
+  const safeDiv = (a, b) => (Number.isFinite(toNumber(a)) && Number.isFinite(toNumber(b)) && toNumber(b) !== 0)
+    ? toNumber(a) / toNumber(b)
+    : NaN;
+  const fcfMargin = safeDiv(latest.fcf, latest.revenue) * 100;
+  const netMargin = safeDiv(latest.netIncome, latest.revenue) * 100;
+  const revGrowth = (Number.isFinite(toNumber(latest.revenue)) && Number.isFinite(toNumber(prev.revenue)) && toNumber(prev.revenue) !== 0)
+    ? ((toNumber(latest.revenue) - toNumber(prev.revenue)) / Math.abs(toNumber(prev.revenue))) * 100
+    : NaN;
+  const epsGrowth = (Number.isFinite(toNumber(latest.eps)) && Number.isFinite(toNumber(prev.eps)) && toNumber(prev.eps) !== 0)
+    ? ((toNumber(latest.eps) - toNumber(prev.eps)) / Math.abs(toNumber(prev.eps))) * 100
+    : NaN;
+  const metrics = compactMetrics({
+    opMargin: latest.opMargin,
+    fcfMargin,
+    revGrowth,
+    epsGrowth,
+    netMargin,
+  });
+  const metricsMeta = {};
+  for (const key of Object.keys(metrics)) {
+    metricsMeta[key] = makeMetricMeta({
+      provider: 'SEC EDGAR',
+      sourceId: 'secEdgar',
+      source: 'SEC EDGAR companyfacts',
+      method: 'official-filing',
+      confidence: 'A',
+      commercialSafe: true,
+      fiscalYear: latest.fy || null,
+      periodEnd: latest.fy ? `${latest.fy}-12-31` : null,
+    });
+  }
+  return {
+    name: stock.name,
+    currency: stock.currency || 'USD',
+    metrics,
+    metricsMeta,
+    metricsMeta,
+    metricsMeta,
+    financialHistory: rows,
+    asOf: latest.fy ? `${latest.fy}-12-31` : new Date().toISOString().slice(0, 10),
+    priceSrc: stock.priceSrc || 'User/static price',
+  };
 }
 
 async function fetchDartFinancialHistory(stock, apiSettings, dartCorpMap) {
@@ -2348,7 +2617,8 @@ async function fetchInsiderTrades(stock) {
   return trades.sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
-async function fetchYahooNewsExperimental(symbol, nameQuery) {
+async function fetchYahooNewsExperimental(symbol, nameQuery, apiSettings = null) {
+  assertSourceAllowed('yahooNews', apiSettings, 'news');
   if (!symbol) return [];
   const q = nameQuery || symbol;
   const params = new URLSearchParams({ q, newsCount: '20', quotesCount: '0' });
@@ -2436,20 +2706,30 @@ async function fetchAlertsForStock(stock, dartCorpMap, apiSettings, alertSetting
   if (sources.yahooNews) {
     const sym = toYahooSymbol(stock);
     const nameQuery = stock.name || sym;
-    tasks.push({
-      label: 'Yahoo',
-      run: async () => {
-        const rows = await fetchYahooNewsExperimental(sym, nameQuery);
-        return rows.filter(r => isNewsRelevant(r.title, stock));
-      },
-    });
+    try {
+      assertSourceAllowed('yahooNews', apiSettings, 'alerts');
+      tasks.push({
+        label: 'Yahoo',
+        run: async () => {
+          const rows = await fetchYahooNewsExperimental(sym, nameQuery, apiSettings);
+          return rows.filter(r => isNewsRelevant(r.title, stock));
+        },
+      });
+    } catch (e) {
+      errors.push({ source: 'Yahoo', message: e?.message || String(e), personalOnly: isPersonalOnlyError(e) });
+    }
   }
   if (sources.googleNews) {
     const q = stock.name || stock.symbol;
-    tasks.push({
-      label: 'GoogleNews',
-      run: () => fetchGoogleNewsRss(q, alertSettings.googleNewsProxy || ''),
-    });
+    try {
+      assertSourceAllowed('googleNews', apiSettings, 'alerts');
+      tasks.push({
+        label: 'GoogleNews',
+        run: () => fetchGoogleNewsRss(q, alertSettings.googleNewsProxy || ''),
+      });
+    } catch (e) {
+      errors.push({ source: 'GoogleNews', message: e?.message || String(e), personalOnly: isPersonalOnlyError(e) });
+    }
   }
 
   const items = [];
@@ -2487,7 +2767,8 @@ function pruneAlerts(alerts, retentionDays = ALERT_RETENTION_DAYS) {
 }
 
 
-async function fetchYahooChartOhlc(symbol, range, interval) {
+async function fetchYahooChartOhlc(symbol, range, interval, apiSettings = null) {
+  assertSourceAllowed('yahooFinance', apiSettings, 'chart OHLC');
   const params = new URLSearchParams({ range, interval, includePrePost: 'false', events: 'div,splits' });
   const data = await fetchJsonWithDiagnostics('Yahoo chart', buildYahooChartUrl(symbol, params));
   const err = data?.chart?.error;
@@ -2505,7 +2786,13 @@ async function fetchYahooChartOhlc(symbol, range, interval) {
   })).filter(c => Number.isFinite(c.close) && c.close > 0);
 }
 
-async function fetchMacroIndicators() {
+async function fetchMacroIndicators(apiSettings = null) {
+  try {
+    assertSourceAllowed('yahooFinance', apiSettings, 'macro ticker');
+  } catch (e) {
+    if (isPersonalOnlyError(e)) return [];
+    throw e;
+  }
   try {
     const symbols = ['^GSPC', 'KRW=X', '^TNX', '^VIX'];
     const data = await fetchJsonWithDiagnostics('Yahoo macro quote', buildYahooQuoteUrl(symbols));
@@ -2524,9 +2811,10 @@ async function fetchMacroIndicators() {
 
 // ═══════════════════════════════════════════════════════════════
 // Expose to window
-async function fetchYahooFinancialHistory(stock) {
+async function fetchYahooFinancialHistory(stock, apiSettings = null) {
+  assertSourceAllowed('yahooFinance', apiSettings, 'financial history');
   const yahooSym = toYahooSymbol(stock);
-  const summary = await fetchYahooStatements(yahooSym);
+  const summary = await fetchYahooStatements(yahooSym, apiSettings);
 
   const incStmts = summary?.incomeStatementHistory?.incomeStatementHistory || [];
   const balShts  = summary?.balanceSheetHistory?.balanceSheetStatements    || [];
@@ -2580,7 +2868,8 @@ Object.assign(window, {
   DEFAULT_STOCKS, DEFAULT_WATCHLIST_IDS, DEFAULT_API_SETTINGS,
   DEFAULT_DART_CORP_MAP, DEFAULT_MARKET_TICKERS, DEFAULT_ALERT_SETTINGS,
   ALERT_RETENTION_DAYS,
-  CACHE_SCHEMA_VERSION, CORE_METRIC_KEYS,
+  CACHE_SCHEMA_VERSION, CORE_METRIC_KEYS, DATA_SOURCE_REGISTRY,
+  isCommercialSafeMode, assertSourceAllowed, isPersonalOnlyError, getSourcePolicyRows,
   makeMetricMeta, setMetricWithMeta, computeDataConfidence,
   loadAppState, saveAppState,
   computeScores, computeQuantScores, applyQuantScores, computeDynamicQuality,
