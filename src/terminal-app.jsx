@@ -286,21 +286,53 @@ function median(vals) {
 
 // ─── Toast ───────────────────────────────────────────────────────────────────
 function ToastContainer({ toasts }) {
+  const centered = toasts.filter(t => t.kind === 'policy');
+  const regular = toasts.filter(t => t.kind !== 'policy');
   return (
-    <div style={{ position: 'fixed', bottom: 24, right: 24, display: 'flex', flexDirection: 'column', gap: 8, zIndex: 9999, pointerEvents: 'none' }}>
-      {toasts.map(t => (
-        <div key={t.id} style={{
-          padding: '10px 16px', fontSize: 12, fontFamily: T.font,
-          background: t.kind === 'error' ? '#1a0a0a' : T.surface,
-          border: `1px solid ${t.kind === 'error' ? T.red : t.kind === 'ok' ? T.green : T.border}`,
-          color: t.kind === 'error' ? T.red : t.kind === 'ok' ? T.green : T.ink,
-          maxWidth: 380, lineHeight: 1.5,
-        }}>
-          {t.msg}
-        </div>
-      ))}
-    </div>
+    <>
+      <div style={{ position: 'fixed', inset: 0, display: centered.length ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center', zIndex: 10000, pointerEvents: 'none', padding: 24 }}>
+        {centered.slice(-1).map(t => (
+          <div key={t.id} style={{
+            padding: '18px 22px', fontSize: 15, fontFamily: T.font,
+            background: '#171008',
+            border: `1px solid ${T.yellow}`,
+            color: T.yellow,
+            maxWidth: 680, lineHeight: 1.6,
+            boxShadow: '0 18px 60px rgba(0,0,0,0.45)',
+          }}>
+            <div style={{ fontSize: 11, color: T.inkDim, marginBottom: 6, fontWeight: 800, letterSpacing: '0.08em' }}>POLICY STATUS</div>
+            {t.msg}
+          </div>
+        ))}
+      </div>
+      <div style={{ position: 'fixed', bottom: 24, right: 24, display: 'flex', flexDirection: 'column', gap: 8, zIndex: 9999, pointerEvents: 'none' }}>
+        {regular.map(t => (
+          <div key={t.id} style={{
+            padding: '10px 16px', fontSize: 12, fontFamily: T.font,
+            background: t.kind === 'error' ? '#1a0a0a' : T.surface,
+            border: `1px solid ${t.kind === 'error' ? T.red : t.kind === 'ok' ? T.green : t.kind === 'warn' ? T.yellow : T.border}`,
+            color: t.kind === 'error' ? T.red : t.kind === 'ok' ? T.green : t.kind === 'warn' ? T.yellow : T.ink,
+            maxWidth: 380, lineHeight: 1.5,
+          }}>
+            {t.msg}
+          </div>
+        ))}
+      </div>
+    </>
   );
+}
+
+function isPolicyStatusError(err, apiSettings) {
+  if (err?.personalOnly) return true;
+  if (err?.code === 'SOURCE_POLICY_BLOCKED' || err?.code === 'SOURCE_POLICY_UNKNOWN') return true;
+  if (apiSettings?.dataMode !== 'commercialSafe') return false;
+  return /Commercial-Safe mode needs an official filing source or user import/i.test(err?.message || '');
+}
+
+function formatPolicyStatusMessage(stock, err) {
+  const symbol = stock?.symbol || 'Symbol';
+  const market = stock?.market || 'this market';
+  return `${symbol}: Commercial-Safe mode has no verified free commercial data source for ${market}. Use Personal mode or user import.`;
 }
 
 // ─── Watchlist panel ─────────────────────────────────────────────────────────
@@ -4418,8 +4450,14 @@ function App({ initialData }) {
       refreshMarketTickers();
       refreshLivePrices([stockId], { silent: true });
     } catch (e) {
-      setProviderStatus({ kind: 'error', label: providerLabels[apiSettings.globalProvider] || 'DATA', text: `${s.symbol}: ${e.message}` });
-      toast(`${s.symbol}: ${e.message}`, 'error', 7000);
+      if (isPolicyStatusError(e, apiSettings)) {
+        const msg = formatPolicyStatusMessage(s, e);
+        setProviderStatus({ kind: 'warn', label: 'POLICY', text: msg });
+        toast(msg, 'policy', 8000);
+      } else {
+        setProviderStatus({ kind: 'error', label: providerLabels[apiSettings.globalProvider] || 'DATA', text: `${s.symbol}: ${e.message}` });
+        toast(`${s.symbol}: ${e.message}`, 'error', 7000);
+      }
     } finally {
       setRefreshing(false);
         setFetchStatus('');
