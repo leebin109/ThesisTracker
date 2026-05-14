@@ -4525,7 +4525,7 @@ Object.assign(window, {
 /* global loadAppState, saveAppState, computeScores, computeQuantScores, applyQuantScores, computeDynamicQuality, getDaysLeft */
 /* global fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp */
 /* global fetchYahooChartOhlc, toYahooSymbol */
-/* global fetchAlertsForStock, pruneAlerts */
+/* global fetchAlertsForStock, pruneAlerts, isPersonalOnlyError */
 /* global fetchSecFinancialHistory, fetchDartFinancialHistory, fetchYahooFinancialHistory */
 /* global normalizeKrxStockCode, getDartCorpEntry, fetchLocalDartCorpMap */
 /* global inferMarketFromExchange, normalizeSymbolForMarket, getMarketProfile, buildYahooChartUrl, MARKET_PROFILES, COUNTRY_FLAGS, SCORE_CFG */
@@ -5631,7 +5631,7 @@ function MacroPanel({ stock, stocks, watchlistIds, apiSettings }) {
       });
       const stockVol = stockRets.length > 1 ? Math.sqrt(stockRets.reduce((s, r) => s + r * r, 0) / stockRets.length) : 0;
       setData({ macros, stockVol, stockRets });
-    } catch (e) { setError(e.message || '데이터 로드 실패'); }
+    } catch (e) { setError(isPersonalOnlyError?.(e) ? `POLICY: ${e.message}` : (e.message || '데이터 로드 실패')); }
     finally { setLoading(false); }
   };
 
@@ -5667,7 +5667,7 @@ function MacroPanel({ stock, stocks, watchlistIds, apiSettings }) {
             style={{ background: 'transparent', border: `1px solid ${T.cyan}`, color: T.cyan, fontFamily: T.font, fontSize: 10, padding: '5px 14px', borderRadius: 3, cursor: loading ? 'wait' : 'pointer', letterSpacing: '0.08em' }}>
             {loading ? 'LOADING...' : '↻ LOAD DATA'}
           </button>
-          {error && <span style={{ color: T.red, fontSize: 10 }}>{error}</span>}
+          {error && <span style={{ color: error.startsWith('POLICY:') ? T.yellow : T.red, fontSize: 10 }}>{error}</span>}
           {!data && !loading && <span style={{ color: T.inkFaint, fontSize: 10 }}>버튼을 눌러 1년치 주간 데이터를 불러오세요.</span>}
         </div>
         {data && (
@@ -5971,7 +5971,8 @@ function FinancialHistorySection({ stock, apiSettings, dartCorpMap, onSaveHistor
       } else if (isSecEligible) {
         try {
           data = await fetchSecFinancialHistory(stock);
-        } catch {
+        } catch (secErr) {
+          if (apiSettings?.dataMode === 'commercialSafe') throw secErr;
           data = await fetchYahooFinancialHistory(stock, apiSettings);
         }
       } else {
@@ -5980,7 +5981,7 @@ function FinancialHistorySection({ stock, apiSettings, dartCorpMap, onSaveHistor
       if (!data?.length) throw new Error('데이터 없음');
       onSaveHistory(stock.id, data);
     } catch (e) {
-      setError(e.message || '수집 실패');
+      setError(isPersonalOnlyError?.(e) ? `POLICY: ${e.message}` : (e.message || '수집 실패'));
     } finally {
       setLoading(false);
     }
@@ -5994,7 +5995,7 @@ function FinancialHistorySection({ stock, apiSettings, dartCorpMap, onSaveHistor
             style={{ ...btnSt, color: T.amber, border: `1px solid ${T.amber}`, padding: '3px 10px', fontSize: 10 }}>
             {loading ? '수집 중...' : '↻ FETCH HISTORY'}
           </button>
-          {error && <span style={{ fontSize: 10, color: T.red }}>{error}</span>}
+          {error && <span style={{ fontSize: 10, color: error.startsWith('POLICY:') ? T.yellow : T.red }}>{error}</span>}
           {!error && history.length > 0 && (
             <span style={{ fontSize: 10, color: T.inkFaint }}>
               {history[0]?.source} · {history.length}개 연도 · FY{history.at(-1)?.fy}–FY{history[0]?.fy}
@@ -6291,7 +6292,7 @@ function ChartPanel({ stock, apiSettings, onRefresh, refreshing, fetchStatus, pe
     setChartErr('');
     fetchYahooChartOhlc(sym, periodDef.range, periodDef.interval, apiSettings)
       .then(data => { if (!cancelled) { setOhlcData(data); setChartLoading(false); } })
-      .catch(e => { if (!cancelled) { setChartErr(e.message); setChartLoading(false); } });
+      .catch(e => { if (!cancelled) { setChartErr(isPersonalOnlyError?.(e) ? `POLICY: ${e.message}` : e.message); setChartLoading(false); } });
     return () => { cancelled = true; };
   }, [sym, period, apiSettings]);
 
@@ -6326,7 +6327,7 @@ function ChartPanel({ stock, apiSettings, onRefresh, refreshing, fetchStatus, pe
         <button onClick={() => setChartType('candle')} style={btnSt(chartType === 'candle')}>CANDLE</button>
         <div style={{ flex: 1 }}/>
         {chartLoading && <span style={{ color: T.amber, fontSize: 9.5 }}>⟳</span>}
-        {chartErr && <span style={{ color: T.red, fontSize: 9.5 }} title={chartErr}>ERR</span>}
+        {chartErr && <span style={{ color: chartErr.startsWith('POLICY:') ? T.yellow : T.red, fontSize: 9.5 }} title={chartErr}>{chartErr.startsWith('POLICY:') ? 'POLICY' : 'ERR'}</span>}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '3px 12px', borderBottom: `1px solid ${T.borderSoft}`, background: T.surface2, flexShrink: 0, flexWrap: 'wrap' }}>
         {IND_DEFS.map(({ key, label, color }) => (
@@ -7788,7 +7789,9 @@ function AlertsPanel({
           )}
           {alertErrors && alertErrors.length > 0 && (
             <div style={{ fontSize: 10, color: T.yellow, lineHeight: 1.5, borderTop: `1px solid ${T.borderSoft}`, paddingTop: 8 }}>
-              <div style={{ color: T.inkFaint, fontSize: 9, letterSpacing: '0.12em', marginBottom: 4 }}>RECENT ERRORS</div>
+              <div style={{ color: T.inkFaint, fontSize: 9, letterSpacing: '0.12em', marginBottom: 4 }}>
+                {alertErrors.every(err => err.personalOnly) ? 'POLICY STATUS' : 'RECENT ERRORS'}
+              </div>
               {alertErrors.slice(0, 5).map((err, i) => (
                 <div key={i}>· {err.source}: {err.message}</div>
               ))}
