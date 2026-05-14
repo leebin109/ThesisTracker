@@ -361,7 +361,7 @@ function WatchlistPanel({ stocks, watchlistIds, activeId, watchlists, activeWatc
               onDoubleClick={() => onRenameWatchlist(wl.id)}>
               {wl.name}
               {watchlists.length > 1 && (
-                <button onClick={e => { e.stopPropagation(); if (window.confirm(`"${wl.name}" 워치리스트를 삭제하시겠습니까?`)) onDeleteWatchlist(wl.id); }}
+                <button onClick={async e => { e.stopPropagation(); const ok = await (window.appConfirm ? window.appConfirm(`"${wl.name}" 워치리스트를 삭제하시겠습니까?`, { tone: 'danger', confirmLabel: 'DELETE' }) : Promise.resolve(window.confirm(`"${wl.name}" 워치리스트를 삭제하시겠습니까?`))); if (ok) onDeleteWatchlist(wl.id); }}
                   style={{ opacity: 0.6, fontSize: 11, lineHeight: 1, marginLeft: 2, background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', padding: '0 2px' }}>×</button>
               )}
             </button>
@@ -4128,6 +4128,19 @@ function App({ initialData }) {
   const [settingsOpen, setSettingsOpen]   = useState(false);
   const [pitchEditId, setPitchEditId]     = useState(null);
   const [showHelp, setShowHelp]           = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState(null); // { msg, tone } | null
+  const confirmResolverRef = useRef(null);
+  const appConfirm = useCallback((msg, opts = {}) => new Promise(resolve => {
+    confirmResolverRef.current = resolve;
+    setConfirmDialog({ msg, tone: opts.tone || 'warn', confirmLabel: opts.confirmLabel, cancelLabel: opts.cancelLabel });
+  }), []);
+  useEffect(() => { window.appConfirm = appConfirm; return () => { if (window.appConfirm === appConfirm) delete window.appConfirm; }; }, [appConfirm]);
+  const resolveConfirm = useCallback((ok) => {
+    const r = confirmResolverRef.current;
+    confirmResolverRef.current = null;
+    setConfirmDialog(null);
+    if (r) r(ok);
+  }, []);
   // tweaks-panel is a design-time tool; not used at runtime in terminal
 
   const stock = stocks[activeId] || Object.values(stocks)[0] || makeBlankStock({ id: 'EMPTY', symbol: 'EMPTY', name: 'No Stock' });
@@ -5078,6 +5091,47 @@ function App({ initialData }) {
           </div>
         </div>
       )}
+      {confirmDialog && (
+        <div
+          onClick={() => resolveConfirm(false)}
+          onKeyDown={(e) => { if (e.key === 'Escape') resolveConfirm(false); if (e.key === 'Enter') resolveConfirm(true); }}
+          tabIndex={-1}
+          ref={(el) => { if (el) el.focus(); }}
+          style={{ position: 'fixed', inset: 0, zIndex: 10001, background: 'rgba(0,0,0,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, outline: 'none' }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: T.surface, border: `1px solid ${confirmDialog.tone === 'danger' ? T.red : T.amber}`,
+            padding: '20px 24px', minWidth: 320, maxWidth: 480, borderRadius: 4,
+            boxShadow: '0 18px 60px rgba(0,0,0,0.55)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <span style={{ width: 6, height: 6, background: confirmDialog.tone === 'danger' ? T.red : T.amber, borderRadius: 1 }}/>
+              <span style={{ color: confirmDialog.tone === 'danger' ? T.red : T.amber, fontFamily: T.font, fontSize: 11, letterSpacing: '0.18em', fontWeight: 700 }}>
+                CONFIRM
+              </span>
+            </div>
+            <div style={{ color: T.ink, fontFamily: T.fontSans, fontSize: 14, lineHeight: 1.55, marginBottom: 20, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {confirmDialog.msg}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                onClick={() => resolveConfirm(false)}
+                style={{ background: 'transparent', border: `1px solid ${T.border}`, color: T.inkDim,
+                  fontFamily: T.font, fontSize: 11.5, letterSpacing: '0.08em',
+                  padding: '7px 16px', minHeight: 30, borderRadius: 3, cursor: 'pointer' }}>
+                {confirmDialog.cancelLabel || 'CANCEL'}
+              </button>
+              <button
+                autoFocus
+                onClick={() => resolveConfirm(true)}
+                style={{ background: confirmDialog.tone === 'danger' ? T.red : T.amber, border: `1px solid ${confirmDialog.tone === 'danger' ? T.red : T.amber}`, color: '#000',
+                  fontFamily: T.font, fontSize: 11.5, fontWeight: 700, letterSpacing: '0.08em',
+                  padding: '7px 16px', minHeight: 30, borderRadius: 3, cursor: 'pointer' }}>
+                {confirmDialog.confirmLabel || 'CONFIRM'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <CommandBar
         symbol={stock.symbol}
         onSymbol={handleSymbolNav}
@@ -5116,7 +5170,7 @@ function App({ initialData }) {
         </div>
         {/* REMOVE — 항상 우측 고정 */}
         <div style={{ flexShrink: 0, borderLeft: `1px solid ${T.border}`, padding: '0 14px', height: '100%', display: 'flex', alignItems: 'center' }}>
-          <button onClick={() => { if (window.confirm(`"${stock.name || stock.symbol}" 을(를) 워치리스트에서 제거하시겠습니까?`)) handleRemove(stock.id); }}
+          <button onClick={async () => { const ok = await (window.appConfirm ? window.appConfirm(`"${stock.name || stock.symbol}" 을(를) 워치리스트에서 제거하시겠습니까?`, { tone: 'danger', confirmLabel: 'REMOVE' }) : Promise.resolve(window.confirm(`"${stock.name || stock.symbol}" 을(를) 워치리스트에서 제거하시겠습니까?`))); if (ok) handleRemove(stock.id); }}
             style={{ background: 'transparent', border: 0, color: T.red, fontFamily: T.font, fontSize: 10.5, cursor: 'pointer', letterSpacing: '0.08em', opacity: 0.75, minHeight: 28 }}>
             REMOVE
           </button>
