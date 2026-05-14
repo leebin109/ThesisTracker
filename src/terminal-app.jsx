@@ -3197,8 +3197,8 @@ function SettingsDataPanel({
         </div>
       </Cell>
 
-      <Cell label="BACKUP / CACHE" accent={T.cyan} style={{ height: '100%' }}>
-        <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <Cell label="BACKUP / CACHE" accent={T.cyan} style={{ height: '100%', overflow: 'hidden' }}>
+        <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 14, height: '100%', minHeight: 0, overflowY: 'auto' }}>
           <div style={{ background: T.surface2, border: `1px solid ${T.borderSoft}`, padding: 12 }}>
             <div style={{ fontSize: 10, color: T.inkFaint, letterSpacing: '0.12em', marginBottom: 6 }}>PROVIDER STATUS</div>
             <div style={{ color: statusColor, fontSize: 13, fontWeight: 700 }}>{providerStatus?.text || 'Ready'}</div>

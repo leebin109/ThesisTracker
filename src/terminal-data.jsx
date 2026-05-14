@@ -2642,29 +2642,214 @@ const SEC_FILING_FORMS = new Set(['10-K', '10-Q', '8-K', '20-F', '40-F', '6-K', 
 // 5-Year Financial History
 // ═══════════════════════════════════════════════════════════════
 
-const SEC_CONCEPTS = {
-  revenue:   ['Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax', 'SalesRevenueNet', 'RevenueFromContractWithCustomerIncludingAssessedTax'],
-  opIncome:  ['OperatingIncomeLoss'],
+const secTagCandidates = {
+  revenue: [
+    'Revenues',
+    'RevenueFromContractWithCustomerExcludingAssessedTax',
+    'SalesRevenueNet',
+    'RevenueFromContractWithCustomerIncludingAssessedTax',
+  ],
+  operatingIncome: [
+    'OperatingIncomeLoss',
+    'IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest',
+    'IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments',
+  ],
   netIncome: ['NetIncomeLoss', 'ProfitLoss'],
-  ocf:       ['NetCashProvidedByUsedInOperatingActivities'],
-  capex:     ['PaymentsToAcquirePropertyPlantAndEquipment', 'CapitalExpenditures'],
-  eps:       ['EarningsPerShareDiluted', 'EarningsPerShareBasic'],
+  eps: ['EarningsPerShareDiluted', 'EarningsPerShareBasic'],
+  assets: ['Assets'],
+  liabilities: ['Liabilities'],
+  equity: [
+    'StockholdersEquity',
+    'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest',
+    'StockholdersEquityAttributableToParent',
+  ],
+  currentAssets: ['AssetsCurrent'],
+  currentLiabilities: ['LiabilitiesCurrent'],
+  operatingCashFlow: [
+    'NetCashProvidedByUsedInOperatingActivities',
+    'NetCashProvidedByUsedInOperatingActivitiesContinuingOperations',
+  ],
+  capex: [
+    'PaymentsToAcquirePropertyPlantAndEquipment',
+    'PaymentsToAcquireProductiveAssets',
+    'PaymentsForProceedsFromProductiveAssets',
+    'CapitalExpenditures',
+  ],
 };
 
-function pickAnnualFY(gaap, concepts) {
-  for (const concept of concepts) {
-    const entries = gaap[concept]?.units?.USD || [];
-    const byFY = {};
-    for (const e of entries) {
-      if (e.form !== '10-K' && e.form !== '20-F') continue;
-      const fy = Number(e.end?.slice(0, 4));
-      if (!Number.isFinite(fy)) continue;
-      if (!byFY[fy] || e.filed > byFY[fy].filed) byFY[fy] = e;
-    }
-    const sorted = Object.values(byFY).sort((a, b) => b.end.localeCompare(a.end)).slice(0, 5);
-    if (sorted.length > 0) return sorted;
+function secFactFiscalYear(entry) {
+  const fy = Number(entry?.fy);
+  if (Number.isFinite(fy)) return fy;
+  const endYear = Number(String(entry?.end || '').slice(0, 4));
+  return Number.isFinite(endYear) ? endYear : null;
+}
+
+function secFactUnitEntries(concept, metricKey) {
+  const units = concept?.units || {};
+  const unitKeys = Object.keys(units);
+  const preferred = metricKey === 'eps'
+    ? unitKeys.filter(u => /share/i.test(u))
+    : unitKeys.filter(u => u === 'USD');
+  const selectedUnits = preferred.length ? preferred : unitKeys;
+  return selectedUnits.flatMap(unit => (units[unit] || []).map(entry => ({ ...entry, unit })));
+}
+
+function normalizeSecFactEntry(entry, tag) {
+  const value = toNumber(entry?.val);
+  const fiscalYear = secFactFiscalYear(entry);
+  if (!Number.isFinite(value) || !Number.isFinite(fiscalYear)) return null;
+  return {
+    ...entry,
+    value,
+    tag,
+    fiscalYear,
+    period: entry?.end || null,
+    form: entry?.form || null,
+    filed: entry?.filed || '',
+  };
+}
+
+function secAnnualFactsForTag(gaap, tag, metricKey) {
+  return secFactUnitEntries(gaap?.[tag], metricKey)
+    .filter(entry => entry?.form === '10-K' || entry?.form === '20-F')
+    .map(entry => normalizeSecFactEntry(entry, tag))
+    .filter(Boolean);
+}
+
+function pickSecFact(gaap, metricKey, fiscalYear = null) {
+  const tags = secTagCandidates[metricKey] || [];
+  const facts = tags.flatMap((tag, tagRank) => (
+    secAnnualFactsForTag(gaap, tag, metricKey).map(fact => ({ ...fact, tagRank }))
+  ))
+    .filter(fact => fiscalYear == null || fact.fiscalYear === fiscalYear)
+    .sort((a, b) => {
+      if (b.fiscalYear !== a.fiscalYear) return b.fiscalYear - a.fiscalYear;
+      if ((b.period || '') !== (a.period || '')) return String(b.period || '').localeCompare(String(a.period || ''));
+      if (a.tagRank !== b.tagRank) return a.tagRank - b.tagRank;
+      return String(b.filed || '').localeCompare(String(a.filed || ''));
+    });
+  return facts[0] || null;
+}
+
+function getLatestAnnualOrTTMValue(gaap, metricKey) {
+  return pickSecFact(gaap, metricKey, null);
+}
+
+function getPreviousAnnualOrTTMValue(gaap, metricKey, latestFiscalYear = null) {
+  const latest = Number.isFinite(latestFiscalYear) ? latestFiscalYear : getLatestAnnualOrTTMValue(gaap, metricKey)?.fiscalYear;
+  if (!Number.isFinite(latest)) return null;
+  const tags = secTagCandidates[metricKey] || [];
+  const facts = tags.flatMap((tag, tagRank) => (
+    secAnnualFactsForTag(gaap, tag, metricKey).map(fact => ({ ...fact, tagRank }))
+  ))
+    .filter(fact => fact.fiscalYear < latest)
+    .sort((a, b) => {
+      if (b.fiscalYear !== a.fiscalYear) return b.fiscalYear - a.fiscalYear;
+      if ((b.period || '') !== (a.period || '')) return String(b.period || '').localeCompare(String(a.period || ''));
+      if (a.tagRank !== b.tagRank) return a.tagRank - b.tagRank;
+      return String(b.filed || '').localeCompare(String(a.filed || ''));
+    });
+  return facts[0] || null;
+}
+
+function secMetricStatus(metricKey, calculated, factRefs = [], reason = null, extra = {}) {
+  const primary = factRefs.find(Boolean);
+  return {
+    metricKey,
+    calculated: Boolean(calculated),
+    sourceTags: factRefs.filter(Boolean).map(f => f.tag),
+    period: primary?.period || null,
+    fiscalYear: primary?.fiscalYear || null,
+    form: primary?.form || null,
+    confidence: calculated ? (extra.confidence || 'A') : 'D',
+    commercialSafe: true,
+    sourceId: 'secEdgar',
+    reason: calculated ? (reason || 'calculated') : (reason || 'missing_source_tag'),
+    ...extra,
+  };
+}
+
+function percentMetric(value) {
+  return Number.isFinite(value) ? Math.round(value * 1000) / 10 : null;
+}
+
+function calculateSecMetrics(gaap) {
+  const latest = {};
+  const previous = {};
+  for (const key of Object.keys(secTagCandidates)) {
+    latest[key] = getLatestAnnualOrTTMValue(gaap, key);
+    previous[key] = latest[key] ? getPreviousAnnualOrTTMValue(gaap, key, latest[key].fiscalYear) : null;
   }
-  return [];
+
+  const metrics = {};
+  const metricStatus = {};
+  const setCalculated = (key, value, refs, extra = {}) => {
+    if (!Number.isFinite(value)) {
+      metricStatus[key] = secMetricStatus(key, false, refs, extra.reason || 'invalid_value', extra);
+      return;
+    }
+    metrics[key] = percentMetric(value);
+    metricStatus[key] = secMetricStatus(key, true, refs, extra.reason || 'calculated', extra);
+  };
+  const missing = (key, refs = [], reason = 'missing_source_tag', extra = {}) => {
+    metricStatus[key] = secMetricStatus(key, false, refs, reason, extra);
+  };
+
+  if (latest.revenue && previous.revenue && previous.revenue.value !== 0) {
+    setCalculated('revGrowth', (latest.revenue.value - previous.revenue.value) / Math.abs(previous.revenue.value), [latest.revenue, previous.revenue]);
+  } else {
+    missing('revGrowth', [latest.revenue, previous.revenue], latest.revenue && previous.revenue ? 'invalid_denominator' : 'insufficient_history');
+  }
+
+  if (latest.operatingIncome && latest.revenue && latest.revenue.value !== 0) {
+    setCalculated('opMargin', latest.operatingIncome.value / latest.revenue.value, [latest.operatingIncome, latest.revenue]);
+  } else {
+    missing('opMargin', [latest.operatingIncome, latest.revenue], latest.revenue && latest.revenue.value === 0 ? 'invalid_denominator' : 'missing_source_tag');
+  }
+
+  if (latest.operatingCashFlow && latest.capex && latest.revenue && latest.revenue.value !== 0) {
+    setCalculated('fcfMargin', (latest.operatingCashFlow.value - Math.abs(latest.capex.value)) / latest.revenue.value, [latest.operatingCashFlow, latest.capex, latest.revenue], { capexTreatment: 'abs_cash_outflow' });
+  } else {
+    missing('fcfMargin', [latest.operatingCashFlow, latest.capex, latest.revenue], latest.revenue && latest.revenue.value === 0 ? 'invalid_denominator' : 'missing_source_tag');
+  }
+
+  if (latest.eps && previous.eps && previous.eps.value !== 0) {
+    setCalculated('epsGrowth', (latest.eps.value - previous.eps.value) / Math.abs(previous.eps.value), [latest.eps, previous.eps]);
+  } else {
+    missing('epsGrowth', [latest.eps, previous.eps], latest.eps && previous.eps ? 'invalid_denominator' : 'insufficient_history');
+  }
+
+  if (latest.netIncome && latest.equity && latest.equity.value !== 0) {
+    const hasPreviousEquity = previous.equity && previous.equity.value !== 0;
+    const avgEquity = hasPreviousEquity ? (latest.equity.value + previous.equity.value) / 2 : latest.equity.value;
+    setCalculated('roe', latest.netIncome.value / avgEquity, [latest.netIncome, latest.equity, previous.equity], hasPreviousEquity ? {} : { reason: 'fallback_used', fallback: 'latest_equity_only' });
+  } else {
+    missing('roe', [latest.netIncome, latest.equity, previous.equity], latest.equity && latest.equity.value === 0 ? 'invalid_denominator' : 'missing_source_tag');
+  }
+
+  if (latest.liabilities && latest.assets && latest.assets.value !== 0) {
+    setCalculated('debtRatio', latest.liabilities.value / latest.assets.value, [latest.liabilities, latest.assets]);
+  } else {
+    missing('debtRatio', [latest.liabilities, latest.assets], latest.assets && latest.assets.value === 0 ? 'invalid_denominator' : 'missing_source_tag');
+  }
+
+  if (latest.currentAssets && latest.currentLiabilities && latest.currentLiabilities.value !== 0) {
+    setCalculated('currentRatio', latest.currentAssets.value / latest.currentLiabilities.value, [latest.currentAssets, latest.currentLiabilities]);
+  } else {
+    missing('currentRatio', [latest.currentAssets, latest.currentLiabilities], latest.currentLiabilities && latest.currentLiabilities.value === 0 ? 'invalid_denominator' : 'missing_source_tag');
+  }
+
+  return { metrics, metricStatus, latest, previous };
+}
+
+function calculateSecMetricCoverage(metrics, metricsMeta, metricStatus, opts = {}) {
+  const coverage = buildMetricCoverage(metrics, metricsMeta, opts);
+  return {
+    ...coverage,
+    metricStatus,
+    calculatedMetrics: Object.keys(metricStatus || {}).filter(key => metricStatus[key]?.calculated),
+    missingMetrics: Object.keys(metricStatus || {}).filter(key => !metricStatus[key]?.calculated),
+  };
 }
 
 async function fetchSecFinancialHistory(stock, apiSettings = null) {
@@ -2677,27 +2862,22 @@ async function fetchSecFinancialHistory(stock, apiSettings = null) {
   });
   const gaap = data?.facts?.['us-gaap'] || {};
 
-  const revArr   = pickAnnualFY(gaap, SEC_CONCEPTS.revenue);
-  const opArr    = pickAnnualFY(gaap, SEC_CONCEPTS.opIncome);
-  const netArr   = pickAnnualFY(gaap, SEC_CONCEPTS.netIncome);
-  const ocfArr   = pickAnnualFY(gaap, SEC_CONCEPTS.ocf);
-  const capexArr = pickAnnualFY(gaap, SEC_CONCEPTS.capex);
-  const epsArr   = pickAnnualFY(gaap, SEC_CONCEPTS.eps);
-
-  const years = [...new Set(revArr.map(e => Number(e.end?.slice(0, 4))))].sort((a, b) => b - a).slice(0, 5);
+  const secMetrics = calculateSecMetrics(gaap);
+  const revenueFacts = [];
+  for (const tag of secTagCandidates.revenue) revenueFacts.push(...secAnnualFactsForTag(gaap, tag, 'revenue'));
+  const years = [...new Set(revenueFacts.map(e => e.fiscalYear))].sort((a, b) => b - a).slice(0, 5);
   if (!years.length) throw new Error('연간 재무 데이터 없음');
 
-  const getVal = (arr, fy) => arr.find(e => Number(e.end?.slice(0, 4)) === fy)?.val ?? null;
   const toM = v => v != null ? Math.round(v / 1e6) : null;
 
-  return years.map(fy => {
-    const rev  = getVal(revArr, fy);
-    const op   = getVal(opArr, fy);
-    const net  = getVal(netArr, fy);
-    const ocf  = getVal(ocfArr, fy);
-    const cpx  = getVal(capexArr, fy);
+  const records = years.map(fy => {
+    const rev  = pickSecFact(gaap, 'revenue', fy)?.value ?? null;
+    const op   = pickSecFact(gaap, 'operatingIncome', fy)?.value ?? null;
+    const net  = pickSecFact(gaap, 'netIncome', fy)?.value ?? null;
+    const ocf  = pickSecFact(gaap, 'operatingCashFlow', fy)?.value ?? null;
+    const cpx  = pickSecFact(gaap, 'capex', fy)?.value ?? null;
     const fcf  = (ocf != null && cpx != null) ? ocf - Math.abs(cpx) : null;
-    const eps  = getVal(epsArr, fy);
+    const eps  = pickSecFact(gaap, 'eps', fy)?.value ?? null;
     return {
       fy, source: 'SEC',
       revenue:  toM(rev),
@@ -2711,6 +2891,8 @@ async function fetchSecFinancialHistory(stock, apiSettings = null) {
       unit: 'M', currency: 'USD',
     };
   });
+  records.secMetrics = secMetrics;
+  return records;
 }
 
 async function fetchWithPolicy(url, opts = {}) {
@@ -2721,39 +2903,52 @@ async function fetchWithPolicy(url, opts = {}) {
 function mapSecHistoryPayload(stock, history) {
   const rows = Array.isArray(history) ? history : [];
   const latest = rows[0] || {};
-  const prev = rows[1] || {};
-  const safeDiv = (a, b) => (Number.isFinite(toNumber(a)) && Number.isFinite(toNumber(b)) && toNumber(b) !== 0)
-    ? toNumber(a) / toNumber(b)
-    : NaN;
-  const fcfMargin = safeDiv(latest.fcf, latest.revenue) * 100;
-  const netMargin = safeDiv(latest.netIncome, latest.revenue) * 100;
-  const revGrowth = (Number.isFinite(toNumber(latest.revenue)) && Number.isFinite(toNumber(prev.revenue)) && toNumber(prev.revenue) !== 0)
-    ? ((toNumber(latest.revenue) - toNumber(prev.revenue)) / Math.abs(toNumber(prev.revenue))) * 100
-    : NaN;
-  const epsGrowth = (Number.isFinite(toNumber(latest.eps)) && Number.isFinite(toNumber(prev.eps)) && toNumber(prev.eps) !== 0)
-    ? ((toNumber(latest.eps) - toNumber(prev.eps)) / Math.abs(toNumber(prev.eps))) * 100
-    : NaN;
-  const metrics = compactMetrics({
-    opMargin: latest.opMargin,
-    fcfMargin,
-    revGrowth,
-    epsGrowth,
-    netMargin,
-  });
+  const secMetrics = rows.secMetrics || null;
+  const metrics = secMetrics?.metrics ? { ...secMetrics.metrics } : {};
+  const metricStatus = secMetrics?.metricStatus || {};
+
+  if (!secMetrics) {
+    const prev = rows[1] || {};
+    const safeDiv = (a, b) => (Number.isFinite(toNumber(a)) && Number.isFinite(toNumber(b)) && toNumber(b) !== 0)
+      ? toNumber(a) / toNumber(b)
+      : NaN;
+    const fcfMargin = safeDiv(latest.fcf, latest.revenue) * 100;
+    const revGrowth = (Number.isFinite(toNumber(latest.revenue)) && Number.isFinite(toNumber(prev.revenue)) && toNumber(prev.revenue) !== 0)
+      ? ((toNumber(latest.revenue) - toNumber(prev.revenue)) / Math.abs(toNumber(prev.revenue))) * 100
+      : NaN;
+    const epsGrowth = (Number.isFinite(toNumber(latest.eps)) && Number.isFinite(toNumber(prev.eps)) && toNumber(prev.eps) !== 0)
+      ? ((toNumber(latest.eps) - toNumber(prev.eps)) / Math.abs(toNumber(prev.eps))) * 100
+      : NaN;
+    Object.assign(metrics, compactMetrics({ opMargin: latest.opMargin, fcfMargin, revGrowth, epsGrowth }));
+  }
+
   const metricsMeta = {};
   for (const key of Object.keys(metrics)) {
-    metricsMeta[key] = makeMetricMeta({
-      provider: 'SEC EDGAR',
-      sourceId: 'secEdgar',
-      source: 'SEC EDGAR companyfacts',
-      method: 'official-filing',
-      confidence: 'A',
-      commercialSafe: true,
-      fiscalYear: latest.fy || null,
-      periodEnd: latest.fy ? `${latest.fy}-12-31` : null,
-    });
+    const status = metricStatus[key] || {};
+    if (status.sourceId && status.sourceId !== 'secEdgar') continue;
+    metricsMeta[key] = {
+      ...makeMetricMeta({
+        provider: 'SEC EDGAR',
+        sourceId: 'secEdgar',
+        source: 'SEC EDGAR companyfacts',
+        method: status.reason === 'fallback_used' ? 'official-filing-fallback' : 'official-filing',
+        confidence: status.confidence || 'A',
+        commercialSafe: true,
+        fiscalYear: status.fiscalYear || latest.fy || null,
+        periodEnd: status.period || (latest.fy ? `${latest.fy}-12-31` : null),
+      }),
+      metricKey: key,
+      calculated: true,
+      sourceTags: status.sourceTags || [],
+      period: status.period || null,
+      form: status.form || null,
+      reason: status.reason || 'calculated',
+      ...(status.fallback ? { fallback: status.fallback } : {}),
+      ...(status.capexTreatment ? { capexTreatment: status.capexTreatment } : {}),
+    };
   }
-  const metricCoverage = buildMetricCoverage(metrics, metricsMeta, {
+
+  const metricCoverage = calculateSecMetricCoverage(metrics, metricsMeta, metricStatus, {
     provider: 'SEC EDGAR',
     sourceId: 'secEdgar',
     requiresPrice: true,
@@ -3352,6 +3547,7 @@ Object.assign(window, {
   CACHE_SCHEMA_VERSION, CORE_METRIC_KEYS, DATA_SOURCE_REGISTRY, DATA_ENDPOINT_REGISTRY, BLOCKED_COMMERCIAL_SAFE_HOSTS,
   isCommercialSafeMode, assertSourceAllowed, assertEndpointAllowed, assertUrlAllowed, isPersonalOnlyError, getSourcePolicyRows, getEndpointPolicyRows,
   makeMetricMeta, setMetricWithMeta, computeDataConfidence, buildMetricCoverage, makeCacheSourceMeta, attachDataViews,
+  secTagCandidates, pickSecFact, getLatestAnnualOrTTMValue, getPreviousAnnualOrTTMValue, calculateSecMetrics, calculateSecMetricCoverage,
   loadAppState, saveAppState,
   computeScores, computeQuantScores, applyQuantScores, computeDynamicQuality,
   getDaysLeft, fetchStockData, fetchLivePrice, searchWithYahoo, searchWithFmp, searchSecTickerExact,
