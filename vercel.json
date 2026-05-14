@@ -14,7 +14,7 @@
     { "source": "/api/sec/files/company_tickers.json", "destination": "/api/proxy?service=sec&path=files/company_tickers.json" },
     { "source": "/api/sec/archives/:path*",         "destination": "/api/proxy?service=sec&path=archives&archivePath=:path*" },
     { "source": "/api/sec/:section/:file",          "destination": "/api/proxy?service=sec&path=:section&file=:file" },
-    { "source": "/((?!api/).*)",        "destination": "/terminal.html" }
+    { "source": "/((?!api/).*)",        "destination": "/index.html" }
   ],
   "headers": [
     {

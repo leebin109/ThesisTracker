@@ -1,0 +1,83 @@
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #07090b;
+  color: #e5e7eb;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-feature-settings: 'liga' 0, 'calt' 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+}
+
+#root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+::selection {
+  background: rgba(255, 149, 0, 0.35);
+  color: #fff;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0d1116;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1f2937;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #374151;
+}
+
+.boot-error {
+  min-height: 100vh;
+  background: #07090b;
+  color: #e5e7eb;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+.boot-error__panel {
+  width: min(720px, 100%);
+  border: 1px solid #1f2937;
+  background: #0d1116;
+  padding: 22px;
+}
+
+.boot-error__eyebrow {
+  color: #ff9500;
+  font-size: 11px;
+  letter-spacing: .14em;
+  font-weight: 800;
+  margin-bottom: 10px;
+}
+
+.boot-error__title {
+  font-size: 20px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.boot-error__message {
+  color: #9ca3af;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
