@@ -4423,6 +4423,134 @@ class AppErrorBoundary extends React.Component {
 // tt-entered-v1 and the user lands in Beginner Mode where the onboarding
 // overlay (below) walks them through the UI.
 const LANDING_KEY = 'tt-entered-v1';
+const GUEST_DEMO_KEY = 'tt-guest-demo-v1';
+
+function getRouteKind() {
+  const path = window.location.pathname || '/';
+  if (path === '/' || path === '/index.html') return 'landing';
+  if (path === '/terminal.html' || path.startsWith('/app')) return 'app';
+  return 'landing';
+}
+
+function isDemoRoute() {
+  return new URLSearchParams(window.location.search || '').get('demo') === '1';
+}
+
+function ensureDemoEntryState() {
+  try {
+    localStorage.setItem(LANDING_KEY, 'true');
+    localStorage.setItem(GUEST_DEMO_KEY, 'true');
+    if (!localStorage.getItem(TT_KEY) && !localStorage.getItem('tt-ui-mode-v1')) {
+      localStorage.setItem('tt-ui-mode-v1', 'beginner');
+    }
+  } catch { /* storage disabled */ }
+}
+
+function enterPublicApp() {
+  try { localStorage.setItem(LANDING_KEY, 'true'); } catch { /* storage disabled */ }
+  window.location.href = '/app';
+}
+
+function enterPublicDemo() {
+  ensureDemoEntryState();
+  window.location.href = '/app?demo=1';
+}
+
+function PublicLandingPage() {
+  const hashToTrustId = useCallback((hash = window.location.hash) => {
+    const map = { '#methodology': 'methodology', '#data-policy': 'dataPolicy', '#disclaimer': 'disclaimer' };
+    return map[hash] || null;
+  }, []);
+  const [trustView, setTrustView] = useState(() => hashToTrustId());
+  const openTrustPage = useCallback((id) => {
+    setTrustView(id);
+    const hashMap = { methodology: '#methodology', dataPolicy: '#data-policy', disclaimer: '#disclaimer' };
+    if (hashMap[id]) window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${hashMap[id]}`);
+  }, []);
+  const closeTrustPage = useCallback(() => {
+    setTrustView(null);
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+  }, []);
+  useEffect(() => {
+    const onHashChange = () => setTrustView(hashToTrustId());
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, [hashToTrustId]);
+
+  const features = [
+    { tag: 'Thesis', title: '투자 논리를 글로 남김', body: '매수 전에 핵심 질문, 촉매, 리스크, 생각을 바꿀 조건을 기록합니다.' },
+    { tag: 'Provenance', title: '숫자의 출처와 신뢰도를 확인', body: '재무 지표와 가격 데이터가 어디서 왔는지, 상업 안전 모드에서 쓸 수 있는지 구분합니다.' },
+    { tag: 'Replay', title: '결정과 결과를 복기', body: '투자 결정, 사전 부검, 실제 결과를 함께 남겨 다음 판단의 재료로 씁니다.' },
+  ];
+
+  const trustButtonStyle = {
+    background: 'none',
+    border: 0,
+    color: T.cyan,
+    cursor: 'pointer',
+    padding: 0,
+    font: 'inherit',
+  };
+
+  return (
+    <div style={{ minHeight: '100dvh', background: T.bg, color: T.ink, fontFamily: T.fontSans, display: 'flex', flexDirection: 'column' }}>
+      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 24px', borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 22, height: 22, background: T.amber, display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 800, color: '#000', boxShadow: `0 0 14px ${T.amber}66` }}>T</div>
+          <span style={{ fontFamily: T.font, fontSize: 13, fontWeight: 700, letterSpacing: '0.14em', color: T.amber }}>THESIS//TRACK</span>
+        </div>
+        <button onClick={enterPublicApp} style={{ background: 'transparent', border: `1px solid ${T.border}`, color: T.ink, fontFamily: T.font, fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', padding: '8px 14px', borderRadius: 3, cursor: 'pointer' }}>
+          APP
+        </button>
+      </header>
+
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 'clamp(28px, 6vw, 72px) clamp(16px, 4vw, 32px)', textAlign: 'center', gap: 28 }}>
+        <h1 style={{ fontSize: 'clamp(28px, 5vw, 54px)', fontWeight: 800, color: T.ink, lineHeight: 1.2, margin: 0, maxWidth: 860, letterSpacing: 0 }}>
+          매수 전에 글을 쓰는 투자자를 위한 터미널
+        </h1>
+        <p style={{ fontSize: 'clamp(14px, 1.7vw, 17px)', color: T.inkDim, lineHeight: 1.65, maxWidth: 680, margin: 0 }}>
+          투자 판단을 기록하고, 출처를 확인하고, 결과를 복기하는 도구입니다.
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, maxWidth: 920, width: '100%', marginTop: 8 }}>
+          {features.map(f => (
+            <div key={f.tag} style={{ background: T.surface, border: `1px solid ${T.borderSoft}`, padding: '20px 20px', borderRadius: 4, textAlign: 'left' }}>
+              <div style={{ fontSize: 10, fontFamily: T.font, color: T.cyan, letterSpacing: '0.14em', fontWeight: 700, marginBottom: 10 }}>{f.tag}</div>
+              <div style={{ fontSize: 'clamp(14px, 1.6vw, 16px)', fontWeight: 700, color: T.ink, marginBottom: 8 }}>{f.title}</div>
+              <div style={{ fontSize: 12.5, color: T.inkDim, lineHeight: 1.6 }}>{f.body}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, marginTop: 8 }}>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button onClick={enterPublicDemo} autoFocus style={{ background: T.amber, border: `1px solid ${T.amber}`, color: '#000', fontFamily: T.font, fontSize: 13, fontWeight: 800, letterSpacing: '0.1em', padding: '12px 32px', borderRadius: 3, cursor: 'pointer', boxShadow: `0 0 28px ${T.amber}55`, minHeight: 44 }}>
+              예시 데이터로 둘러보기
+            </button>
+            <button onClick={enterPublicApp} style={{ background: 'transparent', border: `1px solid ${T.border}`, color: T.ink, fontFamily: T.font, fontSize: 13, fontWeight: 600, letterSpacing: '0.06em', padding: '12px 28px', borderRadius: 3, cursor: 'pointer', minHeight: 44 }}>
+              앱으로 이동
+            </button>
+          </div>
+          <div style={{ fontSize: 11, color: T.inkFaint, lineHeight: 1.5, maxWidth: 540, textAlign: 'center' }}>
+            랜딩 페이지는 로그인과 데이터 API를 호출하지 않습니다. ThesisTrack은 투자 추천 또는 투자 자문이 아닙니다.
+          </div>
+        </div>
+      </main>
+
+      <footer style={{ padding: '14px 24px', borderTop: `1px solid ${T.borderSoft}`, fontSize: 11, color: T.inkFaint, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, flexShrink: 0 }}>
+        <span style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <button onClick={() => openTrustPage('methodology')} style={trustButtonStyle}>Methodology</button>
+          <button onClick={() => openTrustPage('dataPolicy')} style={trustButtonStyle}>Data Policy</button>
+          <button onClick={() => openTrustPage('disclaimer')} style={trustButtonStyle}>Disclaimer</button>
+        </span>
+        <span style={{ opacity: 0.5 }}>ThesisTrack</span>
+      </footer>
+
+      {trustView && <TrustPageOverlay pageId={trustView} onClose={closeTrustPage} onNavigate={openTrustPage}/>}
+    </div>
+  );
+}
+
 function LandingScreen({ onEnter, onLogin }) {
   const features = [
     { tag: 'Thesis',     title: '논거를 쓴다',       body: 'Key Question · Catalyst · Risk · Change Mind If — 매수 이유를 글로 남깁니다.' },
@@ -4844,11 +4972,12 @@ function BeginnerModeCard({ stock, onSwitchToPro }) {
   );
 }
 
-function App({ initialData }) {
+function App({ initialData, demoMode = false }) {
   // ── Supabase auth state ───────────────────────────────────────────────────
   const sbConfigured = isSupabaseConfigured();
+  const authEnabled = sbConfigured && !demoMode;
   const [session, setSession]         = useState(null);
-  const [authLoading, setAuthLoading] = useState(sbConfigured);
+  const [, setAuthLoading] = useState(authEnabled);
   const [sbSyncStatus, setSbSyncStatus] = useState('idle'); // 'idle'|'saving'|'error'|'synced'
   const remoteLoadedRef = useRef(false);
   const sbSaveTimerRef      = useRef(null);
@@ -4904,34 +5033,7 @@ function App({ initialData }) {
     setOnboardingStep(null);
   };
 
-  // Landing screen — shown once to absolute first-time visitors. Existing
-  // users (anyone who has tt-terminal-v1 saved state OR has already entered
-  // the app once) skip it entirely.
-  const [showLanding, setShowLanding] = useState(() => {
-    try {
-      if (localStorage.getItem(LANDING_KEY)) return false;
-      if (localStorage.getItem(TT_KEY)) return false;
-      return true;
-    } catch { return false; }
-  });
-
-  // Guest/demo mode: true when the user entered via the demo CTA *or* already
-  // has saved local state. Bypasses the Supabase auth wall so local-only users
-  // can use the app without a forced login prompt. Login remains available from
-  // inside the app for cloud-sync features.
-  const [isGuestMode, setIsGuestMode] = useState(() => {
-    try {
-      return !!(localStorage.getItem(LANDING_KEY) || localStorage.getItem(TT_KEY));
-    } catch { return false; }
-  });
-
   const [loginModalOpen, setLoginModalOpen] = useState(false);
-
-  const enterApp = () => {
-    try { localStorage.setItem(LANDING_KEY, '1'); } catch { /* storage disabled */ }
-    setShowLanding(false);
-    setIsGuestMode(true);
-  };
 
   useEffect(() => {
     let cancelled = false;
@@ -5057,7 +5159,10 @@ function App({ initialData }) {
 
   // ── Supabase session bootstrap ────────────────────────────────────────────
   useEffect(() => {
-    if (!sbConfigured) return;
+    if (!authEnabled) {
+      setAuthLoading(false);
+      return;
+    }
     const sb = getSb();
     sb.auth.getSession().then(({ data }) => {
       setSession(data.session || null);
@@ -5068,7 +5173,7 @@ function App({ initialData }) {
       if (!sess) remoteLoadedRef.current = false;
     });
     return () => subscription.unsubscribe();
-  }, [sbConfigured]);
+  }, [authEnabled]);
 
   // ── Realtime subscription — receive changes pushed from other devices ────
   useEffect(() => {
@@ -5893,29 +5998,12 @@ function App({ initialData }) {
     if (sbConfigured && getSb()) await getSb().auth.signOut();
     setSession(null);
     remoteLoadedRef.current = false;
-    try { localStorage.removeItem(LANDING_KEY); } catch { /* ignore */ }
-    setShowLanding(true);
+    try { localStorage.removeItem(GUEST_DEMO_KEY); } catch { /* ignore */ }
+    setLoginModalOpen(false);
   }, [sbConfigured]);
 
-  // ── Auth gates and landing (placed after all hooks) ─────────────────────
-  // Rendering order is critical:
-  //   1. BOOTING — wait for Supabase auth to resolve (skip for guests/local users)
-  //   2. LandingScreen — new non-auth visitors see this BEFORE any auth wall
-  //   3. Auth wall — only blocks users who have never entered the app locally
-  //
-  // isGuestMode is true for: (a) users who clicked the demo CTA, and
-  // (b) existing local-data users whose Supabase session may have expired.
-  // Both groups should reach the app without a forced login prompt.
-
-  if (sbConfigured && authLoading && !isGuestMode) {
-    return (
-      <div style={{ minHeight: '100dvh', background: T.bg, display: 'grid', placeItems: 'center', fontFamily: T.font, color: T.inkDim, fontSize: 12 }}>
-        BOOTING...
-      </div>
-    );
-  }
-
-  // Login modal — computed before early returns so it overlays LandingScreen too.
+  // Login remains an in-app modal for cloud sync. App entry itself is local-first
+  // and is not blocked by Supabase auth state.
   const loginModalOverlay = loginModalOpen && !session && (
     <div onClick={() => setLoginModalOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div onClick={e => e.stopPropagation()}>
@@ -5923,23 +6011,6 @@ function App({ initialData }) {
       </div>
     </div>
   );
-
-  // Landing must come before the auth wall.
-  const shouldShowLanding = showLanding && !session && !(authLoading && sbConfigured);
-  if (shouldShowLanding) {
-    return (
-      <>
-        <LandingScreen onEnter={enterApp} onLogin={() => setLoginModalOpen(true)}/>
-        {loginModalOverlay}
-      </>
-    );
-  }
-
-  // Auth wall: only for Supabase-configured setups where the user has not yet
-  // entered the app locally (neither demo CTA nor saved local state).
-  if (sbConfigured && !session && !isGuestMode) {
-    return <LoginScreen onSession={setSession}/>;
-  }
 
   if (!stock) return (
     <div style={{ minHeight: '100dvh', background: T.bg, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, fontFamily: T.font, color: T.inkFaint, fontSize: 12 }}>
@@ -6040,7 +6111,7 @@ function App({ initialData }) {
         onExportBackup={handleExportBackup}
         onImportBackup={handleImportBackup}
         onReloadDartMap={() => loadLocalDartMap(true)}
-        onShowLanding={() => setShowLanding(true)}
+        onShowLanding={() => { window.location.href = '/'; }}
       />
     ),
   };
@@ -6247,11 +6318,16 @@ function App({ initialData }) {
 }
 
 // ─── Mount ────────────────────────────────────────────────────────────────────
-function AppWrapper() {
+function TerminalAppWrapper() {
+  const demoMode = isDemoRoute();
   const [initial, setInitial] = useState(null);
   useEffect(() => {
+    if (demoMode) ensureDemoEntryState();
+    else {
+      try { localStorage.setItem(LANDING_KEY, 'true'); } catch { /* storage disabled */ }
+    }
     buildInitialAppState().then(setInitial);
-  }, []);
+  }, [demoMode]);
 
   if (!initial) {
     return (
@@ -6265,9 +6341,14 @@ function AppWrapper() {
       </div>
     );
   }
-  return <App initialData={initial} />;
+  return <App initialData={initial} demoMode={demoMode} />;
+}
+
+function RootRouter() {
+  if (getRouteKind() === 'landing') return <PublicLandingPage />;
+  return <TerminalAppWrapper />;
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-  React.createElement(AppErrorBoundary, null, React.createElement(AppWrapper))
+  React.createElement(AppErrorBoundary, null, React.createElement(RootRouter))
 );
