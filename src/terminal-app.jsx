@@ -336,6 +336,59 @@ function ToastContainer({ toasts }) {
 }
 
 // ─── Trust Pages (Methodology · Data Policy · Disclaimer) ────────────────────
+function UpgradeNoticeModal({ info, onClose }) {
+  if (!info) return null;
+  return (
+    <div
+      onClick={onClose}
+      onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
+      tabIndex={-1}
+      ref={(el) => { if (el) el.focus(); }}
+      style={{ position: 'fixed', inset: 0, zIndex: 10003, background: 'rgba(0,0,0,0.74)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, outline: 'none' }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: 'min(460px, 100%)', background: T.surface, border: `1px solid ${T.amber}`,
+        borderRadius: 4, padding: '20px 22px', boxShadow: '0 18px 60px rgba(0,0,0,0.55)',
+        fontFamily: T.fontSans,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <span style={{ width: 6, height: 6, background: T.amber, borderRadius: 1 }}/>
+          <span style={{ color: T.amber, fontFamily: T.font, fontSize: 11, letterSpacing: '0.16em', fontWeight: 800 }}>
+            PLAN STATUS
+          </span>
+        </div>
+        <div style={{ color: T.ink, fontSize: 16, lineHeight: 1.45, fontWeight: 800, marginBottom: 10 }}>
+          Free 플랜의 종목 수 한도에 도달했습니다.
+        </div>
+        <div style={{ color: T.inkDim, fontSize: 13, lineHeight: 1.65, marginBottom: 16 }}>
+          Free 플랜에서는 최대 {info.limit || FREE_USER_STOCK_LIMIT}개의 사용자 종목을 저장할 수 있습니다.
+          기존 종목은 계속 볼 수 있으며, 새 종목 추가는 Pro 플랜에서 제공될 예정입니다.
+        </div>
+        <div style={{ color: T.inkFaint, fontSize: 11, lineHeight: 1.55, marginBottom: 18 }}>
+          현재 저장된 사용자 종목: {info.count ?? 0}개. 예시 데이터와 시스템 기본 종목은 한도 계산에서 제외합니다.
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button
+            disabled
+            style={{ background: `${T.amber}22`, border: `1px solid ${T.amber}66`, color: T.amber,
+              fontFamily: T.font, fontSize: 11.5, fontWeight: 700, letterSpacing: '0.08em',
+              padding: '8px 14px', minHeight: 38, borderRadius: 3, cursor: 'not-allowed', opacity: 0.75 }}>
+            PRO 준비 중
+          </button>
+          <button
+            onClick={onClose}
+            autoFocus
+            style={{ background: 'transparent', border: `1px solid ${T.border}`, color: T.ink,
+              fontFamily: T.font, fontSize: 11.5, fontWeight: 700, letterSpacing: '0.08em',
+              padding: '8px 14px', minHeight: 38, borderRadius: 3, cursor: 'pointer' }}>
+            나중에 하기
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const TRUST_PAGES = {
   methodology: {
     id: 'methodology',
@@ -555,6 +608,18 @@ function TrustPageOverlay({ pageId, onClose, onNavigate }) {
             color: T.inkFaint, fontFamily: T.fontSans, fontSize: 11, lineHeight: 1.5,
           }}>
             본 페이지는 사용 약관이나 법적 효력을 가지는 계약 문서가 아닙니다. 데이터 정책의 운영 상태는 저장소의 HANDOFF.md와 CLAUDE.md, 그리고 npm run verify 결과를 통해 확인할 수 있습니다.
+          </div>
+          <div style={{
+            marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.borderSoft}`,
+            display: 'flex', gap: 10, flexWrap: 'wrap',
+            fontFamily: T.font, fontSize: 10.5, letterSpacing: '0.06em',
+          }}>
+            {LEGAL_DOCS.map(doc => (
+              <a key={doc.href} href={doc.href} target="_blank" rel="noreferrer"
+                style={{ color: T.cyan, textDecoration: 'none' }}>
+                {doc.label.toUpperCase()}
+              </a>
+            ))}
           </div>
         </div>
       </div>
@@ -3231,7 +3296,7 @@ function SearchOverlay({ apiSettings, dartCorpMap, stocks, onAdd, onClose }) {
           )}
           {!error && noResults && <div style={{ padding: 12, fontSize: 11, color: T.inkFaint }}>검색 결과 없음</div>}
           {results.map((r, i) => (
-            <div key={`${r.market || 'M'}:${r.symbol}:${r.sourceType || i}`} onClick={() => { onAdd(r); onClose(); }}
+            <div key={`${r.market || 'M'}:${r.symbol}:${r.sourceType || i}`} onClick={() => { const added = onAdd(r); if (added !== false) onClose(); }}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                 padding: '10px 14px', borderBottom: `1px solid ${T.borderSoft}`, cursor: 'pointer' }}
               onMouseEnter={(e) => e.currentTarget.style.background = T.surface2}
@@ -4424,6 +4489,41 @@ class AppErrorBoundary extends React.Component {
 // overlay (below) walks them through the UI.
 const LANDING_KEY = 'tt-entered-v1';
 const GUEST_DEMO_KEY = 'tt-guest-demo-v1';
+const LEGAL_DOCS = [
+  { label: 'Terms', href: '/legal/terms.md' },
+  { label: 'Privacy', href: '/legal/privacy.md' },
+  { label: 'Disclaimer', href: '/legal/disclaimer.md' },
+  { label: 'Data Policy', href: '/legal/data-policy.md' },
+  { label: 'Methodology', href: '/legal/methodology.md' },
+];
+const PLAN_FREE = 'free';
+const PLAN_PRO = 'pro';
+const PLAN_KEY = 'tt-plan-v1';
+const FREE_USER_STOCK_LIMIT = 5;
+
+function getCurrentPlan() {
+  try {
+    return localStorage.getItem(PLAN_KEY) === PLAN_PRO ? PLAN_PRO : PLAN_FREE;
+  } catch { return PLAN_FREE; }
+}
+
+function isBillableUserStock(stock, id) {
+  const sid = normalizeStockId(id || stock?.id || stock?.symbol);
+  if (!sid) return false;
+  if (stock?.demo === true) return false;
+  if (DEFAULT_STOCKS[sid]?.demo === true) return false;
+  if (DEFAULT_STOCKS[sid]) return false;
+  return true;
+}
+
+function getBillableStockCount(stocks = {}) {
+  return Object.entries(stocks || {}).filter(([id, stock]) => isBillableUserStock(stock, id)).length;
+}
+
+function canAddStockForPlan(plan, stocks = {}) {
+  if (plan === PLAN_PRO) return true;
+  return getBillableStockCount(stocks) < FREE_USER_STOCK_LIMIT;
+}
 
 function getRouteKind() {
   const path = window.location.pathname || '/';
@@ -4534,14 +4634,30 @@ function PublicLandingPage() {
           <div style={{ fontSize: 11, color: T.inkFaint, lineHeight: 1.5, maxWidth: 540, textAlign: 'center' }}>
             랜딩 페이지는 로그인과 데이터 API를 호출하지 않습니다. ThesisTrack은 투자 추천 또는 투자 자문이 아닙니다.
           </div>
+          <div style={{
+            marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.borderSoft}`,
+            display: 'flex', gap: 10, flexWrap: 'wrap',
+            fontFamily: T.font, fontSize: 10.5, letterSpacing: '0.06em',
+          }}>
+            {LEGAL_DOCS.map(doc => (
+              <a key={doc.href} href={doc.href} target="_blank" rel="noreferrer"
+                style={{ color: T.cyan, textDecoration: 'none' }}>
+                {doc.label.toUpperCase()}
+              </a>
+            ))}
+          </div>
         </div>
       </main>
 
       <footer style={{ padding: '14px 24px', borderTop: `1px solid ${T.borderSoft}`, fontSize: 11, color: T.inkFaint, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, flexShrink: 0 }}>
         <span style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <button onClick={() => openTrustPage('methodology')} style={trustButtonStyle}>Methodology</button>
-          <button onClick={() => openTrustPage('dataPolicy')} style={trustButtonStyle}>Data Policy</button>
-          <button onClick={() => openTrustPage('disclaimer')} style={trustButtonStyle}>Disclaimer</button>
+          <button onClick={() => openTrustPage('methodology')} style={trustButtonStyle}>Trust</button>
+          {LEGAL_DOCS.map(doc => (
+            <a key={doc.href} href={doc.href} target="_blank" rel="noreferrer"
+              style={{ color: T.cyan, textDecoration: 'none' }}>
+              {doc.label}
+            </a>
+          ))}
         </span>
         <span style={{ opacity: 0.5 }}>ThesisTrack</span>
       </footer>
@@ -4995,6 +5111,8 @@ function App({ initialData, demoMode = false }) {
   const [activeId, setActiveId]           = useState(initial.activeId);
   const [apiSettings, setApiSettings]     = useState(initial.apiSettings);
   const [dataCache, setDataCache]         = useState(initial.dataCache);
+  const [plan]                            = useState(getCurrentPlan);
+  const [upgradeNotice, setUpgradeNotice] = useState(null);
   const [dartCorpMap, setDartCorpMap]     = useState(initial.dartCorpMap);
   const [dartAutoStatus, setDartAutoStatus] = useState({
     kind: 'idle',
@@ -5562,6 +5680,13 @@ function App({ initialData, demoMode = false }) {
       if (!id) {
         toast('검색 결과의 심볼이 비어 있습니다', 'error');
         return;
+      }
+      const existing = !!stocksRef.current[id];
+      if (!existing && !canAddStockForPlan(plan, stocksRef.current)) {
+        const count = getBillableStockCount(stocksRef.current);
+        setUpgradeNotice({ count, limit: FREE_USER_STOCK_LIMIT });
+        toast('Free 플랜의 종목 수 한도에 도달했습니다. 기존 종목은 계속 볼 수 있습니다.', 'policy', 2600);
+        return false;
       }
       const newStock = makeBlankStock({
         id, symbol: id, name: result.name || id,
@@ -6303,6 +6428,7 @@ function App({ initialData, demoMode = false }) {
       )}
 
       <ToastContainer toasts={toasts}/>
+      <UpgradeNoticeModal info={upgradeNotice} onClose={() => setUpgradeNotice(null)}/>
 
       {onboardingStep !== null && (
         <OnboardingOverlay
