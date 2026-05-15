@@ -14,6 +14,7 @@
 /* global useTweaks, TweaksPanel */
 /* global supabase */
 /* global makeMetricMeta, computeDataConfidence, CORE_METRIC_KEYS, DATA_SOURCE_REGISTRY, getSourcePolicyRows, getEndpointPolicyRows */
+/* global applyUserPriceMetrics, fetchInsiderTrades */
 
 // ─── Supabase config ──────────────────────────────────────────────────────────
 // After creating a Supabase project, replace both placeholder values below.
@@ -117,6 +118,8 @@ function makeBlankStock(patch = {}) {
     peers: [],
     metricsHistory: [],
     insiderTrades: [],
+    userPrice: null,
+    userPriceAsOf: null,
     ...patch,
   };
 }
@@ -156,6 +159,9 @@ function normalizeStockRecord(stock, fallbackId = '') {
   for (const key of ['thesis', 'catalysts', 'risks', 'numbersToWatch', 'scoreHistory', 'priceHistory', 'notes', 'preMortem', 'checklist', 'calendarEvents', 'journal', 'peers', 'metricsHistory', 'insiderTrades']) {
     next[key] = Array.isArray(stock?.[key]) ? stock[key] : [];
   }
+  const rawUserPrice = Number(stock?.userPrice);
+  next.userPrice = Number.isFinite(rawUserPrice) && rawUserPrice > 0 ? rawUserPrice : null;
+  next.userPriceAsOf = (typeof stock?.userPriceAsOf === 'string' && stock.userPriceAsOf) ? stock.userPriceAsOf : null;
   return next;
 }
 
@@ -1749,11 +1755,28 @@ function InsiderSection({ stock, onSaveInsiders }) {
   const buys  = trades.filter(t => t.type === 'BUY').length;
   const sells = trades.filter(t => t.type === 'SELL').length;
 
+  if (!isEligible) {
+    return (
+      <Cell label="INSIDER TRADES (90일, SEC Form 4)" accent={T.inkFaint}>
+        <div style={{ padding: '8px 14px' }}>
+          <PolicyNotice
+            tone="soft"
+            label="지원 불가"
+            title="미국 상장 종목만 지원"
+            body="SEC Form 4 내부자 공시는 미국(NYSE / NASDAQ / AMEX) 상장 종목만 조회할 수 있습니다."
+            hint="한국·유럽 등 다른 시장의 내부자 거래 공시는 현재 지원하지 않습니다."
+            dense
+          />
+        </div>
+      </Cell>
+    );
+  }
+
   return (
     <Cell label="INSIDER TRADES (90일, SEC Form 4)" accent={T.amber}>
       <div style={{ padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button onClick={handleFetch} disabled={loading || !isEligible}
+          <button onClick={handleFetch} disabled={loading}
             style={{ ...btnSt, color: T.amber, border: `1px solid ${T.amber}`, padding: '3px 10px', fontSize: 10 }}>
             {loading ? '수집 중...' : '↻ FETCH INSIDERS'}
           </button>
@@ -1766,15 +1789,11 @@ function InsiderSection({ stock, onSaveInsiders }) {
             </span>
           )}
           {!error && trades.length === 0 && !loading && (
-            <span style={{ fontSize: 10, color: T.inkFaint }}>
-              {isEligible ? 'SEC Form 4 자동 수집 (API 키 불필요)' : '미국 상장 종목만 지원'}
-            </span>
+            <span style={{ fontSize: 10, color: T.inkFaint }}>SEC Form 4 자동 수집 (API 키 불필요)</span>
           )}
         </div>
         {trades.length === 0 ? (
-          <div style={{ color: T.inkFaint, fontSize: 11 }}>
-            {isEligible ? '거래 없음 — FETCH INSIDERS 버튼으로 최근 90일 수집' : '미국 상장 종목(NYSE/NASDAQ/AMEX)만 지원합니다.'}
-          </div>
+          <div style={{ color: T.inkFaint, fontSize: 11 }}>거래 없음 — FETCH INSIDERS 버튼으로 최근 90일 수집</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
@@ -1816,8 +1835,63 @@ function InsiderSection({ stock, onSaveInsiders }) {
   );
 }
 
+// ─── User Price Input ─────────────────────────────────────────────────────────
+function UserPriceInput({ stock, onSetUserPrice, onClearUserPrice }) {
+  const [inputVal, setInputVal] = useState('');
+  const hasPrice = stock.userPrice != null && stock.userPrice > 0;
+  const priceRequired = (stock.metricCoverage?.priceRequiredMetrics?.length || 0) > 0;
+
+  if (!priceRequired && !hasPrice) return null;
+
+  const currency = stock.currency || 'USD';
+  const fmt = v => Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const handleApply = () => {
+    const trimmed = inputVal.trim();
+    if (!trimmed) return;
+    onSetUserPrice(stock.id, trimmed);
+    setInputVal('');
+  };
+
+  return (
+    <Cell label="USER PRICE INPUT" accent={T.cyan}>
+      <div style={{ padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {hasPrice && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontFamily: T.font, fontSize: 14, color: T.cyan }}>{currency} {fmt(stock.userPrice)}</span>
+            <span style={{ fontSize: 10, color: T.cyan, fontFamily: T.fontSans, background: 'rgba(34,211,238,0.12)', padding: '2px 7px', borderRadius: 2, letterSpacing: '0.04em' }}>
+              사용자 입력값
+            </span>
+            <button onClick={() => onClearUserPrice(stock.id)}
+              style={{ ...btnSt, border: `1px solid ${T.borderSoft}`, color: T.inkFaint, padding: '2px 8px', marginLeft: 'auto', fontSize: 10 }}>
+              × 삭제
+            </button>
+          </div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input
+            type="number"
+            value={inputVal}
+            onChange={e => setInputVal(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleApply()}
+            placeholder={hasPrice ? `${currency} ${fmt(stock.userPrice)} — 변경하려면 입력` : `현재가 입력 (${currency})`}
+            style={{ ...inputSt, width: 220, fontSize: 11 }}
+          />
+          <button onClick={handleApply} disabled={!inputVal.trim()}
+            style={{ ...btnSt, color: T.cyan, border: `1px solid ${T.cyan}`, padding: '5px 14px' }}>
+            적용
+          </button>
+        </div>
+        <div style={{ fontSize: 10, color: T.inkFaint, fontFamily: T.fontSans }}>
+          PER 등 가격 의존 지표를 표시합니다 · 퀀트 스코어에는 반영되지 않습니다
+        </div>
+      </div>
+    </Cell>
+  );
+}
+
 // ─── Overview panel (wraps ScoreBreakdown + MetricsGrid with shared activeDim) ─
-function OverviewPanel({ stock, apiSettings, dartCorpMap, onSaveHistory, onSaveInsiders }) {
+function OverviewPanel({ stock, apiSettings, dartCorpMap, onSaveHistory, onSaveInsiders, onSetUserPrice, onClearUserPrice }) {
   const [activeDim, setActiveDim] = useState(null);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%', overflowY: 'auto' }}>
@@ -1832,6 +1906,9 @@ function OverviewPanel({ stock, apiSettings, dartCorpMap, onSaveHistory, onSaveI
           refreshedAt={stock.refreshedAt}
           dataMode={apiSettings?.dataMode}
         />
+      </div>
+      <div style={{ flex: '0 0 auto' }}>
+        <UserPriceInput stock={stock} onSetUserPrice={onSetUserPrice} onClearUserPrice={onClearUserPrice}/>
       </div>
       <div style={{ flex: '0 0 auto' }}>
         <FinancialHistorySection stock={stock} apiSettings={apiSettings} dartCorpMap={dartCorpMap} onSaveHistory={onSaveHistory}/>
@@ -4758,7 +4835,20 @@ function App({ initialData }) {
                 ...incomingDisplayMeta,
               },
           scoreHistory: newScoreHistory,
+          // SEC refresh already fetches financial history — seed metricsHistory so
+          // applyUserPriceMetrics (and the F4 panel) have EPS/netIncome available
+          // without requiring a separate F4 fetch. Only set when currently empty so
+          // an explicit F4 fetch (which may have richer data) always wins.
+          ...(!old.metricsHistory?.length && Array.isArray(payload.financialHistory) && payload.financialHistory.length
+            ? { metricsHistory: payload.financialHistory }
+            : {}),
         };
+
+        // Re-apply user-input price after the refresh merge so that PER stays
+        // in sync with any newly-arrived EPS while still tagged as user-provided.
+        if (updated[stockId]?.userPrice) {
+          updated[stockId] = applyUserPriceMetrics(updated[stockId]);
+        }
 
         // Recompute cross-sectional Z-Scores for the entire watchlist
         return applyQuantScores(updated, watchlistIdsRef.current || []);
@@ -4955,6 +5045,61 @@ function App({ initialData }) {
   const handleSaveInsiders = useCallback((stockId, insiderTrades) => {
     setStocks(prev => ({ ...prev, [stockId]: { ...prev[stockId], insiderTrades } }));
     toast(`${stockId} 내부자 거래 저장 완료 (${insiderTrades.length}건)`, insiderTrades.length ? 'ok' : 'info');
+  }, [toast]);
+
+  const handleSetUserPrice = useCallback((stockId, rawPrice) => {
+    const price = Number(rawPrice);
+    if (!Number.isFinite(price) || price <= 0) {
+      toast('유효한 가격(양수)을 입력하세요.', 'warn', 2400);
+      return;
+    }
+    setStocks(prev => {
+      const old = prev[stockId];
+      if (!old) return prev;
+      const asOf = new Date().toISOString();
+      const merged = { ...old, userPrice: price, userPriceAsOf: asOf };
+      const withMetrics = applyUserPriceMetrics(merged);
+      const nextStocks = { ...prev, [stockId]: withMetrics };
+      return applyQuantScores(nextStocks, watchlistIdsRef.current || []);
+    });
+    toast(`${stockId} 입력 가격 적용: ${price}`, 'ok', 2400);
+  }, [toast]);
+
+  const handleClearUserPrice = useCallback((stockId) => {
+    setStocks(prev => {
+      const old = prev[stockId];
+      if (!old) return prev;
+      // Strip user-input-tagged metrics (currently only PER).
+      const meta = { ...(old.metricsMeta || {}) };
+      const metrics = { ...(old.metrics || {}) };
+      const displayMeta = { ...(old.displayData?.metricsMeta || {}) };
+      const displayMetrics = { ...(old.displayData?.metrics || {}) };
+      for (const key of Object.keys(meta)) {
+        if (meta[key]?.sourceId === 'userInputPrice') {
+          delete meta[key];
+          delete metrics[key];
+        }
+      }
+      for (const key of Object.keys(displayMeta)) {
+        if (displayMeta[key]?.sourceId === 'userInputPrice') {
+          delete displayMeta[key];
+          delete displayMetrics[key];
+        }
+      }
+      const merged = {
+        ...old,
+        userPrice: null,
+        userPriceAsOf: null,
+        metrics,
+        metricsMeta: meta,
+        displayData: old.displayData
+          ? { ...old.displayData, metrics: displayMetrics, metricsMeta: displayMeta }
+          : old.displayData,
+      };
+      const nextStocks = { ...prev, [stockId]: merged };
+      return applyQuantScores(nextStocks, watchlistIdsRef.current || []);
+    });
+    toast(`${stockId} 입력 가격 삭제`, 'info', 2000);
   }, [toast]);
 
   // ── Alert actions (Phase 2) ────────────────────────────────────────────────
@@ -5217,7 +5362,7 @@ function App({ initialData }) {
 
   // ── Panel content ──────────────────────────────────────────────────────────
   const panelContent = {
-    F1: <OverviewPanel stock={stock} apiSettings={apiSettings} dartCorpMap={dartCorpMap} onSaveHistory={handleSaveHistory} onSaveInsiders={handleSaveInsiders}/>,
+    F1: <OverviewPanel stock={stock} apiSettings={apiSettings} dartCorpMap={dartCorpMap} onSaveHistory={handleSaveHistory} onSaveInsiders={handleSaveInsiders} onSetUserPrice={handleSetUserPrice} onClearUserPrice={handleClearUserPrice}/>,
     F2: (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, height: '100%' }}>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>

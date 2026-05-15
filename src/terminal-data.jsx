@@ -168,6 +168,16 @@ const DATA_SOURCE_REGISTRY = {
     usedInScore: true,
     blockedInCommercialSafe: false,
   },
+  userInputPrice: {
+    label: 'User-entered price',
+    cost: 'free',
+    commercialStatus: 'user_provided',
+    licenseUrl: '',
+    rateLimit: 'none',
+    confidence: 'User',
+    usedInScore: false, // display-only by default; never auto-feed scoring
+    blockedInCommercialSafe: false,
+  },
 };
 
 const DATA_ENDPOINT_REGISTRY = {
@@ -2967,6 +2977,98 @@ function mapSecHistoryPayload(stock, history) {
   };
 }
 
+/**
+ * applyUserPriceMetrics — recompute price-dependent display metrics from a
+ * user-entered current price. Mutates a *copy* of the stock and returns it.
+ *
+ * Source rules (do not relax):
+ * - User-entered prices are tagged with `userInputPrice` provenance and
+ *   `usedInScore: false`. They flow into displayData/metrics only — never
+ *   into scoringData. This means PER/PBR/MarketCap render in the UI but the
+ *   quant score is unaffected by user-entered prices.
+ * - If user price is missing or invalid, this is a no-op (returns input).
+ * - If the divisor (e.g. EPS for PER) is missing, the corresponding metric
+ *   stays in priceRequired state. The function does not invent values.
+ */
+function applyUserPriceMetrics(stock) {
+  if (!stock || typeof stock !== 'object') return stock;
+  const userPrice = toNumber(stock.userPrice);
+  if (!Number.isFinite(userPrice) || userPrice <= 0) return stock;
+
+  // metricsHistory is set by explicit F4 fetch; financialHistory is auto-seeded
+  // by the main SEC refresh. Both have the same row shape {fy, eps, netIncome, ...}.
+  const histSource = (Array.isArray(stock.metricsHistory) && stock.metricsHistory.length)
+    ? stock.metricsHistory
+    : (Array.isArray(stock.financialHistory) && stock.financialHistory.length)
+      ? stock.financialHistory
+      : null;
+  const latestHist = histSource ? histSource[0] : null;
+  const eps = toNumber(latestHist?.eps);
+  // ROE is in percent (e.g. 15.3). BPS = EPS / (ROE/100) from: ROE = NI/Equity, EPS = NI/Shares → BPS = EPS/ROE_rate.
+  const roe = toNumber(stock.metrics?.roe);
+
+  const computed = {};
+  const computedMeta = {};
+  const asOf = stock.userPriceAsOf || new Date().toISOString();
+
+  const makeMeta = (note) => makeMetricMeta({
+    provider: 'User Input',
+    sourceId: 'userInputPrice',
+    source: note,
+    method: 'user-provided',
+    confidence: 'User',
+    commercialSafe: true,
+    periodEnd: asOf,
+    fiscalYear: latestHist?.fy || null,
+    usedInScore: false,
+  });
+
+  if (Number.isFinite(eps) && eps > 0) {
+    computed.per = Math.round((userPrice / eps) * 100) / 100;
+    computedMeta.per = makeMeta('User-entered price ÷ latest EPS');
+  }
+
+  // PBR: BPS = EPS / (ROE/100). Valid only when both EPS and ROE > 0.
+  if (Number.isFinite(eps) && eps > 0 && Number.isFinite(roe) && roe > 0) {
+    const bps = eps / (roe / 100);
+    if (bps > 0) {
+      computed.pbr = Math.round((userPrice / bps) * 100) / 100;
+      computedMeta.pbr = makeMeta('User-entered price ÷ BPS (derived: EPS ÷ ROE)');
+    }
+  }
+
+  if (!Object.keys(computed).length) return stock;
+
+  const metrics = { ...(stock.metrics || {}), ...computed };
+  const metricsMeta = { ...(stock.metricsMeta || {}), ...computedMeta };
+
+  // Update displayData (NEVER scoringData — user prices stay display-only).
+  const displayData = stock.displayData ? {
+    ...stock.displayData,
+    metrics: { ...(stock.displayData.metrics || {}), ...computed },
+    metricsMeta: { ...(stock.displayData.metricsMeta || {}), ...computedMeta },
+  } : null;
+
+  // Refresh priceRequired list inside metricCoverage if present.
+  let metricCoverage = stock.metricCoverage;
+  if (metricCoverage && Array.isArray(metricCoverage.priceRequiredMetrics)) {
+    const stillRequired = metricCoverage.priceRequiredMetrics.filter(k => !Number.isFinite(toNumber(metrics[k])));
+    metricCoverage = {
+      ...metricCoverage,
+      priceRequiredMetrics: stillRequired,
+      priceRequiredMetricLabels: stillRequired.map(k => SCORE_METRIC_LABELS[k] || k),
+    };
+  }
+
+  return {
+    ...stock,
+    metrics,
+    metricsMeta,
+    ...(displayData ? { displayData } : {}),
+    ...(metricCoverage ? { metricCoverage } : {}),
+  };
+}
+
 async function fetchDartFinancialHistory(stock, apiSettings, dartCorpMap) {
   const key = apiSettings?.openDartKey;
   if (!key) throw new Error('DART API 키 없음 (Settings에서 입력)');
@@ -3558,5 +3660,8 @@ Object.assign(window, {
   fetchAlertsForStock, makeAlertId, pruneAlerts,
   fetchYahooChartOhlc, toYahooSymbol, fetchMacroIndicators,
   fetchSecFinancialHistory, fetchDartFinancialHistory, fetchYahooFinancialHistory,
+  fetchInsiderTrades, isSecEligibleStock,
+  applyUserPriceMetrics,
+  PRICE_REQUIRED_METRICS, SCORE_METRIC_LABELS,
 });
 
