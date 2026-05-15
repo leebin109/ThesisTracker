@@ -45,6 +45,10 @@ npm run audit:copy              # gate: prohibited solicitation terms (매수 �
 
 `audit:copy` is a **hard gate** wired into `npm run verify`. It scans `src/` and `index.html` for compound prohibited phrases (매수 신호 / 매수 추천 / 수익 보장 / 급등주 / Strong Buy / Sell Now …) that risk being interpreted as investment solicitation under 자본시장법. Mark intentional disclaimer use (e.g. lines that negate the phrase) with an inline `audit-copy-ignore` comment on the same line. The banned dictionary lives at the top of `tools/audit-copy.cjs`.
 
+## Copy / terminology
+
+User-facing copy follows a single Korean terminology reference: [docs/TERMINOLOGY.md](docs/TERMINOLOGY.md). It defines canonical wording for service self-description ("분석 보조 도구", not "투자 서비스"), data-policy terms (Commercial-Safe / Personal modes, Confidence grades), score dimension translations, status labels (`limited_metrics` → "계산 가능 지표 부족"), workflow vocabulary (Thesis / Catalyst / Decision Journal), and a list of banned solicitation phrases that `audit:copy` enforces. Consult and update this file before adding new user-facing strings.
+
 ## Architecture
 
 ### File responsibilities

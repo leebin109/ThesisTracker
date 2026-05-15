@@ -364,9 +364,18 @@ const TRUST_PAGES = {
         ],
       },
       {
+        heading: '출처 신뢰도 (Confidence) 등급',
+        paragraphs: [
+          '모든 지표는 옆에 A · B · C · D 또는 "User" 등급이 따라 붙습니다. A는 공시 원문(SEC XBRL / OpenDART 공시) 직접 추출, B는 검증된 API 필드, C는 다른 지표로부터 계산된 값, D는 출처가 불명확하거나 결측된 값입니다.',
+          '"User" 등급은 사용자가 직접 입력한 값(예: User Price 기반 PER · PBR)입니다. 표시 전용으로만 사용되며 점수 계산에는 반영되지 않습니다.',
+          '같은 PER이라도 어느 출처에서 어떤 방법으로 계산됐는지에 따라 의미가 달라집니다. 등급 옆 ⓘ 아이콘을 클릭하면 provider · fetchedAt · 계산 방식이 표시됩니다.',
+        ],
+      },
+      {
         heading: '어떻게 사용하길 권하나',
         paragraphs: [
           '지표는 기업 간 비교와 자기 판단을 돕기 위한 것입니다. 점수만 보고 결정하지 말고, 실제 공시·재무제표·산업 컨텍스트를 함께 보세요.',
+          'F2 PITCH에 매수 이유(Thesis), 무엇이 일어나면 판단이 깨지는지(Change Mind If), 무엇을 지켜볼지(Numbers to Watch)를 함께 기록하면 나중에 본인 결정을 복기하기 쉽습니다.',
           '자세한 공식과 팩터 산출 방식은 저장소의 SCORING_METHODOLOGY.md를 참고하세요.',
         ],
       },
@@ -401,10 +410,27 @@ const TRUST_PAGES = {
         ],
       },
       {
+        heading: '데이터는 어디에 저장되나',
+        paragraphs: [
+          '워치리스트, Thesis, Decision Journal, Pre-mortem, Trade 기록 등 사용자 입력은 기본적으로 브라우저의 localStorage에 저장됩니다. 같은 브라우저·기기에서만 자동 복원됩니다.',
+          'Supabase 클라우드 동기화를 설정한 경우에 한해 워치리스트·Thesis·Journal·Trade가 사용자 계정 기준으로 원격에도 저장됩니다. apiSettings, dataCache, dartCorpMap은 보안·용량 사유로 동기화하지 않습니다.',
+          '본 서비스는 사용자의 매매 내역을 증권사·금융기관에서 직접 받아오지 않습니다. F10 TRADE의 거래 기록은 사용자가 직접 입력한 값입니다.',
+        ],
+      },
+      {
+        heading: '사용자가 직접 입력한 가격 (User Price)',
+        paragraphs: [
+          'Commercial-Safe 모드에서 시장 가격을 자동으로 가져올 수 없을 때, 사용자는 직접 가격을 입력해 PER · PBR 등을 계산할 수 있습니다.',
+          '이렇게 계산된 PER · PBR은 "User" 등급으로 표시되며, 점수(scoringData)에는 반영되지 않습니다. 표시 전용 값입니다.',
+          'User Price는 사용자의 분석 가정이며, ThesisTrack이 제공하는 시세나 평가가 아닙니다.',
+        ],
+      },
+      {
         heading: '주의',
         paragraphs: [
           'Commercial-Safe 모드는 상업적으로 부적합하거나 이용 조건이 불명확한 데이터 소스 호출을 차단하는 운영 모드입니다.',
           '이 모드는 법률 자문이나 완전한 상업 사용 보장을 의미하지 않으며, 최종 상업 출시 전 각 데이터 제공자의 약관 확인이 필요합니다.',
+          'Personal 모드에서 사용하는 Yahoo · FMP · Alpha Vantage 등 비상업 소스에 대한 이용약관 준수 책임은 사용자에게 있습니다.',
         ],
       },
     ],
@@ -433,6 +459,21 @@ const TRUST_PAGES = {
         heading: '법적/세무/투자 자문이 아닙니다',
         paragraphs: [
           '본 서비스는 법률·세무·투자자문 서비스가 아닙니다. 실제 의사결정 전에는 자격 있는 전문가의 자문을 별도로 받으시기 바랍니다.',
+          '본 서비스는 자본시장법상 투자권유·투자자문·투자일임 업무를 수행하지 않습니다. 종목별 매매 시점, 매매 가격, 보유 기간, 비중 등 어떠한 투자 의사결정도 제시하지 않습니다.', // audit-copy-ignore: 부정형 면책 문장
+        ],
+      },
+      {
+        heading: '사용자 입력 데이터의 한계',
+        paragraphs: [
+          'F1의 User Price, F2의 Thesis, F8의 Decision Journal, F10의 Trade 등 사용자가 직접 입력한 값은 본인의 분석 가정이며, ThesisTrack이 검증하거나 보증하지 않습니다.',
+          'Decision Journal의 hit rate · 평균 수익률 등 통계는 사용자가 기록한 결정 결과에 기반한 자기 측정값이며, 실제 매매 손익이나 미래 수익률을 의미하지 않습니다.',
+        ],
+      },
+      {
+        heading: '제3자 데이터에 대한 면책',
+        paragraphs: [
+          '본 서비스가 표시하는 외부 데이터(SEC EDGAR · OpenDART · 그 외 사용자 선택 소스)는 각 제공자의 책임하에 공개된 정보이며, 본 서비스는 이를 참고용으로 재가공해 보여줄 뿐 정확성·완전성·적시성을 보장하지 않습니다.',
+          '데이터 정정·재공시·API 응답 지연·서비스 중단 등으로 인한 화면상의 오류 또는 누락에 대해 본 서비스는 책임지지 않습니다.',
         ],
       },
     ],
@@ -735,6 +776,9 @@ function ScoreBreakdown({ scores, activeDim, onDimClick }) {
         {activeDim && (
           <div style={{ fontSize: 10, color: T.inkFaint, textAlign: 'center', marginTop: 2 }}>클릭하면 필터 해제</div>
         )}
+        <div style={{ fontSize: 9.5, color: T.inkFaint, lineHeight: 1.5, borderTop: `1px dashed ${T.borderSoft}`, paddingTop: 6, marginTop: 2 }}>
+          비교용 참고 지표입니다. 매매 의견이 아닙니다.
+        </div>
       </div>
     </Cell>
   );
@@ -2251,6 +2295,10 @@ function PitchPanel({ stock, onEditPitch, onCaptureJournal }) {
             </button>
           )}
         </div>
+
+        <div style={{ fontSize: 9.5, color: T.inkFaint, lineHeight: 1.5, borderTop: `1px dashed ${T.borderSoft}`, paddingTop: 6, marginTop: 2 }}>
+          사용자의 분석 기록입니다. ThesisTrack의 투자 권유가 아닙니다.
+        </div>
       </div>
     </Cell>
   );
@@ -2333,6 +2381,10 @@ function ValuationPanel({ stock, onEdit }) {
             EDIT VALUATION
           </button>
         )}
+
+        <div style={{ fontSize: 9.5, color: T.inkFaint, lineHeight: 1.5, borderTop: `1px dashed ${T.borderSoft}`, paddingTop: 6, marginTop: 2 }}>
+          시나리오는 사용자의 가정에 기반한 추정치입니다. 미래 수익을 보장하지 않습니다.
+        </div>
       </div>
     </Cell>
   );
