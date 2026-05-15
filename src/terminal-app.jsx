@@ -4415,6 +4415,39 @@ class AppErrorBoundary extends React.Component {
   }
 }
 
+// ─── Beginner Mode placeholder ────────────────────────────────────────────────
+// Phase 2b ships only the toggle infrastructure. The actual six-section card
+// (요약 / 먼저 볼 3가지 / 강점·리스크 / 데이터 신뢰도 / 면책 / Pro 진입) lands
+// in Phase 2c. This placeholder confirms the mode toggle works end-to-end and
+// gives a one-click path back to Pro Terminal.
+function BeginnerModePlaceholder({ stock, onSwitchToPro }) {
+  return (
+    <Cell label="BEGINNER MODE" accent={T.cyan} style={{ height: '100%' }}>
+      <div style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 14, fontFamily: T.fontSans }}>
+        <div style={{ fontSize: 13, color: T.ink, lineHeight: 1.55 }}>
+          <strong style={{ color: T.cyan }}>{stock.name || stock.symbol}</strong> 을(를) 단순한 카드 형태로 보여 드릴 예정입니다.
+        </div>
+        <div style={{ fontSize: 12, color: T.inkDim, lineHeight: 1.65 }}>
+          Beginner Mode는 처음 ThesisTrack을 둘러보는 분들을 위한 화면입니다. 한 종목당 핵심 요약·먼저 볼 3가지 지표·강점과 리스크·데이터 신뢰도·면책 안내를 한 카드에 담아 보여 드립니다.
+          <br/><br/>
+          현재 단계에서는 토글이 정상 동작하는지 확인하기 위한 기본 화면만 제공됩니다. 카드 본문은 다음 단계(Phase 2c)에서 추가됩니다.
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <button onClick={onSwitchToPro}
+            style={{ background: 'transparent', border: `1px solid ${T.amber}`, color: T.amber,
+              fontFamily: T.font, fontSize: 11, fontWeight: 700, padding: '7px 16px',
+              letterSpacing: '0.08em', cursor: 'pointer', borderRadius: 3 }}>
+            PRO TERMINAL 열기
+          </button>
+        </div>
+        <div style={{ fontSize: 10.5, color: T.inkFaint, lineHeight: 1.55, borderTop: `1px dashed ${T.borderSoft}`, paddingTop: 10, marginTop: 6 }}>
+          ThesisTrack은 분석 보조 도구이며 투자 권유가 아닙니다. 자세한 내용은 우측 하단 Methodology · Data Policy · Disclaimer를 참고하세요.
+        </div>
+      </div>
+    </Cell>
+  );
+}
+
 function App({ initialData }) {
   // ── Supabase auth state ───────────────────────────────────────────────────
   const sbConfigured = isSupabaseConfigured();
@@ -4443,6 +4476,21 @@ function App({ initialData }) {
     text: 'dart-corp-codes.json not checked',
   });
   const [marketTickers, setMarketTickers] = useState(DEFAULT_MARKET_TICKERS);
+
+  // Beginner / Pro UI mode. New visitors default to Beginner (no TT_KEY blob
+  // in localStorage yet); returning users keep Pro by default so the F-key
+  // experience they already know is preserved. Persistence is kept in a
+  // separate key so it never collides with the main state blob.
+  const [uiMode, setUiMode] = useState(() => {
+    try {
+      const saved = localStorage.getItem('tt-ui-mode-v1');
+      if (saved === 'beginner' || saved === 'pro') return saved;
+      return localStorage.getItem(TT_KEY) ? 'pro' : 'beginner';
+    } catch { return 'beginner'; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('tt-ui-mode-v1', uiMode); } catch { /* storage disabled */ }
+  }, [uiMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -5598,6 +5646,8 @@ function App({ initialData }) {
         providerStatus={providerStatus}
         alertCount={alerts.filter(a => a.status === 'new').length}
         onAlerts={() => setActivePanel('F6')}
+        uiMode={uiMode}
+        onUiModeChange={setUiMode}
       />
       <TickerRail tickers={marketTickers}/>
       <HeroStrip stock={stock} onRefresh={handleRefresh} refreshing={refreshing}/>
@@ -5613,36 +5663,38 @@ function App({ initialData }) {
         </div>
       )}
 
-      {/* Panel selector tabs */}
-      <div style={{ display: 'flex', alignItems: 'center', background: T.surface, borderBottom: `1px solid ${T.border}`, height: 40, flexShrink: 0 }}>
-        {/* 탭 목록 — 독립적으로 가로 스크롤 */}
-        <div style={{ display: 'flex', flex: 1, overflowX: 'auto', overflowY: 'hidden', height: '100%', minWidth: 0 }}>
-          {PANEL_DEFS.map(({ k, label }) => {
-            const on = activePanel === k;
-            return (
-              <button key={k} onClick={() => setActivePanel(k)}
-                style={{
-                  background: on ? `${T.amber}18` : 'transparent',
-                  border: 'none', borderRight: `1px solid ${T.borderSoft}`,
-                  borderBottom: `2px solid ${on ? T.amber : 'transparent'}`,
-                  color: on ? T.amber : T.inkFaint, fontFamily: T.font, fontSize: 12.5,
-                  fontWeight: on ? 700 : 500, letterSpacing: '0.1em',
-                  padding: '0 14px', height: '100%', cursor: 'pointer', flex: '0 0 auto',
-                  minHeight: 32,
-                }}>
-                <kbd style={{ ...kbdStyle, fontSize: 11, marginRight: 6 }}>{k}</kbd>{label}
-              </button>
-            );
-          })}
+      {/* Panel selector tabs (Pro Terminal only) */}
+      {uiMode === 'pro' && (
+        <div style={{ display: 'flex', alignItems: 'center', background: T.surface, borderBottom: `1px solid ${T.border}`, height: 40, flexShrink: 0 }}>
+          {/* 탭 목록 — 독립적으로 가로 스크롤 */}
+          <div style={{ display: 'flex', flex: 1, overflowX: 'auto', overflowY: 'hidden', height: '100%', minWidth: 0 }}>
+            {PANEL_DEFS.map(({ k, label }) => {
+              const on = activePanel === k;
+              return (
+                <button key={k} onClick={() => setActivePanel(k)}
+                  style={{
+                    background: on ? `${T.amber}18` : 'transparent',
+                    border: 'none', borderRight: `1px solid ${T.borderSoft}`,
+                    borderBottom: `2px solid ${on ? T.amber : 'transparent'}`,
+                    color: on ? T.amber : T.inkFaint, fontFamily: T.font, fontSize: 12.5,
+                    fontWeight: on ? 700 : 500, letterSpacing: '0.1em',
+                    padding: '0 14px', height: '100%', cursor: 'pointer', flex: '0 0 auto',
+                    minHeight: 32,
+                  }}>
+                  <kbd style={{ ...kbdStyle, fontSize: 11, marginRight: 6 }}>{k}</kbd>{label}
+                </button>
+              );
+            })}
+          </div>
+          {/* REMOVE — 항상 우측 고정 */}
+          <div style={{ flexShrink: 0, borderLeft: `1px solid ${T.border}`, padding: '0 14px', height: '100%', display: 'flex', alignItems: 'center' }}>
+            <button onClick={async () => { const ok = await (window.appConfirm ? window.appConfirm(`"${stock.name || stock.symbol}" 을(를) 워치리스트에서 제거하시겠습니까?`, { tone: 'danger', confirmLabel: 'REMOVE' }) : Promise.resolve(window.confirm(`"${stock.name || stock.symbol}" 을(를) 워치리스트에서 제거하시겠습니까?`))); if (ok) handleRemove(stock.id); }}
+              style={{ background: 'transparent', border: 0, color: T.red, fontFamily: T.font, fontSize: 10.5, cursor: 'pointer', letterSpacing: '0.08em', opacity: 0.75, minHeight: 28 }}>
+              REMOVE
+            </button>
+          </div>
         </div>
-        {/* REMOVE — 항상 우측 고정 */}
-        <div style={{ flexShrink: 0, borderLeft: `1px solid ${T.border}`, padding: '0 14px', height: '100%', display: 'flex', alignItems: 'center' }}>
-          <button onClick={async () => { const ok = await (window.appConfirm ? window.appConfirm(`"${stock.name || stock.symbol}" 을(를) 워치리스트에서 제거하시겠습니까?`, { tone: 'danger', confirmLabel: 'REMOVE' }) : Promise.resolve(window.confirm(`"${stock.name || stock.symbol}" 을(를) 워치리스트에서 제거하시겠습니까?`))); if (ok) handleRemove(stock.id); }}
-            style={{ background: 'transparent', border: 0, color: T.red, fontFamily: T.font, fontSize: 10.5, cursor: 'pointer', letterSpacing: '0.08em', opacity: 0.75, minHeight: 28 }}>
-            REMOVE
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Main layout */}
       <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'minmax(200px, 220px) 1fr', gap: 0, overflow: 'hidden', minHeight: 0 }}>
@@ -5663,7 +5715,9 @@ function App({ initialData }) {
         {/* Panel area */}
         <div style={{ overflow: 'hidden', padding: 10, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 }}>
           <div style={{ flex: '1 1 auto', minHeight: 0, minWidth: 0, overflow: 'auto' }}>
-            {panelContent[activePanel] || panelContent.F1}
+            {uiMode === 'beginner'
+              ? <BeginnerModePlaceholder stock={stock} onSwitchToPro={() => setUiMode('pro')}/>
+              : (panelContent[activePanel] || panelContent.F1)}
           </div>
         </div>
       </div>

@@ -625,7 +625,7 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
   );
 };
 
-const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, providerStatus, alertCount = 0, onAlerts }) => {
+const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, providerStatus, alertCount = 0, onAlerts, uiMode, onUiModeChange }) => {
   const [val, setVal] = useState(symbol);
   useEffect(() => { setVal(symbol); }, [symbol]);
   const statusColor = providerStatus?.kind === 'ok' ? T.green : providerStatus?.kind === 'warn' ? T.yellow : providerStatus?.kind === 'error' ? T.red : T.inkFaint;
@@ -699,6 +699,23 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
           )}
         </button>
       )}
+      {onUiModeChange && (() => {
+        const isBeginner = uiMode === 'beginner';
+        const nextMode = isBeginner ? 'pro' : 'beginner';
+        const label = isBeginner ? 'BEGINNER' : 'PRO';
+        const accent = isBeginner ? T.cyan : T.amber;
+        return (
+          <button
+            onClick={() => onUiModeChange(nextMode)}
+            title={isBeginner ? '클릭하면 Pro Terminal로 전환' : '클릭하면 Beginner Mode로 전환'}
+            style={{
+              background: 'transparent', border: `1px solid ${accent}55`,
+              color: accent, fontFamily: T.font, fontSize: 11, fontWeight: 700,
+              cursor: 'pointer', padding: '5px 10px', letterSpacing: '0.08em',
+              minHeight: 28, borderRadius: 3, flex: '0 0 auto',
+            }}>{label}</button>
+        );
+      })()}
       {onSettings && (
         <button onClick={onSettings} style={{ background: 'transparent', border: `1px solid ${T.border}`,
           color: T.inkDim, fontFamily: T.font, fontSize: 11.5, cursor: 'pointer',
