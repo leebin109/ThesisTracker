@@ -4415,36 +4415,190 @@ class AppErrorBoundary extends React.Component {
   }
 }
 
-// ─── Beginner Mode placeholder ────────────────────────────────────────────────
-// Phase 2b ships only the toggle infrastructure. The actual six-section card
-// (요약 / 먼저 볼 3가지 / 강점·리스크 / 데이터 신뢰도 / 면책 / Pro 진입) lands
-// in Phase 2c. This placeholder confirms the mode toggle works end-to-end and
-// gives a one-click path back to Pro Terminal.
-function BeginnerModePlaceholder({ stock, onSwitchToPro }) {
+// ─── Beginner Mode card ───────────────────────────────────────────────────────
+// First-run/curious-visitor surface. Six sections in fixed order:
+//   1. 요약 (heading + one-line thesis + price chip)
+//   2. 먼저 볼 3가지 지표 — auto-picked from score dimensions by |score - 50|
+//   3. 강점 / 리스크 — first 3 of stock.thesis and stock.risks
+//   4. 데이터 신뢰도 — computeDataConfidence summary
+//   5. 면책 — 자본시장법 안전 카피
+//   6. PRO TERMINAL 진입
+function BeginnerModeCard({ stock, onSwitchToPro }) {
+  const scores = stock.scores || {};
+  const dims = [
+    { key: 'profitability', label: '수익성',     color: T.amber },
+    { key: 'stability',     label: '재무 안정성', color: T.cyan  },
+    { key: 'growth',        label: '성장성',     color: T.green },
+    { key: 'valuation',     label: '가격 부담',   color: T.yellow },
+    { key: 'risk',          label: '리스크 신호', color: T.red   },
+  ].map(d => ({ ...d, score: Number(scores[d.key]) }))
+    .filter(d => Number.isFinite(d.score));
+
+  const top3 = [...dims]
+    .sort((a, b) => Math.abs(b.score - 50) - Math.abs(a.score - 50))
+    .slice(0, 3);
+
+  const narrative = (d) => {
+    const high = d.score >= 70;
+    const low  = d.score < 40;
+    if (d.key === 'profitability') return high ? '들인 자본 대비 이익이 잘 나오고 있습니다.' : low ? '마진이 얇거나 자본 효율이 떨어지는 신호입니다.' : '업종 평균 부근의 평범한 수익성입니다.';
+    if (d.key === 'stability')     return high ? '부채 부담이 작거나 현금 흐름이 안정적입니다.' : low ? '부채·유동성 측면에서 주의가 필요합니다.' : '재무 상태는 평범한 수준입니다.';
+    if (d.key === 'growth')        return high ? '매출이나 이익이 가파르게 늘고 있습니다.' : low ? '성장이 둔화됐거나 역성장 중입니다.' : '성장률이 보통 수준입니다.';
+    if (d.key === 'valuation')     return high ? '현재 가격이 부담스럽지 않은 수준입니다.' : low ? '성장·수익성 대비 가격이 비싼 편입니다.' : '가격은 적정선 부근입니다.';
+    if (d.key === 'risk')          return high ? '위험 신호가 적습니다.' : low ? '위험 신호가 여러 개 켜져 있어 신중한 접근이 필요합니다.' : '위험 신호 1~2개가 켜져 있어 모니터링이 필요합니다.';
+    return '';
+  };
+
+  const conf = (typeof window !== 'undefined' && typeof window.computeDataConfidence === 'function')
+    ? window.computeDataConfidence(stock.metrics, stock.metricsMeta)
+    : null;
+  const gradeLabel = { A: '공시 원문 (A)', B: '검증 API (B)', C: '간접 계산 (C)', D: '결측·불명확 (D)' };
+
+  const isKrw = stock.currency === 'KRW';
+  const priceStr = stock.price ? (isKrw ? `₩${fmtPx(stock.price, 'KRW')}` : `$${fmtPx(stock.price, stock.currency)}`) : '–';
+  const change = (stock.price || 0) - (stock.prevClose || 0);
+  const changePct = stock.prevClose ? (change / stock.prevClose) * 100 : 0;
+
+  const thesisList = (stock.thesis || []).slice(0, 3);
+  const risksList  = (stock.risks  || []).slice(0, 3);
+
+  const sectionTitle = (n, txt, color = T.cyan) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+      <span style={{ fontSize: 10, fontFamily: T.font, color, letterSpacing: '0.14em', fontWeight: 700, background: `${color}18`, padding: '2px 7px', borderRadius: 2 }}>{n}</span>
+      <span style={{ fontSize: 12, color: T.ink, fontFamily: T.fontSans, letterSpacing: '0.02em', fontWeight: 600 }}>{txt}</span>
+    </div>
+  );
+
   return (
-    <Cell label="BEGINNER MODE" accent={T.cyan} style={{ height: '100%' }}>
-      <div style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 14, fontFamily: T.fontSans }}>
-        <div style={{ fontSize: 13, color: T.ink, lineHeight: 1.55 }}>
-          <strong style={{ color: T.cyan }}>{stock.name || stock.symbol}</strong> 을(를) 단순한 카드 형태로 보여 드릴 예정입니다.
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 4, fontFamily: T.fontSans }}>
+      {/* 1. 요약 */}
+      <div style={{ background: T.surface, border: `1px solid ${T.cyan}55`, padding: '16px 20px', borderRadius: 3 }}>
+        {sectionTitle('01', '이 종목은 어떤 회사인가요?')}
+        <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 12, marginBottom: 10 }}>
+          <span style={{ fontSize: 20, fontWeight: 700, color: T.ink }}>{stock.name || stock.symbol}</span>
+          <span style={{ fontSize: 12, color: T.inkFaint, letterSpacing: '0.06em' }}>{stock.symbol} · {stock.market}</span>
+          <span style={{ fontSize: 14, color: T.ink, fontVariantNumeric: 'tabular-nums', marginLeft: 'auto' }}>{priceStr}</span>
+          {stock.prevClose ? (
+            <span style={{ fontSize: 11, color: colorForChange(change), fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+              {sign(changePct)}{safeFixed(changePct, 2)}%
+            </span>
+          ) : null}
         </div>
-        <div style={{ fontSize: 12, color: T.inkDim, lineHeight: 1.65 }}>
-          Beginner Mode는 처음 ThesisTrack을 둘러보는 분들을 위한 화면입니다. 한 종목당 핵심 요약·먼저 볼 3가지 지표·강점과 리스크·데이터 신뢰도·면책 안내를 한 카드에 담아 보여 드립니다.
-          <br/><br/>
-          현재 단계에서는 토글이 정상 동작하는지 확인하기 위한 기본 화면만 제공됩니다. 카드 본문은 다음 단계(Phase 2c)에서 추가됩니다.
-        </div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-          <button onClick={onSwitchToPro}
-            style={{ background: 'transparent', border: `1px solid ${T.amber}`, color: T.amber,
-              fontFamily: T.font, fontSize: 11, fontWeight: 700, padding: '7px 16px',
-              letterSpacing: '0.08em', cursor: 'pointer', borderRadius: 3 }}>
-            PRO TERMINAL 열기
-          </button>
-        </div>
-        <div style={{ fontSize: 10.5, color: T.inkFaint, lineHeight: 1.55, borderTop: `1px dashed ${T.borderSoft}`, paddingTop: 10, marginTop: 6 }}>
-          ThesisTrack은 분석 보조 도구이며 투자 권유가 아닙니다. 자세한 내용은 우측 하단 Methodology · Data Policy · Disclaimer를 참고하세요.
+        {stock.oneLine ? (
+          <div style={{ fontSize: 13, color: T.inkDim, lineHeight: 1.6 }}>{stock.oneLine}</div>
+        ) : (
+          <div style={{ fontSize: 12, color: T.inkFaint, lineHeight: 1.6 }}>한 줄 요약이 아직 작성되지 않았습니다.</div>
+        )}
+      </div>
+
+      {/* 2. 먼저 볼 3가지 지표 */}
+      <div style={{ background: T.surface, border: `1px solid ${T.borderSoft}`, padding: '16px 20px', borderRadius: 3 }}>
+        {sectionTitle('02', '먼저 볼 3가지 지표', T.amber)}
+        {top3.length === 0 ? (
+          <div style={{ fontSize: 12, color: T.inkFaint, lineHeight: 1.6 }}>
+            아직 점수가 계산되지 않았습니다. 새로고침 후 다시 확인해 주세요.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {top3.map(d => (
+              <div key={d.key}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ fontSize: 11.5, color: d.color, letterSpacing: '0.08em', fontWeight: 700 }}>{d.label}</span>
+                  <span style={{ fontSize: 12, color: d.color, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                    {d.score}<span style={{ color: T.inkFaint, fontWeight: 400 }}> / 100</span>
+                  </span>
+                </div>
+                <ScoreBar pct={d.score} color={d.color} height={5}/>
+                <div style={{ fontSize: 11.5, color: T.inkDim, marginTop: 6, lineHeight: 1.55 }}>{narrative(d)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ fontSize: 10, color: T.inkFaint, marginTop: 10, lineHeight: 1.5 }}>
+          점수는 같은 차원 안에서 시장 표본 대비 상대 위치이며 매매 의견이 아닙니다. 전체 5개 차원과 가중치는 Pro Terminal의 SCORE BREAKDOWN에서 확인할 수 있어요.
         </div>
       </div>
-    </Cell>
+
+      {/* 3. 강점 · 리스크 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 12 }}>
+        <div style={{ background: T.surface, border: `1px solid ${T.green}40`, padding: '14px 18px', borderRadius: 3 }}>
+          {sectionTitle('03', '강점', T.green)}
+          {thesisList.length === 0 ? (
+            <div style={{ fontSize: 11.5, color: T.inkFaint, lineHeight: 1.6 }}>Pro Terminal의 F2 PITCH에서 직접 작성할 수 있습니다.</div>
+          ) : (
+            <ul style={{ margin: 0, padding: '0 0 0 16px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {thesisList.map((t, i) => (
+                <li key={i} style={{ fontSize: 12, color: T.ink, lineHeight: 1.55 }}>{t}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div style={{ background: T.surface, border: `1px solid ${T.red}40`, padding: '14px 18px', borderRadius: 3 }}>
+          {sectionTitle('04', '리스크', T.red)}
+          {risksList.length === 0 ? (
+            <div style={{ fontSize: 11.5, color: T.inkFaint, lineHeight: 1.6 }}>Pro Terminal의 F2 PITCH에서 직접 작성할 수 있습니다.</div>
+          ) : (
+            <ul style={{ margin: 0, padding: '0 0 0 16px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {risksList.map((r, i) => (
+                <li key={i} style={{ fontSize: 12, color: T.ink, lineHeight: 1.55 }}>{r}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {/* 5. 데이터 신뢰도 */}
+      <div style={{ background: T.surface, border: `1px solid ${T.borderSoft}`, padding: '16px 20px', borderRadius: 3 }}>
+        {sectionTitle('05', '이 숫자들은 어디서 왔나요?', T.cyan)}
+        {conf ? (
+          <>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, marginBottom: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, color: T.inkFaint, letterSpacing: '0.08em' }}>종합 신뢰도</span>
+              <span style={{ fontSize: 22, fontWeight: 700, color: conf.grade === 'A' ? T.green : conf.grade === 'B' ? T.cyan : conf.grade === 'C' ? T.yellow : T.red, letterSpacing: '0.04em' }}>
+                {conf.grade}
+              </span>
+              <span style={{ fontSize: 11.5, color: T.inkDim }}>
+                · {gradeLabel[conf.grade] || conf.grade}
+              </span>
+              <span style={{ fontSize: 11, color: T.inkFaint, marginLeft: 'auto' }}>
+                지표 {conf.usedCount}/{conf.totalCoreCount} 사용 · Commercial-Safe {conf.commercialSafeCount}
+              </span>
+            </div>
+            <div style={{ fontSize: 11, color: T.inkFaint, lineHeight: 1.55 }}>
+              A는 공시 원문 직접 추출, B는 검증된 API 필드, C는 다른 지표로부터 계산, D는 결측·출처 불명확을 뜻합니다. 종합 등급은 사용된 지표 중 가장 낮은 등급을 따릅니다.
+            </div>
+          </>
+        ) : (
+          <div style={{ fontSize: 11.5, color: T.inkFaint, lineHeight: 1.6 }}>
+            아직 데이터가 충분히 수집되지 않았습니다.
+          </div>
+        )}
+      </div>
+
+      {/* 5b. 면책 */}
+      <div style={{ background: 'rgba(255,159,0,0.04)', border: `1px solid ${T.amber}33`, padding: '12px 18px', borderRadius: 3 }}>
+        {sectionTitle('06', '읽기 전에 꼭 알아 주세요', T.amber)}
+        <div style={{ fontSize: 11.5, color: T.inkDim, lineHeight: 1.65 }}>
+          ThesisTrack은 분석 보조 도구이며 투자 권유 서비스가 아닙니다. 표시된 점수·지표·시나리오는 분석을 돕기 위한 참고값이며, 매매 의견이 아닙니다. 모든 투자 판단의 책임은 사용자 본인에게 있습니다. {/* audit-copy-ignore: 부정형 면책 문장 */}
+        </div>
+      </div>
+
+      {/* 6. Pro 진입 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', background: T.surface, border: `1px solid ${T.amber}55`, borderRadius: 3 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, color: T.ink, fontWeight: 600, marginBottom: 3 }}>더 자세히 보고 싶다면</div>
+          <div style={{ fontSize: 11, color: T.inkFaint, lineHeight: 1.55 }}>
+            Pro Terminal에서 F1–F12 전체 분석 도구 — SCORE BREAKDOWN, 재무 히스토리, 시나리오 밸류에이션, Pre-mortem, Decision Journal 등을 사용할 수 있습니다.
+          </div>
+        </div>
+        <button onClick={onSwitchToPro}
+          style={{ background: 'transparent', border: `1px solid ${T.amber}`, color: T.amber,
+            fontFamily: T.font, fontSize: 11, fontWeight: 700, padding: '8px 18px',
+            letterSpacing: '0.08em', cursor: 'pointer', borderRadius: 3, flex: '0 0 auto' }}>
+          PRO TERMINAL 열기
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -5716,7 +5870,7 @@ function App({ initialData }) {
         <div style={{ overflow: 'hidden', padding: 10, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 }}>
           <div style={{ flex: '1 1 auto', minHeight: 0, minWidth: 0, overflow: 'auto' }}>
             {uiMode === 'beginner'
-              ? <BeginnerModePlaceholder stock={stock} onSwitchToPro={() => setUiMode('pro')}/>
+              ? <BeginnerModeCard stock={stock} onSwitchToPro={() => setUiMode('pro')}/>
               : (panelContent[activePanel] || panelContent.F1)}
           </div>
         </div>
