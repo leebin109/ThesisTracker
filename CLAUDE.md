@@ -29,18 +29,21 @@ The repo still contains `terminal.html` and `tools/build.js`. These belong to th
 ## Verification gates
 
 ```bash
-npm run verify                  # build + syntax + commercial policy + proxy policy + SEC metrics
+npm run verify                  # build + syntax + commercial policy + proxy policy + SEC metrics + copy gate
 npm run verify:syntax           # node --check on proxy-handler.cjs and api/proxy.mjs
 npm run verify:policy           # commercial + proxy policy
 npm run verify:policy:commercial
 npm run verify:policy:proxy
 npm run verify:sec              # calculateSecMetrics coverage + reason codes
 npm run audit:hosts             # informational: locate blocked-host strings in src/server/api
+npm run audit:copy              # gate: prohibited solicitation terms (매수 신호 / Strong Buy / 수익 보장 / 급등주 …) in user-facing copy
 ```
 
 `npm run verify` (`tools/verify-all.cjs`) is the orchestrator. It prints one `[PASS] <step>` / `[FAIL] <step>` line per gate and exits non-zero if any step fails. It works under Windows PowerShell, cmd.exe, and POSIX shells without relying on `&&` chaining.
 
 `audit:hosts` is informational only — the authoritative Commercial-Safe pass/fail signal is `verify:policy:commercial` (which proves blocked host fetch calls = 0). Personal-mode code paths and the proxy allowlist legitimately mention Yahoo/FMP/Alpha/Google host strings as identifiers.
+
+`audit:copy` is a **hard gate** wired into `npm run verify`. It scans `src/` and `index.html` for compound prohibited phrases (매수 신호 / 매수 추천 / 수익 보장 / 급등주 / Strong Buy / Sell Now …) that risk being interpreted as investment solicitation under 자본시장법. Mark intentional disclaimer use (e.g. lines that negate the phrase) with an inline `audit-copy-ignore` comment on the same line. The banned dictionary lives at the top of `tools/audit-copy.cjs`.
 
 ## Architecture
 

@@ -49,6 +49,12 @@ const steps = [
     cmd: nodeCli,
     args: ['tools/verify-sec-metrics.cjs'],
   },
+  {
+    label: 'copy gate (prohibited solicitation terms = 0)',
+    cmd: nodeCli,
+    args: ['tools/audit-copy.cjs'],
+    quietStdout: true,
+  },
 ];
 
 let failed = 0;

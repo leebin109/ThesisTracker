@@ -12,7 +12,8 @@
     "verify:policy": "node tools/verify-commercial-policy.cjs && node tools/verify-proxy-policy.cjs",
     "verify:sec": "node tools/verify-sec-metrics.cjs",
     "verify": "node tools/verify-all.cjs",
-    "audit:hosts": "node tools/audit-hosts.cjs"
+    "audit:hosts": "node tools/audit-hosts.cjs",
+    "audit:copy": "node tools/audit-copy.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.84.0",
