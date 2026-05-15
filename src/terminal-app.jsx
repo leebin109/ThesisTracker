@@ -616,6 +616,7 @@ function TrustPageOverlay({ pageId, onClose, onNavigate }) {
           }}>
             {LEGAL_DOCS.map(doc => (
               <a key={doc.href} href={doc.href} target="_blank" rel="noreferrer"
+                onClick={() => markActivationEvent('trustPageViewed')}
                 style={{ color: T.cyan, textDecoration: 'none' }}>
                 {doc.label.toUpperCase()}
               </a>
@@ -1307,14 +1308,50 @@ function generateShareUrl(stock) {
   catch { return null; }
 }
 
+function normalizeTextBlock(value) {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value
+      .map(item => normalizeTextBlock(item))
+      .filter(text => text.trim())
+      .join('\n');
+  }
+  if (value && typeof value === 'object') {
+    const orderedKeys = ['keyQuestion', 'thesis', 'catalyst', 'catalysts', 'risk', 'risks', 'changeMindIf', 'text'];
+    const used = new Set();
+    const parts = [];
+    orderedKeys.forEach(key => {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) return;
+      used.add(key);
+      const text = normalizeTextBlock(value[key]);
+      if (text.trim()) parts.push(text);
+    });
+    Object.entries(value).forEach(([key, val]) => {
+      if (used.has(key) || typeof val !== 'string') return;
+      const text = val.trim();
+      if (text) parts.push(text);
+    });
+    return parts.join('\n');
+  }
+  return '';
+}
+
+function textBlockLines(value, fallback = '  (없음)') {
+  const text = normalizeTextBlock(value);
+  const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
+  return lines.length ? lines.map(line => `  ${line}`) : [fallback];
+}
+
 function downloadTextReport(stock) {
   const m = stock.metrics || {};
   const f = (v, d = 1, u = '') => (v != null && Number.isFinite(Number(v))) ? `${Number(v).toFixed(d)}${u}` : 'N/A';
   const line = s => s;
   const section = t => [``, `[${t}]`];
-  const listItems = arr => Array.isArray(arr) && arr.length
-    ? arr.map((x, i) => `  ${i+1}. ${typeof x === 'string' ? x : x.text || ''}`)
-    : ['  (없음)'];
+  const listItems = value => {
+    const text = normalizeTextBlock(value);
+    const items = text.split('\n').map(item => item.trim()).filter(Boolean);
+    return items.length ? items.map((item, i) => `  ${i+1}. ${item}`) : ['  (없음)'];
+  };
   const lines = [
     `INVESTMENT THESIS REPORT — ${stock.symbol}`,
     `Generated: ${new Date().toLocaleDateString('ko-KR')} ${new Date().toLocaleTimeString('ko-KR')}`,
@@ -1331,7 +1368,7 @@ function downloadTextReport(stock) {
     `  Rev Growth ${f(m.revGrowth,1,'%')}  EPS Growth ${f(m.epsGrowth,1,'%')}  EV/EBITDA ${f(m.evEbitda,1,'x')}`,
     `  Quant Score: ${stock.scores?.overall != null ? Math.round(stock.scores.overall)+'pt' : 'N/A'}`,
     ...section('THESIS'),
-    ...(stock.thesis ? stock.thesis.split('\n').map(l => `  ${l}`) : ['  (없음)']),
+    ...textBlockLines(stock.thesis),
     ...section('CATALYSTS'),
     ...listItems(stock.catalysts),
     ...section('RISKS'),
@@ -4500,6 +4537,42 @@ const PLAN_FREE = 'free';
 const PLAN_PRO = 'pro';
 const PLAN_KEY = 'tt-plan-v1';
 const FREE_USER_STOCK_LIMIT = 5;
+const ACTIVATION_KEY = 'tt-activation-v1';
+const ACTIVATION_EVENTS = [
+  'landingViewed',
+  'demoStarted',
+  'appEntered',
+  'beginnerViewed',
+  'thesisCtaClicked',
+  'thesisStarted',
+  'thesisSaved',
+  'proOpened',
+  'trustPageViewed',
+  'userPriceEntered',
+];
+
+function readActivationState() {
+  try {
+    const raw = localStorage.getItem(ACTIVATION_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch { return {}; }
+}
+
+function markActivationEvent(eventName) {
+  if (!ACTIVATION_EVENTS.includes(eventName)) return readActivationState();
+  try {
+    const now = new Date().toISOString();
+    const next = readActivationState();
+    if (!next.firstSeenAt) next.firstSeenAt = now;
+    const key = `${eventName}At`;
+    if (!next[key]) next[key] = now;
+    localStorage.setItem(ACTIVATION_KEY, JSON.stringify(next));
+    return next;
+  } catch {
+    return {};
+  }
+}
 
 function getCurrentPlan() {
   try {
@@ -4552,17 +4625,20 @@ function enterPublicApp() {
 }
 
 function enterPublicDemo() {
+  markActivationEvent('demoStarted');
   ensureDemoEntryState();
   window.location.href = '/app?demo=1';
 }
 
 function PublicLandingPage() {
+  useEffect(() => { markActivationEvent('landingViewed'); }, []);
   const hashToTrustId = useCallback((hash = window.location.hash) => {
     const map = { '#methodology': 'methodology', '#data-policy': 'dataPolicy', '#disclaimer': 'disclaimer' };
     return map[hash] || null;
   }, []);
   const [trustView, setTrustView] = useState(() => hashToTrustId());
   const openTrustPage = useCallback((id) => {
+    markActivationEvent('trustPageViewed');
     setTrustView(id);
     const hashMap = { methodology: '#methodology', dataPolicy: '#data-policy', disclaimer: '#disclaimer' };
     if (hashMap[id]) window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${hashMap[id]}`);
@@ -4654,6 +4730,7 @@ function PublicLandingPage() {
           <button onClick={() => openTrustPage('methodology')} style={trustButtonStyle}>Trust</button>
           {LEGAL_DOCS.map(doc => (
             <a key={doc.href} href={doc.href} target="_blank" rel="noreferrer"
+              onClick={() => markActivationEvent('trustPageViewed')}
               style={{ color: T.cyan, textDecoration: 'none' }}>
               {doc.label}
             </a>
@@ -4909,7 +4986,7 @@ function OnboardingOverlay({ step, total, onNext, onSkip, onDone }) {
 //   4. 데이터 신뢰도 — computeDataConfidence summary
 //   5. 면책 — 자본시장법 안전 카피
 //   6. PRO TERMINAL 진입
-function BeginnerModeCard({ stock, onSwitchToPro }) {
+function BeginnerModeCard({ stock, onSwitchToPro, onStartThesis, activation = {} }) {
   const scores = stock.scores || {};
   const dims = [
     { key: 'profitability', label: '수익성',     color: T.amber },
@@ -4947,6 +5024,19 @@ function BeginnerModeCard({ stock, onSwitchToPro }) {
 
   const thesisList = (stock.thesis || []).slice(0, 3);
   const risksList  = (stock.risks  || []).slice(0, 3);
+  const activationItems = [
+    { label: '예시 종목 보기', done: !!activation.appEnteredAt },
+    { label: '핵심 지표 확인', done: true },
+    { label: '출처 신뢰도 확인', done: !!conf },
+    { label: '내 투자 논리 작성', done: !!activation.thesisCtaClickedAt || !!activation.thesisSavedAt },
+    { label: 'Pro Terminal 열기', done: !!activation.proOpenedAt },
+  ];
+  const demoHints = [
+    '삼성전자: 국내 대형주와 OpenDART 데이터 흐름 확인용',
+    'AAPL: SEC EDGAR 기반 미국 기업 재무지표 확인용',
+    'MSFT 또는 NVDA: 성장성과 밸류에이션 가정 비교용',
+    '데이터 제한 종목: coverage 부족 상태 확인용',
+  ];
 
   const sectionTitle = (n, txt, color = T.cyan) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -4957,6 +5047,41 @@ function BeginnerModeCard({ stock, onSwitchToPro }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 8, fontFamily: T.fontSans }}>
+      <div style={{ background: T.surface, border: `1px solid ${T.cyan}55`, padding: '14px 18px', borderRadius: 3 }}>
+        {sectionTitle('00', '추천 체험 순서', T.cyan)}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {[
+              '예시 종목 하나를 선택합니다.',
+              '먼저 볼 3가지 지표를 확인합니다.',
+              '출처 신뢰도와 누락 지표를 확인합니다.',
+              '내 투자 논리를 한 문장으로 적습니다.',
+              'Pro Terminal에서 더 자세히 확인합니다.',
+            ].map((text, i) => (
+              <div key={text} style={{ display: 'flex', gap: 8, color: T.inkDim, fontSize: 11.5, lineHeight: 1.45 }}>
+                <span style={{ color: T.amber, fontFamily: T.font }}>{i + 1}</span>
+                <span>{text}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <div style={{ color: T.inkFaint, fontSize: 10.5, fontFamily: T.font, letterSpacing: '0.08em' }}>첫 5분 체크리스트</div>
+            {activationItems.map(item => (
+              <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, color: item.done ? T.green : T.inkFaint }}>
+                <span style={{ width: 18, color: item.done ? T.green : T.inkFaint }}>{item.done ? '[x]' : '[ ]'}</span>
+                <span>{item.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 6 }}>
+          {demoHints.map(text => (
+            <div key={text} style={{ border: `1px solid ${T.borderSoft}`, padding: '7px 9px', color: T.inkFaint, fontSize: 10.8, lineHeight: 1.45 }}>
+              {text}
+            </div>
+          ))}
+        </div>
+      </div>
       {/* 1. 요약 */}
       <div style={{ background: T.surface, border: `1px solid ${T.cyan}55`, padding: '16px 20px', borderRadius: 3 }}>
         {sectionTitle('01', '이 종목은 어떤 회사인가요?')}
@@ -5077,6 +5202,12 @@ function BeginnerModeCard({ stock, onSwitchToPro }) {
             Pro Terminal에서 F1–F12 전체 분석 도구 — SCORE BREAKDOWN, 재무 히스토리, 시나리오 밸류에이션, Pre-mortem, Decision Journal 등을 사용할 수 있습니다.
           </div>
         </div>
+        <button onClick={onStartThesis}
+          style={{ background: T.amber, border: `1px solid ${T.amber}`, color: '#000',
+            fontFamily: T.font, fontSize: 11, fontWeight: 800, padding: '8px 18px',
+            letterSpacing: '0.08em', cursor: 'pointer', borderRadius: 3, flex: '0 0 auto', minHeight: 44 }}>
+          내 투자 논리 작성하기
+        </button>
         <button onClick={onSwitchToPro}
           style={{ background: 'transparent', border: `1px solid ${T.amber}`, color: T.amber,
             fontFamily: T.font, fontSize: 11, fontWeight: 700, padding: '8px 18px',
@@ -5113,6 +5244,7 @@ function App({ initialData, demoMode = false }) {
   const [dataCache, setDataCache]         = useState(initial.dataCache);
   const [plan]                            = useState(getCurrentPlan);
   const [upgradeNotice, setUpgradeNotice] = useState(null);
+  const [activation, setActivation]       = useState(readActivationState);
   const [dartCorpMap, setDartCorpMap]     = useState(initial.dartCorpMap);
   const [dartAutoStatus, setDartAutoStatus] = useState({
     kind: 'idle',
@@ -5134,6 +5266,16 @@ function App({ initialData, demoMode = false }) {
   useEffect(() => {
     try { localStorage.setItem('tt-ui-mode-v1', uiMode); } catch { /* storage disabled */ }
   }, [uiMode]);
+  const recordActivation = useCallback((eventName) => {
+    const next = markActivationEvent(eventName);
+    setActivation(next);
+    return next;
+  }, []);
+  const handleUiModeChange = useCallback((mode) => {
+    if (mode === 'pro') recordActivation('proOpened');
+    if (mode === 'beginner') recordActivation('beginnerViewed');
+    setUiMode(mode);
+  }, [recordActivation]);
 
   // First-run onboarding overlay. Show only for fresh visitors who landed in
   // Beginner Mode and have not dismissed it before. Returning Pro users skip
@@ -5150,6 +5292,9 @@ function App({ initialData, demoMode = false }) {
     try { localStorage.setItem(ONBOARDING_KEY, '1'); } catch { /* storage disabled */ }
     setOnboardingStep(null);
   };
+  useEffect(() => {
+    if (uiMode === 'beginner') recordActivation('beginnerViewed');
+  }, [uiMode, recordActivation]);
 
   const [loginModalOpen, setLoginModalOpen] = useState(false);
 
@@ -5195,12 +5340,13 @@ function App({ initialData, demoMode = false }) {
   const [showHelp, setShowHelp]           = useState(false);
   const [trustView, setTrustView]         = useState(null); // null | 'methodology' | 'dataPolicy' | 'disclaimer'
   const openTrustPage = useCallback((id) => {
+    recordActivation('trustPageViewed');
     const map = { methodology: '#methodology', dataPolicy: '#data-policy', disclaimer: '#disclaimer' };
     setTrustView(id || null);
     if (id && map[id] && typeof window !== 'undefined') {
       try { window.history.replaceState(null, '', map[id]); } catch {}
     }
-  }, []);
+  }, [recordActivation]);
   const closeTrustPage = useCallback(() => {
     setTrustView(null);
     if (typeof window !== 'undefined') {
@@ -5213,7 +5359,10 @@ function App({ initialData, demoMode = false }) {
     const applyHash = () => {
       const raw = (window.location.hash || '').replace(/^#/, '').toLowerCase();
       const hashMap = { 'methodology': 'methodology', 'data-policy': 'dataPolicy', 'datapolicy': 'dataPolicy', 'disclaimer': 'disclaimer' };
-      if (hashMap[raw]) setTrustView(hashMap[raw]);
+      if (hashMap[raw]) {
+        recordActivation('trustPageViewed');
+        setTrustView(hashMap[raw]);
+      }
     };
     applyHash();
     window.addEventListener('hashchange', applyHash);
@@ -5222,7 +5371,7 @@ function App({ initialData, demoMode = false }) {
       if (window.openTrustPage === openTrustPage) delete window.openTrustPage;
       if (window.closeTrustPage === closeTrustPage) delete window.closeTrustPage;
     };
-  }, [openTrustPage, closeTrustPage]);
+  }, [openTrustPage, closeTrustPage, recordActivation]);
   const [confirmDialog, setConfirmDialog] = useState(null); // { msg, tone } | null
   const confirmResolverRef = useRef(null);
   const appConfirm = useCallback((msg, opts = {}) => new Promise(resolve => {
@@ -5719,7 +5868,7 @@ function App({ initialData, demoMode = false }) {
       console.error('Search add failed', e);
       toast(`종목 추가 실패: ${e?.message || 'unknown error'}`, 'error', 7000);
     }
-  }, [toast]);
+  }, [plan, toast]);
 
   // ── Remove from watchlist ──────────────────────────────────────────────────
   const handleRemove = useCallback((id) => {
@@ -5791,9 +5940,10 @@ function App({ initialData, demoMode = false }) {
 
   // ── Save pitch edits ───────────────────────────────────────────────────────
   const handleSavePitch = useCallback((stockId, patch) => {
+    recordActivation('thesisSaved');
     setStocks(prev => ({ ...prev, [stockId]: { ...prev[stockId], ...patch } }));
     toast('피치 저장 완료', 'ok');
-  }, [toast]);
+  }, [recordActivation, toast]);
 
   const handleAddResearchNote = useCallback((stockId, note) => {
     setStocks(prev => ({
@@ -5832,6 +5982,7 @@ function App({ initialData, demoMode = false }) {
       toast('유효한 가격(양수)을 입력하세요.', 'warn', 2400);
       return;
     }
+    recordActivation('userPriceEntered');
     setStocks(prev => {
       const old = prev[stockId];
       if (!old) return prev;
@@ -5842,7 +5993,7 @@ function App({ initialData, demoMode = false }) {
       return applyQuantScores(nextStocks, watchlistIdsRef.current || []);
     });
     toast(`${stockId} 입력 가격 적용: ${price}`, 'ok', 2400);
-  }, [toast]);
+  }, [recordActivation, toast]);
 
   const handleClearUserPrice = useCallback((stockId) => {
     setStocks(prev => {
@@ -6119,6 +6270,20 @@ function App({ initialData, demoMode = false }) {
     }
   }, [stocks, toast]);
 
+  const handleOpenPro = useCallback(() => {
+    recordActivation('proOpened');
+    setUiMode('pro');
+  }, [recordActivation]);
+
+  const handleStartThesis = useCallback(() => {
+    recordActivation('thesisCtaClicked');
+    recordActivation('thesisStarted');
+    recordActivation('proOpened');
+    setUiMode('pro');
+    setActivePanel('F2');
+    setPitchEditId(activeId);
+  }, [activeId, recordActivation]);
+
   const handleLogout = useCallback(async () => {
     if (sbConfigured && getSb()) await getSb().auth.signOut();
     setSession(null);
@@ -6328,7 +6493,7 @@ function App({ initialData, demoMode = false }) {
         alertCount={alerts.filter(a => a.status === 'new').length}
         onAlerts={() => setActivePanel('F6')}
         uiMode={uiMode}
-        onUiModeChange={setUiMode}
+        onUiModeChange={handleUiModeChange}
         userEmail={session?.user?.email}
         onLogin={!session ? () => setLoginModalOpen(true) : undefined}
         onLogout={session ? handleLogout : undefined}
@@ -6401,7 +6566,7 @@ function App({ initialData, demoMode = false }) {
         <div style={{ overflow: 'hidden', padding: 10, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 }}>
           <div style={{ flex: '1 1 auto', minHeight: 0, minWidth: 0, overflow: 'auto' }}>
             {uiMode === 'beginner'
-              ? <BeginnerModeCard stock={stock} onSwitchToPro={() => setUiMode('pro')}/>
+              ? <BeginnerModeCard stock={stock} activation={activation} onStartThesis={handleStartThesis} onSwitchToPro={handleOpenPro}/>
               : (panelContent[activePanel] || panelContent.F1)}
           </div>
         </div>
@@ -6448,10 +6613,14 @@ function TerminalAppWrapper() {
   const demoMode = isDemoRoute();
   const [initial, setInitial] = useState(null);
   useEffect(() => {
-    if (demoMode) ensureDemoEntryState();
+    if (demoMode) {
+      markActivationEvent('demoStarted');
+      ensureDemoEntryState();
+    }
     else {
       try { localStorage.setItem(LANDING_KEY, 'true'); } catch { /* storage disabled */ }
     }
+    markActivationEvent('appEntered');
     buildInitialAppState().then(setInitial);
   }, [demoMode]);
 
