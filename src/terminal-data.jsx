@@ -1490,10 +1490,7 @@ async function fetchKrxYahooPrice(stock, apiSettings = null) {
       const price = firstFinite(closes.at(-1), meta.regularMarketPrice);
       if (!Number.isFinite(price) || price <= 0) continue;
       const prevClose = firstFinite(meta.chartPreviousClose, meta.previousClose, closes.length > 1 ? closes.at(-2) : NaN);
-      const yahooName = isCleanCompanyName(meta.longName) ? meta.longName
-                      : isCleanCompanyName(meta.shortName) ? meta.shortName : null;
       return {
-        ...(yahooName ? { name: yahooName } : {}),
         currency: 'KRW',
         price: Math.round(price),
         prevClose: Number.isFinite(prevClose) ? Math.round(prevClose) : undefined,

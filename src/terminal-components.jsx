@@ -625,7 +625,7 @@ const PriceChart = ({ data = [], ohlcData = [], chartType = 'line', accent = T.a
   );
 };
 
-const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, providerStatus, alertCount = 0, onAlerts, uiMode, onUiModeChange }) => {
+const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, providerStatus, alertCount = 0, onAlerts, uiMode, onUiModeChange, userEmail, onLogin, onLogout }) => {
   const [val, setVal] = useState(symbol);
   useEffect(() => { setVal(symbol); }, [symbol]);
   const statusColor = providerStatus?.kind === 'ok' ? T.green : providerStatus?.kind === 'warn' ? T.yellow : providerStatus?.kind === 'error' ? T.red : T.inkFaint;
@@ -706,6 +706,7 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
         const accent = isBeginner ? T.cyan : T.amber;
         return (
           <button
+            data-onboard="mode-toggle"
             onClick={() => onUiModeChange(nextMode)}
             title={isBeginner ? '클릭하면 Pro Terminal로 전환' : '클릭하면 Beginner Mode로 전환'}
             style={{
@@ -722,6 +723,23 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
           padding: '5px 12px', letterSpacing: '0.08em', minHeight: 28, borderRadius: 3 }}>
           API
         </button>
+      )}
+      {userEmail ? (
+        onLogout && (
+          <button onClick={onLogout} title={userEmail} style={{ background: 'transparent', border: `1px solid ${T.border}`,
+            color: T.inkDim, fontFamily: T.font, fontSize: 11, cursor: 'pointer',
+            padding: '5px 10px', letterSpacing: '0.06em', minHeight: 28, borderRadius: 3, flex: '0 0 auto' }}>
+            LOGOUT
+          </button>
+        )
+      ) : (
+        onLogin && (
+          <button onClick={onLogin} style={{ background: T.amber, border: `1px solid ${T.amber}`,
+            color: '#000', fontFamily: T.font, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+            padding: '5px 10px', letterSpacing: '0.06em', minHeight: 28, borderRadius: 3, flex: '0 0 auto' }}>
+            LOGIN
+          </button>
+        )
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10.5, color: T.inkFaint, flex: '0 0 auto' }}>
         {refreshing

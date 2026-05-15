@@ -3385,7 +3385,7 @@ function ApiKeyInput({ value, onChange }) {
 // ─── Settings / data panel ───────────────────────────────────────────────────
 function SettingsDataPanel({
   apiSettings, dartCorpMap, dataCache, providerStatus, dartAutoStatus, dartCoverage,
-  onSaveSettings, onClearCache, onExportBackup, onImportBackup, onReloadDartMap,
+  onSaveSettings, onClearCache, onExportBackup, onImportBackup, onReloadDartMap, onShowLanding,
 }) {
   const [s, setS] = useState({ ...apiSettings });
   const [dcm, setDcm] = useState(JSON.stringify(dartCorpMap, null, 2));
@@ -3565,6 +3565,9 @@ function SettingsDataPanel({
             ))}
             {cacheCount === 0 && <div style={{ fontSize: 10, color: T.inkFaint }}>캐시 없음</div>}
             <button onClick={onClearCache} style={{ ...btnSt, color: T.red, border: `1px solid ${T.red}`, marginTop: 8 }}>CLEAR CACHE</button>
+            {onShowLanding && (
+              <button onClick={onShowLanding} style={{ ...btnSt, color: T.cyan, border: `1px solid ${T.cyan}55`, marginTop: 4 }}>소개화면 보기</button>
+            )}
           </div>
 
           <div style={{ background: T.surface2, border: `1px solid ${T.borderSoft}`, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -4415,6 +4418,234 @@ class AppErrorBoundary extends React.Component {
   }
 }
 
+// ─── Landing screen (first-visit marketing entry) ────────────────────────────
+// Shown once, only for genuinely fresh visitors. Click-through sets
+// tt-entered-v1 and the user lands in Beginner Mode where the onboarding
+// overlay (below) walks them through the UI.
+const LANDING_KEY = 'tt-entered-v1';
+function LandingScreen({ onEnter }) {
+  const features = [
+    { tag: 'Thesis',     title: '논거를 쓴다',       body: 'Key Question · Catalyst · Risk · Change Mind If — 매수 이유를 글로 남깁니다.' },
+    { tag: 'Provenance', title: '출처를 확인한다',   body: '모든 지표에 A/B/C/D 신뢰도. 이 PER이 어디서 왔는지 한 클릭에 확인됩니다.' },
+    { tag: 'Replay',     title: '결정을 복기한다',   body: '결정 저널과 Pre-mortem으로 본인의 hit rate가 기록으로 남습니다.' },
+  ];
+  return (
+    <div style={{
+      minHeight: '100dvh', background: T.bg, color: T.ink,
+      fontFamily: T.fontSans, display: 'flex', flexDirection: 'column',
+    }}>
+      <header style={{ display: 'flex', alignItems: 'center', padding: '14px 24px', borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 22, height: 22, background: T.amber, display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 800, color: '#000', boxShadow: `0 0 14px ${T.amber}66` }}>T</div>
+          <span style={{ fontFamily: T.font, fontSize: 13, fontWeight: 700, letterSpacing: '0.14em', color: T.amber }}>THESIS//TRACK</span>
+        </div>
+      </header>
+
+      <main style={{
+        flex: 1, display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        padding: 'clamp(24px, 5vw, 64px) clamp(16px, 4vw, 32px)',
+        textAlign: 'center', gap: 28,
+      }}>
+        <h1 style={{
+          fontSize: 'clamp(26px, 4.4vw, 46px)', fontWeight: 800, color: T.ink,
+          lineHeight: 1.25, margin: 0, maxWidth: 780, letterSpacing: '-0.01em',
+        }}>
+          매수 전에 <span style={{ color: T.amber }}>글을 쓰는</span> 투자자를 위한 터미널
+        </h1>
+        <p style={{
+          fontSize: 'clamp(13px, 1.5vw, 16px)', color: T.inkDim, lineHeight: 1.65,
+          maxWidth: 620, margin: 0,
+        }}>
+          ThesisTrack은 분석 보조 도구입니다. 차트가 아니라 본인 thesis를 다듬고, 출처를 확인하고, 결정을 복기하게 만드는 리서치 워크플로우입니다.
+        </p>
+
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: 14, maxWidth: 900, width: '100%', marginTop: 8,
+        }}>
+          {features.map(f => (
+            <div key={f.tag} style={{
+              background: T.surface, border: `1px solid ${T.borderSoft}`,
+              padding: '20px 20px', borderRadius: 4, textAlign: 'left',
+            }}>
+              <div style={{ fontSize: 10, fontFamily: T.font, color: T.cyan, letterSpacing: '0.14em', fontWeight: 700, marginBottom: 10 }}>{f.tag}</div>
+              <div style={{ fontSize: 'clamp(14px, 1.6vw, 16px)', fontWeight: 700, color: T.ink, marginBottom: 8 }}>{f.title}</div>
+              <div style={{ fontSize: 12.5, color: T.inkDim, lineHeight: 1.6 }}>{f.body}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginTop: 8 }}>
+          <button onClick={onEnter} autoFocus style={{
+            background: T.amber, border: `1px solid ${T.amber}`, color: '#000',
+            fontFamily: T.font, fontSize: 13, fontWeight: 800, letterSpacing: '0.1em',
+            padding: '12px 32px', borderRadius: 3, cursor: 'pointer',
+            boxShadow: `0 0 28px ${T.amber}55`, minHeight: 44,
+          }}>
+            예시 데이터로 둘러보기
+          </button>
+          <div style={{ fontSize: 11, color: T.inkFaint, lineHeight: 1.5, maxWidth: 460 }}>
+            가입 없이 바로 사용 가능 · 모든 데이터는 본인 기기 안에 저장됩니다.
+          </div>
+        </div>
+      </main>
+
+      <footer style={{
+        padding: '14px 24px', borderTop: `1px solid ${T.borderSoft}`,
+        fontSize: 11, color: T.inkFaint, display: 'flex', justifyContent: 'space-between',
+        flexWrap: 'wrap', gap: 12, flexShrink: 0,
+      }}>
+        <span>ThesisTrack은 분석 보조 도구이며 투자 권유 서비스가 아닙니다. <span style={{ opacity: 0.6 }}>— 자세한 면책은 입장 후 Methodology · Data Policy · Disclaimer 참고</span></span> {/* audit-copy-ignore: 부정형 면책 문장 */}
+        <span style={{ opacity: 0.5 }}>© ThesisTrack</span>
+      </footer>
+    </div>
+  );
+}
+
+// ─── First-run onboarding overlay ─────────────────────────────────────────────
+// Three-step spotlight. Only shows for fresh visitors (no tt-onboarding-seen-v1
+// flag yet) so returning users never see it. Steps target DOM elements by
+// data-onboard="..." attribute; the overlay reads getBoundingClientRect on each
+// step and draws four dark rectangles around the cutout + a tooltip with the
+// step copy. SKIP/마치기 sets the flag so the overlay won't reappear.
+const ONBOARDING_KEY = 'tt-onboarding-seen-v1';
+const ONBOARDING_STEPS = [
+  {
+    target: null,
+    title: 'ThesisTrack에 오신 것을 환영합니다',
+    body: '매수 전에 글을 쓰는 투자자를 위한 분석 보조 도구입니다. 투자 권유 서비스가 아닙니다. 30초 안에 둘러보기를 마칠 수 있어요.', // audit-copy-ignore: 부정형 면책 문장
+  },
+  {
+    target: 'mode-toggle',
+    title: 'BEGINNER ↔ PRO 전환',
+    body: 'CommandBar 우측 버튼으로 Beginner Mode와 Pro Terminal을 오갈 수 있어요. F1–F12 전체 분석 도구는 Pro Terminal에 있습니다.',
+  },
+  {
+    target: 'watchlist',
+    title: '예시 종목 4개로 시작',
+    body: '사이드바에 예시 데이터 4개가 미리 시드되어 있습니다. 클릭해서 같은 카드를 다른 종목으로도 볼 수 있고, ADD SYMBOL로 본인 종목을 추가할 수 있어요.',
+  },
+];
+
+function OnboardingOverlay({ step, total, onNext, onSkip, onDone }) {
+  const cfg = ONBOARDING_STEPS[step];
+  const [rect, setRect] = useState(null);
+
+  useEffect(() => {
+    if (!cfg?.target) { setRect(null); return; }
+    const update = () => {
+      const el = document.querySelector(`[data-onboard="${cfg.target}"]`);
+      if (!el) { setRect(null); return; }
+      const r = el.getBoundingClientRect();
+      setRect({ x: r.left, y: r.top, w: r.width, h: r.height });
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [cfg?.target]);
+
+  // ESC dismisses; Enter advances (or finishes on the last step).
+  const isLastStep = step === total - 1;
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); onSkip(); }
+      else if (e.key === 'Enter') { e.preventDefault(); (isLastStep ? onDone : onNext)(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isLastStep, onNext, onSkip, onDone]);
+
+  const dim = 'rgba(0, 0, 0, 0.62)';
+
+  // Tooltip placement: if rect exists, anchor near the cutout's bottom-left.
+  // Clamp width to viewport so narrow screens don't get a horizontal scroll.
+  // If no rect (intro step), center it.
+  const tooltipStyle = (() => {
+    const vpW = (typeof window !== 'undefined' && window.innerWidth) || 1200;
+    const vpH = (typeof window !== 'undefined' && window.innerHeight) || 800;
+    const w = Math.min(360, vpW - 32);
+    if (!rect) {
+      return {
+        position: 'fixed', top: '50%', left: '50%',
+        transform: 'translate(-50%, -50%)', width: w,
+      };
+    }
+    const pad = 16;
+    let top = rect.y + rect.h + 12;
+    let left = rect.x;
+    if (top + 200 > vpH) top = Math.max(pad, rect.y - 200 - 12);
+    if (left + w + pad > vpW) left = Math.max(pad, vpW - w - pad);
+    if (left < pad) left = pad;
+    return { position: 'fixed', top, left, width: w };
+  })();
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 11000, pointerEvents: 'none' }}>
+      {/* Dim layers — 4 rects around the cutout, or one full overlay if no target */}
+      {rect ? (
+        <>
+          <div style={{ position: 'fixed', left: 0, top: 0, right: 0, height: rect.y, background: dim, pointerEvents: 'auto' }} onClick={onSkip}/>
+          <div style={{ position: 'fixed', left: 0, top: rect.y + rect.h, right: 0, bottom: 0, background: dim, pointerEvents: 'auto' }} onClick={onSkip}/>
+          <div style={{ position: 'fixed', left: 0, top: rect.y, width: rect.x, height: rect.h, background: dim, pointerEvents: 'auto' }} onClick={onSkip}/>
+          <div style={{ position: 'fixed', left: rect.x + rect.w, top: rect.y, right: 0, height: rect.h, background: dim, pointerEvents: 'auto' }} onClick={onSkip}/>
+          {/* Cutout outline */}
+          <div style={{
+            position: 'fixed', left: rect.x - 3, top: rect.y - 3,
+            width: rect.w + 6, height: rect.h + 6,
+            border: `2px solid ${T.cyan}`, borderRadius: 4,
+            boxShadow: `0 0 0 1px ${T.cyan}44, 0 0 22px ${T.cyan}66`,
+            pointerEvents: 'none',
+          }}/>
+        </>
+      ) : (
+        <div style={{ position: 'fixed', inset: 0, background: dim, pointerEvents: 'auto' }} onClick={onSkip}/>
+      )}
+
+      {/* Tooltip card */}
+      <div style={{
+        ...tooltipStyle, pointerEvents: 'auto',
+        background: T.surface, border: `1px solid ${T.cyan}`, borderRadius: 4,
+        boxShadow: '0 12px 40px rgba(0,0,0,0.55)', padding: '16px 18px',
+        fontFamily: T.fontSans,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <span style={{ fontSize: 10, color: T.cyan, fontFamily: T.font, letterSpacing: '0.12em', fontWeight: 700 }}>
+            {String(step + 1).padStart(2, '0')} / {String(total).padStart(2, '0')}
+          </span>
+          <button onClick={onSkip}
+            style={{ background: 'transparent', border: 0, color: T.inkFaint, fontSize: 11, fontFamily: T.font, letterSpacing: '0.08em', cursor: 'pointer', padding: '4px 8px', minHeight: 32 }}>
+            SKIP
+          </button>
+        </div>
+        <div style={{ fontSize: 14, color: T.ink, fontWeight: 700, marginBottom: 8 }}>{cfg.title}</div>
+        <div style={{ fontSize: 12, color: T.inkDim, lineHeight: 1.65, marginBottom: 14 }}>{cfg.body}</div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          {isLastStep ? (
+            <button autoFocus onClick={onDone}
+              style={{ background: T.cyan, border: `1px solid ${T.cyan}`, color: '#000',
+                fontFamily: T.font, fontSize: 11.5, fontWeight: 700, letterSpacing: '0.08em',
+                padding: '7px 16px', borderRadius: 3, cursor: 'pointer', minHeight: 36 }}>
+              마치기
+            </button>
+          ) : (
+            <button autoFocus onClick={onNext}
+              style={{ background: T.cyan, border: `1px solid ${T.cyan}`, color: '#000',
+                fontFamily: T.font, fontSize: 11.5, fontWeight: 700, letterSpacing: '0.08em',
+                padding: '7px 16px', borderRadius: 3, cursor: 'pointer', minHeight: 36 }}>
+              다음
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Beginner Mode card ───────────────────────────────────────────────────────
 // First-run/curious-visitor surface. Six sections in fixed order:
 //   1. 요약 (heading + one-line thesis + price chip)
@@ -4470,7 +4701,7 @@ function BeginnerModeCard({ stock, onSwitchToPro }) {
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 4, fontFamily: T.fontSans }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 8, fontFamily: T.fontSans }}>
       {/* 1. 요약 */}
       <div style={{ background: T.surface, border: `1px solid ${T.cyan}55`, padding: '16px 20px', borderRadius: 3 }}>
         {sectionTitle('01', '이 종목은 어떤 회사인가요?')}
@@ -4519,8 +4750,8 @@ function BeginnerModeCard({ stock, onSwitchToPro }) {
         </div>
       </div>
 
-      {/* 3. 강점 · 리스크 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 12 }}>
+      {/* 3. 강점 · 리스크 — stack on narrow screens */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
         <div style={{ background: T.surface, border: `1px solid ${T.green}40`, padding: '14px 18px', borderRadius: 3 }}>
           {sectionTitle('03', '강점', T.green)}
           {thesisList.length === 0 ? (
@@ -4584,8 +4815,8 @@ function BeginnerModeCard({ stock, onSwitchToPro }) {
       </div>
 
       {/* 6. Pro 진입 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', background: T.surface, border: `1px solid ${T.amber}55`, borderRadius: 3 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', background: T.surface, border: `1px solid ${T.amber}55`, borderRadius: 3, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 180 }}>
           <div style={{ fontSize: 12, color: T.ink, fontWeight: 600, marginBottom: 3 }}>더 자세히 보고 싶다면</div>
           <div style={{ fontSize: 11, color: T.inkFaint, lineHeight: 1.55 }}>
             Pro Terminal에서 F1–F12 전체 분석 도구 — SCORE BREAKDOWN, 재무 히스토리, 시나리오 밸류에이션, Pre-mortem, Decision Journal 등을 사용할 수 있습니다.
@@ -4594,7 +4825,7 @@ function BeginnerModeCard({ stock, onSwitchToPro }) {
         <button onClick={onSwitchToPro}
           style={{ background: 'transparent', border: `1px solid ${T.amber}`, color: T.amber,
             fontFamily: T.font, fontSize: 11, fontWeight: 700, padding: '8px 18px',
-            letterSpacing: '0.08em', cursor: 'pointer', borderRadius: 3, flex: '0 0 auto' }}>
+            letterSpacing: '0.08em', cursor: 'pointer', borderRadius: 3, flex: '0 0 auto', minHeight: 36 }}>
           PRO TERMINAL 열기
         </button>
       </div>
@@ -4645,6 +4876,51 @@ function App({ initialData }) {
   useEffect(() => {
     try { localStorage.setItem('tt-ui-mode-v1', uiMode); } catch { /* storage disabled */ }
   }, [uiMode]);
+
+  // First-run onboarding overlay. Show only for fresh visitors who landed in
+  // Beginner Mode and have not dismissed it before. Returning Pro users skip
+  // it entirely.
+  const [onboardingStep, setOnboardingStep] = useState(() => {
+    try {
+      if (localStorage.getItem(ONBOARDING_KEY)) return null;
+      const hasState = localStorage.getItem(TT_KEY);
+      if (hasState) return null;
+      return 0;
+    } catch { return null; }
+  });
+  const dismissOnboarding = () => {
+    try { localStorage.setItem(ONBOARDING_KEY, '1'); } catch { /* storage disabled */ }
+    setOnboardingStep(null);
+  };
+
+  // Landing screen — shown once to absolute first-time visitors. Existing
+  // users (anyone who has tt-terminal-v1 saved state OR has already entered
+  // the app once) skip it entirely.
+  const [showLanding, setShowLanding] = useState(() => {
+    try {
+      if (localStorage.getItem(LANDING_KEY)) return false;
+      if (localStorage.getItem(TT_KEY)) return false;
+      return true;
+    } catch { return false; }
+  });
+
+  // Guest/demo mode: true when the user entered via the demo CTA *or* already
+  // has saved local state. Bypasses the Supabase auth wall so local-only users
+  // can use the app without a forced login prompt. Login remains available from
+  // inside the app for cloud-sync features.
+  const [isGuestMode, setIsGuestMode] = useState(() => {
+    try {
+      return !!(localStorage.getItem(LANDING_KEY) || localStorage.getItem(TT_KEY));
+    } catch { return false; }
+  });
+
+  const [loginModalOpen, setLoginModalOpen] = useState(false);
+
+  const enterApp = () => {
+    try { localStorage.setItem(LANDING_KEY, '1'); } catch { /* storage disabled */ }
+    setShowLanding(false);
+    setIsGuestMode(true);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -5603,24 +5879,53 @@ function App({ initialData }) {
   }, [stocks, toast]);
 
   const handleLogout = useCallback(async () => {
-    await getSb().auth.signOut();
+    if (sbConfigured && getSb()) await getSb().auth.signOut();
     setSession(null);
     remoteLoadedRef.current = false;
-  }, []);
+    try { localStorage.removeItem(LANDING_KEY); } catch { /* ignore */ }
+    setShowLanding(true);
+  }, [sbConfigured]);
 
-  // ── Auth gates (placed after all hooks) ───────────────────────────────────
-  if (sbConfigured && authLoading) {
+  // ── Auth gates and landing (placed after all hooks) ─────────────────────
+  // Rendering order is critical:
+  //   1. BOOTING — wait for Supabase auth to resolve (skip for guests/local users)
+  //   2. LandingScreen — new non-auth visitors see this BEFORE any auth wall
+  //   3. Auth wall — only blocks users who have never entered the app locally
+  //
+  // isGuestMode is true for: (a) users who clicked the demo CTA, and
+  // (b) existing local-data users whose Supabase session may have expired.
+  // Both groups should reach the app without a forced login prompt.
+
+  if (sbConfigured && authLoading && !isGuestMode) {
     return (
       <div style={{ minHeight: '100dvh', background: T.bg, display: 'grid', placeItems: 'center', fontFamily: T.font, color: T.inkDim, fontSize: 12 }}>
         BOOTING...
       </div>
     );
   }
-  if (sbConfigured && !session) {
+
+  // Landing must come before the auth wall.
+  const shouldShowLanding = showLanding && !session && !(authLoading && sbConfigured);
+  if (shouldShowLanding) {
+    return <LandingScreen onEnter={enterApp}/>;
+  }
+
+  // Auth wall: only for Supabase-configured setups where the user has not yet
+  // entered the app locally (neither demo CTA nor saved local state).
+  if (sbConfigured && !session && !isGuestMode) {
     return <LoginScreen onSession={setSession}/>;
   }
 
-  if (!stock) return <div style={{ color: T.inkFaint, padding: 32 }}>종목 없음</div>;
+  if (!stock) return (
+    <div style={{ minHeight: '100dvh', background: T.bg, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, fontFamily: T.font, color: T.inkFaint, fontSize: 12 }}>
+      <span>종목 없음</span>
+      {session && (
+        <button onClick={handleLogout} style={{ background: 'none', border: `1px solid ${T.border}`, color: T.inkDim, fontFamily: T.font, fontSize: 11, letterSpacing: '0.06em', padding: '5px 14px', cursor: 'pointer' }}>
+          LOGOUT
+        </button>
+      )}
+    </div>
+  );
 
   // ── Panel content ──────────────────────────────────────────────────────────
   const panelContent = {
@@ -5710,6 +6015,7 @@ function App({ initialData }) {
         onExportBackup={handleExportBackup}
         onImportBackup={handleImportBackup}
         onReloadDartMap={() => loadLocalDartMap(true)}
+        onShowLanding={() => setShowLanding(true)}
       />
     ),
   };
@@ -5802,18 +6108,22 @@ function App({ initialData }) {
         onAlerts={() => setActivePanel('F6')}
         uiMode={uiMode}
         onUiModeChange={setUiMode}
+        userEmail={session?.user?.email}
+        onLogin={!session ? () => setLoginModalOpen(true) : undefined}
+        onLogout={session ? handleLogout : undefined}
       />
       <TickerRail tickers={marketTickers}/>
       <HeroStrip stock={stock} onRefresh={handleRefresh} refreshing={refreshing}/>
       <PitchHeadline text={stock.oneLine} onEdit={() => setPitchEditId(stock.id)}/>
       {stock.demo && (
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 10, padding: '6px 14px',
+          display: 'flex', alignItems: 'baseline', gap: 10, padding: '6px 14px',
           background: 'rgba(34,211,238,0.06)', borderBottom: `1px solid ${T.cyan}33`,
           fontFamily: T.fontSans, fontSize: 11, color: T.inkDim, flexShrink: 0,
+          flexWrap: 'wrap',
         }}>
-          <span style={{ color: T.cyan, fontWeight: 600, letterSpacing: '0.04em' }}>예시 데이터</span>
-          <span>이 종목의 지표·점수·시나리오는 ThesisTrack을 둘러보기 위한 예시이며 현재 시점의 실제 평가가 아닙니다. ADD SYMBOL로 본인 종목을 추가해보세요.</span>
+          <span style={{ color: T.cyan, fontWeight: 600, letterSpacing: '0.04em', flex: '0 0 auto' }}>예시 데이터</span>
+          <span style={{ flex: '1 1 240px', minWidth: 0, lineHeight: 1.5 }}>이 종목의 지표·점수·시나리오는 ThesisTrack을 둘러보기 위한 예시이며 현재 시점의 실제 평가가 아닙니다. ADD SYMBOL로 본인 종목을 추가해보세요.</span>
         </div>
       )}
 
@@ -5853,7 +6163,7 @@ function App({ initialData }) {
       {/* Main layout */}
       <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'minmax(200px, 220px) 1fr', gap: 0, overflow: 'hidden', minHeight: 0 }}>
         {/* Sidebar */}
-        <div style={{ borderRight: `1px solid ${T.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0, minWidth: 0 }}>
+        <div data-onboard="watchlist" style={{ borderRight: `1px solid ${T.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0, minWidth: 0 }}>
           <WatchlistPanel
             stocks={stocks} watchlistIds={watchlistIds} activeId={activeId}
             watchlists={watchlists} activeWatchlistId={activeWatchlistId}
@@ -5882,6 +6192,13 @@ function App({ initialData }) {
       />
 
       {/* Overlays */}
+      {loginModalOpen && !session && (
+        <div onClick={() => setLoginModalOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div onClick={e => e.stopPropagation()}>
+            <LoginScreen onSession={(sess) => { setSession(sess); setLoginModalOpen(false); }}/>
+          </div>
+        </div>
+      )}
       {searchMode && (
         <SearchOverlay apiSettings={apiSettings} dartCorpMap={dartCorpMap} stocks={stocks} onAdd={searchMode === 'watchlist' ? handleAddFromSearch : handleAddPeerFromSearch} onClose={() => setSearchMode(null)}/>
       )}
@@ -5896,6 +6213,16 @@ function App({ initialData }) {
       )}
 
       <ToastContainer toasts={toasts}/>
+
+      {onboardingStep !== null && (
+        <OnboardingOverlay
+          step={onboardingStep}
+          total={ONBOARDING_STEPS.length}
+          onNext={() => setOnboardingStep(s => Math.min((s ?? 0) + 1, ONBOARDING_STEPS.length - 1))}
+          onSkip={dismissOnboarding}
+          onDone={dismissOnboarding}
+        />
+      )}
     </div>
   );
 }
