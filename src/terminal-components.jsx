@@ -97,6 +97,7 @@ const fmtPx = (n, currency) => {
   const dp = currency === 'KRW' || currency === 'JPY' ? 0 : 2;
   return Number(n).toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
 };
+const currencySymbol = (currency) => currency === 'KRW' ? '₩' : currency === 'JPY' ? '¥' : '$';
 const sign = (n) => (n > 0 ? '+' : n < 0 ? '' : '');
 const colorForChange = (n) => (n > 0 ? T.green : n < 0 ? T.red : T.inkDim);
 const safeFixed = (v, d = 1) => Number.isFinite(Number(v)) ? Number(v).toFixed(d) : '–';
@@ -842,7 +843,7 @@ const HeroStrip = ({ stock, onRefresh, refreshing }) => {
       <div style={{ paddingLeft: 18, paddingRight: 18, borderRight: `1px solid ${T.borderSoft}` }}>
         <Stat
           label="Last Price"
-          value={stock.currency === 'KRW' ? `₩${fmtPx(price, 'KRW')}` : `$${fmtPx(price, stock.currency)}`}
+          value={`${currencySymbol(stock.currency)}${fmtPx(price, stock.currency)}`}
           sub={<span style={{ color: colorForChange(change) }}>
             {sign(change)}{Number.isFinite(change) ? fmtPx(Math.abs(change), stock.currency) : '–'} ({sign(changePct)}{changePct.toFixed(2)}%)
           </span>}
@@ -851,7 +852,7 @@ const HeroStrip = ({ stock, onRefresh, refreshing }) => {
       <div style={{ paddingLeft: 18, paddingRight: 18, borderRight: `1px solid ${T.borderSoft}` }}>
         <Stat
           label="Target · Upside"
-          value={stock.currency === 'KRW' ? `₩${fmtPx(target, 'KRW')}` : `$${fmtPx(target, stock.currency)}`}
+          value={`${currencySymbol(stock.currency)}${fmtPx(target, stock.currency)}`}
           sub={<span style={{ color: colorForChange(upside) }}>{sign(upside)}{upside.toFixed(2)}%</span>}
         />
       </div>
@@ -860,11 +861,11 @@ const HeroStrip = ({ stock, onRefresh, refreshing }) => {
           Bull · Base · Bear
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontVariantNumeric: 'tabular-nums' }}>
-          <span style={{ color: T.green, fontSize: 14, fontWeight: 700 }}>{fmtPx(stock.valuation?.bull?.price ?? 0, stock.currency)}</span>
+          <span style={{ color: T.green, fontSize: 14, fontWeight: 700 }}>{currencySymbol(stock.currency)}{fmtPx(stock.valuation?.bull?.price ?? 0, stock.currency)}</span>
           <span style={{ color: T.inkFaint }}>·</span>
-          <span style={{ color: T.amber, fontSize: 14, fontWeight: 700 }}>{fmtPx(stock.valuation?.base?.price ?? 0, stock.currency)}</span>
+          <span style={{ color: T.amber, fontSize: 14, fontWeight: 700 }}>{currencySymbol(stock.currency)}{fmtPx(stock.valuation?.base?.price ?? 0, stock.currency)}</span>
           <span style={{ color: T.inkFaint }}>·</span>
-          <span style={{ color: T.red, fontSize: 14, fontWeight: 700 }}>{fmtPx(stock.valuation?.bear?.price ?? 0, stock.currency)}</span>
+          <span style={{ color: T.red, fontSize: 14, fontWeight: 700 }}>{currencySymbol(stock.currency)}{fmtPx(stock.valuation?.bear?.price ?? 0, stock.currency)}</span>
         </div>
         <div style={{ fontSize: 10, color: T.inkDim, marginTop: 4 }}>
           PER {stock.valuation?.base?.multiple ?? '?'}x · base
@@ -1087,6 +1088,7 @@ window.HeroStrip = HeroStrip;
 window.PitchHeadline = PitchHeadline;
 window.fmtNum = fmtNum;
 window.fmtPx = fmtPx;
+window.currencySymbol = currencySymbol;
 window.sign = sign;
 window.colorForChange = colorForChange;
 window.safeFixed = safeFixed;

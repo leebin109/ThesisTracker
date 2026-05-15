@@ -1,7 +1,7 @@
 /* global React, ReactDOM */
 /* global T, Cell, Stat, ScoreRing, ScoreBar, Spark, PriceChart, CommandBar, TickerRail, HeroStrip, PitchHeadline */
 /* global PolicyNotice, PolicyCtaButton, PriceRequiredState, PersonalOnlyState, CommercialSourceNeededState, LimitedMetricsState, NoSafeDataState, SecFallbackState, DataCoverageState */
-/* global fmtNum, fmtPx, sign, colorForChange, safeFixed, kbdStyle */
+/* global fmtNum, fmtPx, currencySymbol, sign, colorForChange, safeFixed, kbdStyle */
 /* global TT_KEY, DEFAULT_STOCKS, DEFAULT_WATCHLIST_IDS, DEFAULT_API_SETTINGS, DEFAULT_DART_CORP_MAP, DEFAULT_MARKET_TICKERS */
 /* global DEFAULT_ALERT_SETTINGS, ALERT_RETENTION_DAYS */
 /* global loadAppState, saveAppState, computeScores, computeQuantScores, applyQuantScores, computeDynamicQuality, getDaysLeft */
@@ -643,7 +643,7 @@ function WatchlistPanel({ stocks, watchlistIds, activeId, watchlists, activeWatc
                     }}>예시</span>
                   )}
                   <span style={{ fontSize: 10.5, color: T.inkDim, fontVariantNumeric: 'tabular-nums' }}>
-                    {s.currency === 'KRW' ? `₩${fmtPx(s.price, 'KRW')}` : `$${fmtPx(s.price, s.currency)}`}
+                    {`${currencySymbol(s.currency)}${fmtPx(s.price, s.currency)}`}
                   </span>
                 </span>
                 <span style={{ fontSize: 10, color: colorForChange(change), fontVariantNumeric: 'tabular-nums', flex: '0 0 auto' }}>
@@ -2333,7 +2333,7 @@ function ValuationPanel({ stock, onEdit }) {
   const cur = Number(stock.price) || 0;
   const currency = stock.currency;
   const isKrw = currency === 'KRW';
-  const px = (v) => isKrw ? `₩${fmtPx(v ?? 0, 'KRW')}` : `$${fmtPx(v ?? 0, currency)}`;
+  const px = (v) => `${currencySymbol(currency)}${fmtPx(v ?? 0, currency)}`;
 
   const scenarios = [
     { label: 'BEAR', data: bear, color: T.red },
@@ -2624,7 +2624,7 @@ function ScenarioSim({ stock }) {
   const cur = Number(stock.price) || 0;
   const upside = cur ? ((simPrice - cur) / cur) * 100 : 0;
   const isKrw = stock.currency === 'KRW';
-  const px = (v) => isKrw ? `₩${fmtPx(v, 'KRW')}` : `$${fmtPx(v, stock.currency)}`;
+  const px = (v) => `${currencySymbol(stock.currency)}${fmtPx(v, stock.currency)}`;
 
   return (
     <Cell label="SCENARIO SIMULATOR" accent={T.yellow} style={{ height: '100%' }}>
@@ -4697,7 +4697,7 @@ function BeginnerModeCard({ stock, onSwitchToPro }) {
   const gradeLabel = { A: '공시 원문 (A)', B: '검증 API (B)', C: '간접 계산 (C)', D: '결측·불명확 (D)' };
 
   const isKrw = stock.currency === 'KRW';
-  const priceStr = stock.price ? (isKrw ? `₩${fmtPx(stock.price, 'KRW')}` : `$${fmtPx(stock.price, stock.currency)}`) : '–';
+  const priceStr = stock.price ? `${currencySymbol(stock.currency)}${fmtPx(stock.price, stock.currency)}` : '–';
   const change = (stock.price || 0) - (stock.prevClose || 0);
   const changePct = stock.prevClose ? (change / stock.prevClose) * 100 : 0;
 
