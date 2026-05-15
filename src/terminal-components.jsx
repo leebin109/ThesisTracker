@@ -745,7 +745,7 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
         {refreshing
           ? <span style={{ color: T.amber }}>⟳</span>
           : <Pulse />}
-        <span>{refreshing ? 'FETCHING' : 'LIVE'} · {new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} KST</span>
+        <span className="tt-clock">{refreshing ? 'FETCHING' : 'LIVE'} · {new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} KST</span>
       </div>
       <style>{`
         @keyframes tt-pulse { 0% { transform: scale(1); opacity: 0.7; } 100% { transform: scale(2.5); opacity: 0; } }
@@ -753,6 +753,7 @@ const CommandBar = ({ symbol, onSymbol, onSearch, onSettings, refreshing, provid
         button:not(:disabled):hover { filter: brightness(1.15); }
         :focus-visible { outline: 2px solid #FF9500; outline-offset: 2px; border-radius: 2px; }
         input:focus-visible { outline: 2px solid #FF950066; outline-offset: 0; }
+        @media (max-width: 680px) { .tt-clock { display: none; } }
       `}</style>
     </div>
   );

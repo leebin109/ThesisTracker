@@ -4423,7 +4423,7 @@ class AppErrorBoundary extends React.Component {
 // tt-entered-v1 and the user lands in Beginner Mode where the onboarding
 // overlay (below) walks them through the UI.
 const LANDING_KEY = 'tt-entered-v1';
-function LandingScreen({ onEnter }) {
+function LandingScreen({ onEnter, onLogin }) {
   const features = [
     { tag: 'Thesis',     title: '논거를 쓴다',       body: 'Key Question · Catalyst · Risk · Change Mind If — 매수 이유를 글로 남깁니다.' },
     { tag: 'Provenance', title: '출처를 확인한다',   body: '모든 지표에 A/B/C/D 신뢰도. 이 PER이 어디서 왔는지 한 클릭에 확인됩니다.' },
@@ -4476,17 +4476,28 @@ function LandingScreen({ onEnter }) {
           ))}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginTop: 8 }}>
-          <button onClick={onEnter} autoFocus style={{
-            background: T.amber, border: `1px solid ${T.amber}`, color: '#000',
-            fontFamily: T.font, fontSize: 13, fontWeight: 800, letterSpacing: '0.1em',
-            padding: '12px 32px', borderRadius: 3, cursor: 'pointer',
-            boxShadow: `0 0 28px ${T.amber}55`, minHeight: 44,
-          }}>
-            예시 데이터로 둘러보기
-          </button>
-          <div style={{ fontSize: 11, color: T.inkFaint, lineHeight: 1.5, maxWidth: 460 }}>
-            가입 없이 바로 사용 가능 · 모든 데이터는 본인 기기 안에 저장됩니다.
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, marginTop: 8 }}>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button onClick={onEnter} autoFocus style={{
+              background: T.amber, border: `1px solid ${T.amber}`, color: '#000',
+              fontFamily: T.font, fontSize: 13, fontWeight: 800, letterSpacing: '0.1em',
+              padding: '12px 32px', borderRadius: 3, cursor: 'pointer',
+              boxShadow: `0 0 28px ${T.amber}55`, minHeight: 44,
+            }}>
+              예시 데이터로 둘러보기
+            </button>
+            {onLogin && (
+              <button onClick={onLogin} style={{
+                background: 'transparent', border: `1px solid ${T.border}`, color: T.ink,
+                fontFamily: T.font, fontSize: 13, fontWeight: 600, letterSpacing: '0.06em',
+                padding: '12px 28px', borderRadius: 3, cursor: 'pointer', minHeight: 44,
+              }}>
+                로그인 / 회원가입
+              </button>
+            )}
+          </div>
+          <div style={{ fontSize: 11, color: T.inkFaint, lineHeight: 1.5, maxWidth: 460, textAlign: 'center' }}>
+            둘러보기는 가입 없이 바로 사용 가능 · 모든 데이터는 본인 기기 안에 저장됩니다.
           </div>
         </div>
       </main>
@@ -4618,7 +4629,7 @@ function OnboardingOverlay({ step, total, onNext, onSkip, onDone }) {
             {String(step + 1).padStart(2, '0')} / {String(total).padStart(2, '0')}
           </span>
           <button onClick={onSkip}
-            style={{ background: 'transparent', border: 0, color: T.inkFaint, fontSize: 11, fontFamily: T.font, letterSpacing: '0.08em', cursor: 'pointer', padding: '4px 8px', minHeight: 32 }}>
+            style={{ background: 'transparent', border: 0, color: T.inkFaint, fontSize: 11, fontFamily: T.font, letterSpacing: '0.08em', cursor: 'pointer', padding: '4px 8px', minHeight: 36 }}>
             SKIP
           </button>
         </div>
@@ -4629,14 +4640,14 @@ function OnboardingOverlay({ step, total, onNext, onSkip, onDone }) {
             <button autoFocus onClick={onDone}
               style={{ background: T.cyan, border: `1px solid ${T.cyan}`, color: '#000',
                 fontFamily: T.font, fontSize: 11.5, fontWeight: 700, letterSpacing: '0.08em',
-                padding: '7px 16px', borderRadius: 3, cursor: 'pointer', minHeight: 36 }}>
+                padding: '7px 16px', borderRadius: 3, cursor: 'pointer', minHeight: 44 }}>
               마치기
             </button>
           ) : (
             <button autoFocus onClick={onNext}
               style={{ background: T.cyan, border: `1px solid ${T.cyan}`, color: '#000',
                 fontFamily: T.font, fontSize: 11.5, fontWeight: 700, letterSpacing: '0.08em',
-                padding: '7px 16px', borderRadius: 3, cursor: 'pointer', minHeight: 36 }}>
+                padding: '7px 16px', borderRadius: 3, cursor: 'pointer', minHeight: 44 }}>
               다음
             </button>
           )}
@@ -4825,7 +4836,7 @@ function BeginnerModeCard({ stock, onSwitchToPro }) {
         <button onClick={onSwitchToPro}
           style={{ background: 'transparent', border: `1px solid ${T.amber}`, color: T.amber,
             fontFamily: T.font, fontSize: 11, fontWeight: 700, padding: '8px 18px',
-            letterSpacing: '0.08em', cursor: 'pointer', borderRadius: 3, flex: '0 0 auto', minHeight: 36 }}>
+            letterSpacing: '0.08em', cursor: 'pointer', borderRadius: 3, flex: '0 0 auto', minHeight: 44 }}>
           PRO TERMINAL 열기
         </button>
       </div>
@@ -5904,10 +5915,24 @@ function App({ initialData }) {
     );
   }
 
+  // Login modal — computed before early returns so it overlays LandingScreen too.
+  const loginModalOverlay = loginModalOpen && !session && (
+    <div onClick={() => setLoginModalOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div onClick={e => e.stopPropagation()}>
+        <LoginScreen onSession={(sess) => { setSession(sess); setLoginModalOpen(false); }}/>
+      </div>
+    </div>
+  );
+
   // Landing must come before the auth wall.
   const shouldShowLanding = showLanding && !session && !(authLoading && sbConfigured);
   if (shouldShowLanding) {
-    return <LandingScreen onEnter={enterApp}/>;
+    return (
+      <>
+        <LandingScreen onEnter={enterApp} onLogin={() => setLoginModalOpen(true)}/>
+        {loginModalOverlay}
+      </>
+    );
   }
 
   // Auth wall: only for Supabase-configured setups where the user has not yet
@@ -6079,7 +6104,7 @@ function App({ initialData }) {
                 onClick={() => resolveConfirm(false)}
                 style={{ background: 'transparent', border: `1px solid ${T.border}`, color: T.inkDim,
                   fontFamily: T.font, fontSize: 11.5, letterSpacing: '0.08em',
-                  padding: '7px 16px', minHeight: 30, borderRadius: 3, cursor: 'pointer' }}>
+                  padding: '7px 16px', minHeight: 36, borderRadius: 3, cursor: 'pointer' }}>
                 {confirmDialog.cancelLabel || 'CANCEL'}
               </button>
               <button
@@ -6087,7 +6112,7 @@ function App({ initialData }) {
                 onClick={() => resolveConfirm(true)}
                 style={{ background: confirmDialog.tone === 'danger' ? T.red : T.amber, border: `1px solid ${confirmDialog.tone === 'danger' ? T.red : T.amber}`, color: '#000',
                   fontFamily: T.font, fontSize: 11.5, fontWeight: 700, letterSpacing: '0.08em',
-                  padding: '7px 16px', minHeight: 30, borderRadius: 3, cursor: 'pointer' }}>
+                  padding: '7px 16px', minHeight: 36, borderRadius: 3, cursor: 'pointer' }}>
                 {confirmDialog.confirmLabel || 'CONFIRM'}
               </button>
             </div>
@@ -6192,13 +6217,7 @@ function App({ initialData }) {
       />
 
       {/* Overlays */}
-      {loginModalOpen && !session && (
-        <div onClick={() => setLoginModalOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div onClick={e => e.stopPropagation()}>
-            <LoginScreen onSession={(sess) => { setSession(sess); setLoginModalOpen(false); }}/>
-          </div>
-        </div>
-      )}
+      {loginModalOverlay}
       {searchMode && (
         <SearchOverlay apiSettings={apiSettings} dartCorpMap={dartCorpMap} stocks={stocks} onAdd={searchMode === 'watchlist' ? handleAddFromSearch : handleAddPeerFromSearch} onClose={() => setSearchMode(null)}/>
       )}
