@@ -120,6 +120,7 @@ function makeBlankStock(patch = {}) {
     insiderTrades: [],
     userPrice: null,
     userPriceAsOf: null,
+    demo: false,
     ...patch,
   };
 }
@@ -162,6 +163,7 @@ function normalizeStockRecord(stock, fallbackId = '') {
   const rawUserPrice = Number(stock?.userPrice);
   next.userPrice = Number.isFinite(rawUserPrice) && rawUserPrice > 0 ? rawUserPrice : null;
   next.userPriceAsOf = (typeof stock?.userPriceAsOf === 'string' && stock.userPriceAsOf) ? stock.userPriceAsOf : null;
+  next.demo = stock?.demo === true;
   return next;
 }
 
@@ -634,6 +636,12 @@ function WatchlistPanel({ stocks, watchlistIds, activeId, watchlists, activeWatc
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
                   <span style={{ fontSize: 10.5, color: T.inkFaint, letterSpacing: '0.06em', flex: '0 0 auto' }}>{s.symbol}</span>
+                  {s.demo && (
+                    <span title="예시 데이터입니다. 실제 시점의 평가가 아닙니다." style={{
+                      fontSize: 8.5, color: T.cyan, border: `1px solid ${T.cyan}55`, padding: '0px 4px',
+                      letterSpacing: '0.06em', fontFamily: T.fontSans, flex: '0 0 auto', lineHeight: 1.4,
+                    }}>예시</span>
+                  )}
                   <span style={{ fontSize: 10.5, color: T.inkDim, fontVariantNumeric: 'tabular-nums' }}>
                     {s.currency === 'KRW' ? `₩${fmtPx(s.price, 'KRW')}` : `$${fmtPx(s.price, s.currency)}`}
                   </span>
@@ -5594,6 +5602,16 @@ function App({ initialData }) {
       <TickerRail tickers={marketTickers}/>
       <HeroStrip stock={stock} onRefresh={handleRefresh} refreshing={refreshing}/>
       <PitchHeadline text={stock.oneLine} onEdit={() => setPitchEditId(stock.id)}/>
+      {stock.demo && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, padding: '6px 14px',
+          background: 'rgba(34,211,238,0.06)', borderBottom: `1px solid ${T.cyan}33`,
+          fontFamily: T.fontSans, fontSize: 11, color: T.inkDim, flexShrink: 0,
+        }}>
+          <span style={{ color: T.cyan, fontWeight: 600, letterSpacing: '0.04em' }}>예시 데이터</span>
+          <span>이 종목의 지표·점수·시나리오는 ThesisTrack을 둘러보기 위한 예시이며 현재 시점의 실제 평가가 아닙니다. ADD SYMBOL로 본인 종목을 추가해보세요.</span>
+        </div>
+      )}
 
       {/* Panel selector tabs */}
       <div style={{ display: 'flex', alignItems: 'center', background: T.surface, borderBottom: `1px solid ${T.border}`, height: 40, flexShrink: 0 }}>

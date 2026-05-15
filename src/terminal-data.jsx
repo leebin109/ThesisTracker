@@ -549,6 +549,7 @@ const DEFAULT_STOCKS = {
   TSLA: {
     id: 'TSLA', symbol: 'TSLA', name: 'Tesla, Inc.', market: 'NASDAQ',
     currency: 'USD', flag: '🇺🇸', country: '미국',
+    demo: true,
     recommendation: 'Watch',
     oneLine: '전기차 마진보다 자율주행과 에너지 사업의 실제 확인이 핵심이다.',
     keyQuestion: 'FSD와 에너지 저장장치가 자동차 마진 둔화를 상쇄할 수 있는가?',
@@ -584,6 +585,7 @@ const DEFAULT_STOCKS = {
   AAPL: {
     id: 'AAPL', symbol: 'AAPL', name: 'Apple Inc.', market: 'NASDAQ',
     currency: 'USD', flag: '🇺🇸', country: '미국',
+    demo: true,
     recommendation: 'Hold',
     oneLine: '서비스 매출과 자사주 매입이 받쳐주지만, 신규 성장 동력이 약하다.',
     keyQuestion: 'AI 기능과 Vision Pro가 iPhone 매출 정체를 보완할 수 있는가?',
@@ -617,6 +619,7 @@ const DEFAULT_STOCKS = {
   NVDA: {
     id: 'NVDA', symbol: 'NVDA', name: 'NVIDIA Corporation', market: 'NASDAQ',
     currency: 'USD', flag: '🇺🇸', country: '미국',
+    demo: true,
     recommendation: 'Buy',
     oneLine: 'AI 인프라 투자 사이클의 정점, 그러나 경쟁사 대안 등장이 가까워졌다.',
     keyQuestion: 'CUDA moat가 ASIC/맞춤형 칩 등장 후에도 유지되는가?',
@@ -650,6 +653,7 @@ const DEFAULT_STOCKS = {
   '005930': {
     id: '005930', symbol: '005930', name: '삼성전자', market: 'KRX',
     currency: 'KRW', flag: '🇰🇷', country: '대한민국',
+    demo: true,
     recommendation: 'Buy',
     oneLine: 'HBM 사이클과 비메모리 마진 회복이 동시에 일어나는 변곡점이다.',
     keyQuestion: 'HBM3E 양산 수율과 파운드리 고객사 확보가 동시에 진행되는가?',
